@@ -1,0 +1,36 @@
+{
+  "id": "github-dimmed",
+  "name": "GitHub Dark Dimmed",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1c2128",
+    "panel": "#22272e",
+    "raised": "#2d333b",
+    "ink": "#adbac7",
+    "muted": "#848f9b",
+    "faint": "#66717e",
+    "line": "#444c56",
+    "accent": "#539bf5",
+    "amber": "#c69026",
+    "green": "#57ab5a",
+    "red": "#e5534b"
+  },
+  "ansi": [
+    "#545d68",
+    "#f47067",
+    "#57ab5a",
+    "#c69026",
+    "#539bf5",
+    "#b083f0",
+    "#39c5cf",
+    "#909dab",
+    "#636e7b",
+    "#ff938a",
+    "#6bc46d",
+    "#daaa3f",
+    "#6cb6ff",
+    "#dcbdfb",
+    "#56d4dd",
+    "#cdd9e5"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "tailscale",
+  "name": "Tailscale",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Reach cockpit from your other devices over your tailnet. Run `tailscale serve --bg --https=8444 http://127.0.0.1:8770` on this machine, and only the Tailscale login below gets in.",
+  "author": "cockpit",
+  "defaultOn": false,
+  "settings": [
+    { "key": "login", "label": "Allowed Tailscale login", "type": "text", "help": "The email you sign in to Tailscale with. Other people on the tailnet get a 401" }
+  ],
+  "requires": [
+    {
+      "id": "tailscale",
+      "name": "Tailscale",
+      "check": ["tailscale", "version"],
+      "auth": ["tailscale", "status"],
+      "install": { "linux": "see https://tailscale.com/download/linux", "darwin": "see https://tailscale.com/download/mac" },
+      "docs": "https://tailscale.com/kb/1312/serve"
+    }
+  ]
+}

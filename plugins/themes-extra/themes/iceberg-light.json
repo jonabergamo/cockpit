@@ -1,0 +1,36 @@
+{
+  "id": "iceberg-light",
+  "name": "Iceberg Light",
+  "scheme": "light",
+  "ui": {
+    "ground": "#dcdfe7",
+    "panel": "#e8e9ec",
+    "raised": "#f4f5f7",
+    "ink": "#33374c",
+    "muted": "#5b5f73",
+    "faint": "#7e849c",
+    "line": "#cad0de",
+    "accent": "#2d539e",
+    "amber": "#c17138",
+    "green": "#668e3d",
+    "red": "#cc517a"
+  },
+  "ansi": [
+    "#dcdfe7",
+    "#cc517a",
+    "#668e3d",
+    "#c57339",
+    "#2d539e",
+    "#7759b4",
+    "#3f83a6",
+    "#33374c",
+    "#8389a3",
+    "#cc3768",
+    "#598030",
+    "#b6662d",
+    "#22478e",
+    "#6845ad",
+    "#327698",
+    "#262a3f"
+  ]
+}

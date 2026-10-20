@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#151a22" />
+    <title>cockpit</title>
+    <script>
+      // paint the saved theme before anything loads, so there's no flash of the default colours
+      try {
+        var saved = JSON.parse(localStorage.getItem("theme-vars"));
+        if (saved) {
+          var root = document.documentElement;
+          for (var k in saved.vars) root.style.setProperty(k, saved.vars[k]);
+          root.style.colorScheme = saved.scheme;
+          root.dataset.theme = saved.id;
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

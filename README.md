@@ -1,0 +1,253 @@
+<div align="center">
+
+<img src="logos/export/icon.svg" width="96" alt="cockpit logo">
+
+# cockpit
+
+**A self-hosted dashboard for Claude Code**
+
+Live sessions, browser terminals, worktrees, git and your tracker in one place
+
+Open source • Self-hosted • Extensible with plugins
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node 22](https://img.shields.io/badge/node-22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#installation)
+[![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757)](https://docs.anthropic.com/en/docs/claude-code)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+[Features](#features) • [Installation](#installation) • [Plugins](#plugins) • [How it works](#how-it-works) • [Contributing](#contributing)
+
+<img src="docs/tour.webp" width="900" alt="A short tour of cockpit: Today, a live session, tickets, a terminal with its git history, and the sprint report">
+
+</div>
+
+---
+
+## Contents
+
+- [Introduction](#introduction)
+- [Why cockpit?](#why-cockpit)
+- [Features](#features)
+- [Installation](#installation)
+- [Features in action](#features-in-action)
+- [Plugins](#plugins)
+- [How it works](#how-it-works)
+- [Security](#security)
+- [For developers](#for-developers)
+- [Limitations](#limitations)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgements](#acknowledgements)
+
+## Introduction
+
+Cockpit runs on the machine where you use Claude Code and puts your work in a browser tab. You can watch every Claude session as it runs, open terminals in the browser that survive a reload, and see each ticket next to its worktree, branch, pull request and sessions.
+
+It reads the files Claude Code already writes in `~/.claude`, so you don't have to change how you work. Jira, GitHub and Tailscale come as plugins that you can turn off, replace with your own, or add to.
+
+## Why cockpit?
+
+Claude Code is good at running several jobs at once, and that's when it gets hard to keep track:
+
+- Sessions run in five terminals and you forget which one is waiting for you.
+- Worktrees pile up and you can't tell which ones are safe to delete.
+- The ticket, the branch, the PR, its checks and the Claude session that did the work all live in different places.
+- The dollar figure Claude Code reports is a real bill on an API key but only a comparison on a Pro or Max plan, and nothing tells you which.
+
+Cockpit puts all of that behind one port. It's a server you run yourself, and nothing leaves your machine.
+
+## Features
+
+- **Live sessions.** A strip of every running Claude session that sweeps while Claude works and turns amber when it's waiting. You get a notification when one needs you, and the tab title shows the count.
+- **Transcripts.** Any session in full, with tool calls, subagents and cost, updating as it runs. Full-text search covers everything said in every session.
+- **Browser terminals.** They run in tmux, so they survive a page reload or a server restart. You get split shells next to Claude, search, copy on select and clickable links, and you can paste or drop images straight into Claude.
+- **Git next to the terminal.** The changes in the terminal's repo and its commit history with a branch graph. A commit opens to its files, and a file opens to its diff.
+- **Worktrees.** Each worktree's size on disk, dirty files and ahead/behind, plus a cleaner that finds the ones whose work has shipped.
+- **Code.** A file tree, the Monaco editor, a diff against HEAD, git grep, and stage, commit and push.
+- **Tickets and sprints.** A board from your tracker. A ticket opens a drawer with its worktree, PR, CI state, sessions and comments, and you can start Claude on it from there.
+- **Sprint report.** A burnup of released points, the time each ticket spent in each status, Claude cost per ticket and a day-by-day log, plus a daily update you can polish with Claude.
+- **PR reviews.** Start a Claude review of a pull request, or let Claude fix failed checks and answer review comments.
+- **Memory and skills.** An editor for CLAUDE.md, memories, skills, plans, settings and saved workflows. Every save keeps a backup you can diff and restore.
+- **Usage.** The 5-hour and weekly plan limits, tokens by model and a heatmap of when you use Claude. Cockpit works out from your Claude login whether the dollars are a real bill and labels them "API value" when they aren't. You can also hide them.
+- **Themes and fonts.** 26 themes from well-known editor palettes, with 34 more in a plugin. Auto follows the system's light or dark mode. Any font installed on your device can be used for the interface and for code.
+- **Plugins.** They add screens, themes, API routes, event listeners and Claude Code skills, or replace the tracker, the code host or the way in from other devices.
+- **Setup in the app.** Settings → Setup checks every tool, login, token and skill that cockpit and your plugins need. It installs what it safely can and opens a terminal for logins.
+- **Everywhere else.** A command palette on ⌘K, `g` shortcuts for every page, a phone layout, and an optional desktop app with a menu bar count.
+
+## Installation
+
+### Requirements
+
+- Linux or macOS
+- [Node.js 22](https://nodejs.org) and [pnpm](https://pnpm.io)
+- [git](https://git-scm.com) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [tmux](https://github.com/tmux/tmux). It's optional, but without it terminals don't survive a restart.
+- The CLIs of the plugins you turn on: [`gh`](https://cli.github.com) for GitHub and [`acli`](https://developer.atlassian.com/cloud/acli/) for Jira
+
+You don't need all of it before you start. Once cockpit is running, Settings → Setup shows what's missing.
+
+### Quick start
+
+Clone this repository, then:
+
+```sh
+pnpm install
+cp config.example.toml config.local.toml   # point repo.path at your main repo
+pnpm build
+pnpm start                                 # http://127.0.0.1:8770
+```
+
+Then, in Settings:
+
+1. **Setup**: install or log in to anything that's missing.
+2. **Plugins**: turn on Jira or GitHub and fill in the board or repo.
+3. **Screens**: hide anything you don't use.
+
+To look around with made-up data first, run `COCKPIT_DEMO=1 COCKPIT_CONFIG=config.example.toml pnpm start`.
+
+### Keep it running (Linux)
+
+```sh
+cp deploy/cockpit.service ~/.config/systemd/user/
+# check the paths and PATH in the file, then:
+systemctl --user enable --now cockpit
+```
+
+### Open it from other devices
+
+Out of the box cockpit only answers the machine it runs on. To use it from a laptop or a phone, turn on an access plugin. The bundled Tailscale plugin lets one Tailscale login in through `tailscale serve`:
+
+```sh
+tailscale serve --bg --https=8444 http://127.0.0.1:8770
+```
+
+Then turn on Tailscale in Settings → Plugins and enter your login. For a VPN, a reverse proxy with its own sign-in, or anything else, you can write an access plugin (see [plugins/PLUGINS.md](plugins/PLUGINS.md)).
+
+### Desktop app (optional)
+
+A small Electron wrapper for the computer in front of you, while the server stays on your dev box. It adds a menu bar item showing how many sessions are working and waiting, a waiting count on the dock icon, and ⌘⇧K to open it from anywhere.
+
+```sh
+./desktop/install.sh https://your-server.example.com:8444
+```
+
+On macOS it builds `~/Applications/cockpit.app`. On Linux it adds cockpit to the app menu.
+
+## Features in action
+
+### Today
+
+What's in flight, what needs you, your open PRs and your day on a timeline.
+
+<img src="docs/today.webp" alt="Today page with tickets in flight, sessions waiting for you and a timeline of the day">
+
+### Sessions
+
+Any Claude session, live, with its tool calls, subagents and cost.
+
+<img src="docs/session.webp" alt="A Claude session transcript with tool calls">
+
+### Terminals and git
+
+Claude and your shells side by side, with the repo's changes and history next to them. Click a commit to see its files, and a file to see its diff.
+
+<img src="docs/terminals.webp" alt="A browser terminal with the changes and commit history panel">
+
+### Sprint report
+
+Points released over the sprint, how long each ticket spent in each status, and what Claude cost per ticket.
+
+<img src="docs/report.webp" alt="Sprint report with a burnup chart and status lanes">
+
+### Usage
+
+Plan limits, tokens by model and when you use Claude.
+
+<img src="docs/usage.webp" alt="Usage page with plan limits and a heatmap">
+
+### Settings
+
+Setup, costs, fonts, screens and plugins, all in the app.
+
+<img src="docs/settings.webp" alt="Settings page with the setup checklist">
+
+## Plugins
+
+A plugin is a folder with a `plugin.json`, plus an optional `server.ts`, themes, assets and skills. Cockpit reloads a plugin when its files change, and a broken plugin shows its error without taking the rest of the app down.
+
+| Plugin | What it does |
+| --- | --- |
+| **Jira** | Tickets, sprints and epics through Atlassian's `acli`. Feeds Tickets, the Sprint report, Today and the worktree cleaner. |
+| **GitHub** | Your PRs, their checks and the review queue through `gh`. Feeds PR badges, PR reviews and fixing failed checks. |
+| **Tailscale** | Lets one Tailscale login in from other devices. |
+| **Extra themes** | 34 more themes, as JSON files with no code. |
+| **Example** | A small plugin to copy from: one screen, two routes, a setting and a listener. |
+
+Your own plugins go in `data/plugins`, or in `pluginsDir` if you set it in the config. A plugin of yours with the same id as a bundled one replaces it. That way you can turn Jira into Linear, GitHub into GitLab, or add a screen only your team needs.
+
+[plugins/PLUGINS.md](plugins/PLUGINS.md) covers the whole API. It's written for people and for Claude, and the bundled `cockpit-plugins` skill points Claude at it, so you can ask Claude to write a plugin for you.
+
+## How it works
+
+```mermaid
+flowchart LR
+  B[Browser or desktop app] <-->|HTTP and WebSocket| S[cockpit server<br/>Hono on Node]
+  S -->|tails transcripts| C[~/.claude]
+  S -->|node-pty| T[tmux<br/>claude and shells]
+  S --> G[git worktrees]
+  S --> D[(SQLite<br/>index and settings)]
+  S --> P[plugins]
+  P --> J[acli: Jira]
+  P --> H[gh: GitHub]
+  P --> X[your own]
+```
+
+- The server reads Claude Code's session registry to know what's running. It tails each JSONL transcript by byte offset, so following a 250 MB transcript costs almost nothing. A SQLite index keeps the title, branch and cost of every session.
+- Terminals live in their own tmux server, so restarting cockpit only drops the browser's connection and the terminal keeps running.
+- Trackers and code hosts are providers that plugins register. Core pages ask whichever one is active, and leave out their ticket or PR parts when there isn't one.
+- The Jira CLI doesn't give status history, so cockpit takes an hourly snapshot of the sprint and records every change itself. The burnup and the status lanes come from those changes.
+
+## Security
+
+Anyone who can reach cockpit gets a terminal on your machine, so treat access to it like SSH access. It listens on `127.0.0.1` and only answers direct requests from that machine. A request from anywhere else, or through a proxy, gets a 401 unless an access plugin lets it in. Plugin tokens stay on the server, and the browser only sees their last four characters. Plugins run with full access, like editor extensions, so only install ones you trust.
+
+[SECURITY.md](SECURITY.md) has the details and explains how to report a vulnerability.
+
+## For developers
+
+```sh
+pnpm dev                      # Vite on 8771, with the API proxied to 8770
+pnpm build && pnpm test       # type checks, builds and unit tests
+pnpm smoke                    # every page in a headless browser, in demo mode
+node scripts/screenshots.mjs  # the README images, from demo data
+```
+
+The repo is a pnpm workspace with three packages:
+
+- `server/`: Hono, node-pty and SQLite
+- `web/`: React, TanStack Router and Query, Tailwind, xterm.js and Monaco
+- `shared/`: types, themes and the plugin API
+
+## Limitations
+
+- Status history starts the first time you run cockpit, so older sprints only show the last status change the tracker knows about.
+- You can't type into a running Claude session from its transcript yet. Resume it in a terminal instead.
+- The worktree commands are templates in the config. Setups that aren't plain `git worktree` need their own.
+- Windows isn't supported. WSL might work, but nobody has tested it.
+
+## Contributing
+
+Bug reports, fixes, plugins and themes are all welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to get set up. Please open an issue before you start on anything large.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+## Acknowledgements
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), which cockpit is built around
+- [xterm.js](https://xtermjs.org), [Monaco](https://microsoft.github.io/monaco-editor/) and [tmux](https://github.com/tmux/tmux) for the terminals and the editor
+- [Hono](https://hono.dev), [TanStack](https://tanstack.com), [Tailwind CSS](https://tailwindcss.com), [Recharts](https://recharts.org) and [cmdk](https://cmdk.paco.me)
+- The authors of the editor palettes the themes come from, including Dracula, Nord, Catppuccin, Gruvbox, Solarized, Tokyo Night and Rosé Pine
+- [Schibsted Grotesk](https://github.com/schibsted/schibsted-grotesk) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/), the built-in fonts

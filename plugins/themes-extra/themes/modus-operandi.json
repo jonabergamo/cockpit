@@ -1,0 +1,36 @@
+{
+  "id": "modus-operandi",
+  "name": "Modus Operandi",
+  "scheme": "light",
+  "ui": {
+    "ground": "#f2f2f2",
+    "panel": "#ffffff",
+    "raised": "#fafafa",
+    "ink": "#000000",
+    "muted": "#595959",
+    "faint": "#7a7a7a",
+    "line": "#d0d0d0",
+    "accent": "#0031a9",
+    "amber": "#6f5500",
+    "green": "#006800",
+    "red": "#a60000"
+  },
+  "ansi": [
+    "#000000",
+    "#a60000",
+    "#006800",
+    "#6f5500",
+    "#0031a9",
+    "#721045",
+    "#005e8b",
+    "#a6a6a6",
+    "#595959",
+    "#972500",
+    "#00663f",
+    "#884900",
+    "#3548cf",
+    "#531ab6",
+    "#005f5f",
+    "#ffffff"
+  ]
+}

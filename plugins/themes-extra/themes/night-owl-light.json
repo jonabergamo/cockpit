@@ -1,0 +1,36 @@
+{
+  "id": "night-owl-light",
+  "name": "Night Owl Light",
+  "scheme": "light",
+  "ui": {
+    "ground": "#f0f0f0",
+    "panel": "#fbfbfb",
+    "raised": "#ffffff",
+    "ink": "#403f53",
+    "muted": "#5f6b7a",
+    "faint": "#7f939d",
+    "line": "#d9d9d9",
+    "accent": "#4571cd",
+    "amber": "#b38b01",
+    "green": "#08916a",
+    "red": "#de3d3b"
+  },
+  "ansi": [
+    "#403f53",
+    "#de3d3b",
+    "#08916a",
+    "#e0af02",
+    "#288ed7",
+    "#d6438a",
+    "#2aa298",
+    "#f0f0f0",
+    "#403f53",
+    "#de3d3b",
+    "#08916a",
+    "#daaa01",
+    "#288ed7",
+    "#d6438a",
+    "#2aa298",
+    "#f0f0f0"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "ayu-dark",
+  "name": "Ayu Dark",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#07090d",
+    "panel": "#0d1017",
+    "raised": "#131721",
+    "ink": "#bfbdb6",
+    "muted": "#8a9199",
+    "faint": "#636a72",
+    "line": "#1e232b",
+    "accent": "#e6b450",
+    "amber": "#ffb454",
+    "green": "#aad94c",
+    "red": "#f07178"
+  },
+  "ansi": [
+    "#01060e",
+    "#ea6c73",
+    "#91b362",
+    "#f9af4f",
+    "#53bdfa",
+    "#fae994",
+    "#90e1c6",
+    "#c7c7c7",
+    "#686868",
+    "#f07178",
+    "#c2d94c",
+    "#ffb454",
+    "#59c2ff",
+    "#ffee99",
+    "#95e6cb",
+    "#ffffff"
+  ]
+}

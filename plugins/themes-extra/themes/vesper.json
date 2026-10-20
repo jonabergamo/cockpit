@@ -1,0 +1,36 @@
+{
+  "id": "vesper",
+  "name": "Vesper",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#0a0a0a",
+    "panel": "#101010",
+    "raised": "#1c1c1c",
+    "ink": "#ffffff",
+    "muted": "#a0a0a0",
+    "faint": "#7e7e7e",
+    "line": "#282828",
+    "accent": "#ffc799",
+    "amber": "#ffc799",
+    "green": "#99ffe4",
+    "red": "#ff8080"
+  },
+  "ansi": [
+    "#101010",
+    "#ff8080",
+    "#99ffe4",
+    "#ffc799",
+    "#a0a0a0",
+    "#ffc799",
+    "#99ffe4",
+    "#ffffff",
+    "#505050",
+    "#ff8080",
+    "#99ffe4",
+    "#ffc799",
+    "#a0a0a0",
+    "#ffc799",
+    "#99ffe4",
+    "#ffffff"
+  ]
+}

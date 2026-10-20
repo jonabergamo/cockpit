@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/
+config.local.toml
+brag-output/
+*.log
+.DS_Store

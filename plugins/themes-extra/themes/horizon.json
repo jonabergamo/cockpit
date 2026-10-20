@@ -1,0 +1,36 @@
+{
+  "id": "horizon",
+  "name": "Horizon",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#16161c",
+    "panel": "#1c1e26",
+    "raised": "#232530",
+    "ink": "#d5d8da",
+    "muted": "#a8aab4",
+    "faint": "#6c6f93",
+    "line": "#2e303e",
+    "accent": "#26bbd9",
+    "amber": "#fab795",
+    "green": "#29d398",
+    "red": "#e95678"
+  },
+  "ansi": [
+    "#16161c",
+    "#e95678",
+    "#29d398",
+    "#fab795",
+    "#26bbd9",
+    "#ee64ac",
+    "#59e1e3",
+    "#d5d8da",
+    "#5b5858",
+    "#ec6a88",
+    "#3fdaa4",
+    "#fbc3a7",
+    "#3fc4de",
+    "#f075b5",
+    "#6be4e6",
+    "#d5d8da"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "catppuccin-frappe",
+  "name": "Catppuccin Frappé",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#232634",
+    "panel": "#303446",
+    "raised": "#414559",
+    "ink": "#c6d0f5",
+    "muted": "#a5adce",
+    "faint": "#838ba7",
+    "line": "#51576d",
+    "accent": "#8caaee",
+    "amber": "#e5c890",
+    "green": "#a6d189",
+    "red": "#e78284"
+  },
+  "ansi": [
+    "#51576d",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#b5bfe2",
+    "#626880",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#a5adce"
+  ]
+}

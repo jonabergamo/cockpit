@@ -1,0 +1,36 @@
+{
+  "id": "cobalt2",
+  "name": "Cobalt2",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#122738",
+    "panel": "#193549",
+    "raised": "#1f4662",
+    "ink": "#ffffff",
+    "muted": "#9bb3c7",
+    "faint": "#7794ad",
+    "line": "#234e6d",
+    "accent": "#ffc600",
+    "amber": "#ff9d00",
+    "green": "#3ad900",
+    "red": "#ff628c"
+  },
+  "ansi": [
+    "#000000",
+    "#ff2600",
+    "#3ad900",
+    "#ffc600",
+    "#1478db",
+    "#ff2c70",
+    "#00c5c7",
+    "#c7c7c7",
+    "#686868",
+    "#ff6c60",
+    "#5bf57b",
+    "#ffe958",
+    "#6871ff",
+    "#ff77ff",
+    "#60fdff",
+    "#ffffff"
+  ]
+}

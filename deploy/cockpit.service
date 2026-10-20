@@ -1,0 +1,20 @@
+[Unit]
+Description=cockpit dashboard
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/projects/cockpit/server
+# Assumes the repo is at ~/projects/cockpit; change the paths below if it isn't.
+# systemd doesn't load the shell profile, so node, pnpm, claude and the plugins' CLIs (gh, acli) need to be on
+# this PATH. `dirname $(which node)` tells you the folder to add for node.
+Environment=PATH=%h/.local/bin:%h/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+Environment=SHELL=/bin/bash
+EnvironmentFile=-%h/.config/cockpit/env
+ExecStart=%h/projects/cockpit/server/node_modules/.bin/tsx src/index.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/projects/cockpit/data/server.log
+StandardError=append:%h/projects/cockpit/data/server.log
+
+[Install]
+WantedBy=default.target

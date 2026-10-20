@@ -1,0 +1,36 @@
+{
+  "id": "tomorrow-night",
+  "name": "Tomorrow Night",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#161719",
+    "panel": "#1d1f21",
+    "raised": "#282a2e",
+    "ink": "#c5c8c6",
+    "muted": "#a7aaa8",
+    "faint": "#969896",
+    "line": "#373b41",
+    "accent": "#81a2be",
+    "amber": "#f0c674",
+    "green": "#b5bd68",
+    "red": "#cc6666"
+  },
+  "ansi": [
+    "#1d1f21",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#c5c8c6",
+    "#969896",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#ffffff"
+  ]
+}

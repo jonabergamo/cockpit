@@ -1,0 +1,62 @@
+import { useState } from "react";
+import { FontSection } from "../components/FontSettings";
+import { PluginsSection, ScreensSection } from "../components/PluginSettings";
+import { SetupSection } from "../components/SetupSection";
+import { ErrorNote, Loading, PageHeader, Tabs } from "../components/ui";
+import { type CostMode, useCost, useSaveSettings, useSettings } from "../lib/cost";
+
+export function SettingsPage() {
+  const q = useSettings();
+  const save = useSaveSettings();
+  const cost = useCost();
+  const [err, setErr] = useState<unknown>();
+  const s = q.data;
+
+  const choose = (costs: CostMode) => {
+    setErr(undefined);
+    save({ costs }).catch(setErr);
+  };
+
+  const detected = s?.billing.kind === "api" ? "Cost" : "API value";
+  const explain: Record<CostMode, string> = {
+    auto: `Cockpit works it out from your Claude login. Right now it shows them as ${detected}.`,
+    real: "Dollars show as Cost, the bill you pay for these tokens.",
+    api: "Dollars show as API value, what the tokens would cost on the API. Right for a Pro, Max, Team or Enterprise plan.",
+    hide: "No dollar amounts anywhere. Usage shows tokens and the plan limits instead.",
+  };
+
+  return (
+    <div className="max-w-[860px] space-y-5">
+      <PageHeader title="Settings" sub="Saved on the server, so every device shows the same." />
+      {q.isLoading && <Loading />}
+      <ErrorNote error={q.error ?? err} />
+      <SetupSection />
+      {s && (
+        <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
+          <div>
+            <h2 className="font-semibold">Costs</h2>
+            <p className="text-[13px] text-muted mt-0.5">
+              Claude Code puts a dollar figure on every session, priced at API rates. Whether that's a bill depends on how you log in:{" "}
+              {s.billing.why}, so {s.billing.kind === "api" ? "it's what you pay" : s.billing.kind === "subscription" ? "it's only a comparison, your plan doesn't charge it" : "cockpit treats it as a comparison"}.
+            </p>
+          </div>
+          <Tabs<CostMode>
+            value={s.settings.costs}
+            onChange={choose}
+            items={[
+              { value: "auto", label: `Auto (${detected})` },
+              { value: "real", label: "Cost" },
+              { value: "api", label: "API value" },
+              { value: "hide", label: "Hidden" },
+            ]}
+          />
+          <p className="text-[13px] text-muted">{explain[s.settings.costs]}</p>
+          {!cost.hidden && <p className="text-[12px] text-faint">{cost.hint}.</p>}
+        </section>
+      )}
+      <FontSection />
+      <ScreensSection />
+      <PluginsSection />
+    </div>
+  );
+}

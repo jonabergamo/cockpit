@@ -1,0 +1,10 @@
+{
+  "id": "example",
+  "name": "Example",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "A small plugin to copy from: one screen, two routes, a setting and a listener.",
+  "author": "cockpit",
+  "defaultOn": false,
+  "settings": [{ "key": "greeting", "label": "Greeting", "type": "text", "default": "Hello from a plugin" }]
+}

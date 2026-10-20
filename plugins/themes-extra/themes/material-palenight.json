@@ -1,0 +1,36 @@
+{
+  "id": "material-palenight",
+  "name": "Material Palenight",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1b1e2b",
+    "panel": "#292d3e",
+    "raised": "#34324a",
+    "ink": "#a6accd",
+    "muted": "#959dcb",
+    "faint": "#70779b",
+    "line": "#3a3f58",
+    "accent": "#82aaff",
+    "amber": "#ffcb6b",
+    "green": "#c3e88d",
+    "red": "#f07178"
+  },
+  "ansi": [
+    "#292d3e",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#d0d0d0",
+    "#434758",
+    "#ff8b92",
+    "#ddffa7",
+    "#ffe585",
+    "#9cc4ff",
+    "#e1acff",
+    "#a3f7ff",
+    "#ffffff"
+  ]
+}

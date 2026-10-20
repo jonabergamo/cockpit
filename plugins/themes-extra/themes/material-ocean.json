@@ -1,0 +1,36 @@
+{
+  "id": "material-ocean",
+  "name": "Material Ocean",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#090b10",
+    "panel": "#0f111a",
+    "raised": "#1a1c25",
+    "ink": "#babed8",
+    "muted": "#8f93a2",
+    "faint": "#6b7089",
+    "line": "#1f2233",
+    "accent": "#82aaff",
+    "amber": "#ffcb6b",
+    "green": "#c3e88d",
+    "red": "#f07178"
+  },
+  "ansi": [
+    "#546e7a",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+    "#546e7a",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff"
+  ]
+}

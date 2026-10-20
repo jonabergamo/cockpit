@@ -1,0 +1,36 @@
+{
+  "id": "modus-vivendi",
+  "name": "Modus Vivendi",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#000000",
+    "panel": "#1e1e1e",
+    "raised": "#303030",
+    "ink": "#ffffff",
+    "muted": "#c6c6c6",
+    "faint": "#989898",
+    "line": "#3a3a3a",
+    "accent": "#2fafff",
+    "amber": "#d0bc00",
+    "green": "#44bc44",
+    "red": "#ff5f59"
+  },
+  "ansi": [
+    "#000000",
+    "#ff5f59",
+    "#44bc44",
+    "#d0bc00",
+    "#2fafff",
+    "#feacd0",
+    "#00d3d0",
+    "#ffffff",
+    "#1e1e1e",
+    "#ff6b55",
+    "#00c06f",
+    "#fec43f",
+    "#79a8ff",
+    "#b6a0ff",
+    "#6ae4b9",
+    "#989898"
+  ]
+}

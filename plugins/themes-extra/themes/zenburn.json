@@ -1,0 +1,36 @@
+{
+  "id": "zenburn",
+  "name": "Zenburn",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#353535",
+    "panel": "#3f3f3f",
+    "raised": "#4f4f4f",
+    "ink": "#dcdccc",
+    "muted": "#b5b5a5",
+    "faint": "#8f8f8f",
+    "line": "#5f5f5f",
+    "accent": "#8cd0d3",
+    "amber": "#f0dfaf",
+    "green": "#7f9f7f",
+    "red": "#cc9393"
+  },
+  "ansi": [
+    "#3f3f3f",
+    "#cc9393",
+    "#7f9f7f",
+    "#e3ceab",
+    "#8cd0d3",
+    "#dc8cc3",
+    "#93e0e3",
+    "#dcdccc",
+    "#709080",
+    "#dca3a3",
+    "#bfebbf",
+    "#f0dfaf",
+    "#94bff3",
+    "#ec93d3",
+    "#93e0e3",
+    "#ffffff"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "cockpit",
+  "productName": "cockpit",
+  "version": "0.1.0",
+  "description": "My work, Claude sessions and sprint in one window",
+  "author": "cockpit",
+  "main": "main.js",
+  "private": true,
+  "license": "MIT"
+}

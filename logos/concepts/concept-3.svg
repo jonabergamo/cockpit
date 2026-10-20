@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <g id="icon">
+    <g id="bg">
+      <rect x="50" y="50" width="412" height="412" rx="92" fill="#151a22"/>
+    </g>
+    <!-- 270° cobalt arc forming a geometric lowercase "c" -->
+    <path d="M 314.7 185.3 A 100 100 0 1 0 314.7 326.7"
+          fill="none" stroke="#6f93f5" stroke-width="56" stroke-linecap="round"/>
+    <!-- amber "waiting" dot sitting in the open mouth of the c -->
+    <circle cx="354" cy="256" r="32" fill="#e0a93a"/>
+  </g>
+</svg>

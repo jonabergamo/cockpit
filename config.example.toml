@@ -1,0 +1,56 @@
+# Copy to config.local.toml and adjust. Paths can start with ~.
+
+port = 8770
+host = "127.0.0.1"
+# Cockpit only answers this machine. To reach it from other devices, turn on an access plugin in
+# Settings → Plugins, like Tailscale.
+extraRoots = ["~/projects"]
+# Your own plugins, one folder each. Empty means data/plugins. See plugins/PLUGINS.md.
+pluginsDir = ""
+
+[claude]
+dir = "~/.claude"
+
+[repo]
+path = "~/code/app"
+name = "app"
+worktreesDir = "~/.claude/worktrees"
+keyPattern = "[A-Z][A-Z0-9]+-\\d+"
+# Placeholders: {repo} {worktreesDir} {key} {slug} {branch} {path} {name}
+branchTemplate = "feat/{key}/{slug}"
+createCommand = "git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/main"
+deleteCommand = "git -C {repo} worktree remove {path}"
+openCommand = "code {path}"
+
+# Jira and GitHub are plugins now, set up in Settings → Plugins. These two sections are only read once, to
+# carry an older setup over into the plugins' settings.
+[jira]
+enabled = true
+board = "My Board"
+# Name as Jira shows it; only these tickets count in the sprint report
+assignee = "Your Name"
+pointsField = "customfield_10016"
+releasedStatuses = ["Done"]
+statusOrder = ["To Do", "In Progress", "Review", "QA", "Done"]
+doneStatuses = ["Done"]
+
+[jira.buckets]
+"Done" = ["Done"]
+"Review" = ["Review"]
+"In Progress" = ["In Progress"]
+"To Do" = ["To Do"]
+"Blocked" = ["Blocked"]
+
+[github]
+enabled = true
+repo = "owner/repo"
+
+[report]
+snapshotMinutes = 60
+
+[reviews]
+# First prompt of the Claude session the PR review screen starts. {url} is the PR link.
+command = "Review the pull request {url} and leave your comments as a pending review on GitHub, without submitting it."
+backendNote = " Include the backend too."
+# Defaults to repo.path
+cwd = ""

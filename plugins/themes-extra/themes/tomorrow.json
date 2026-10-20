@@ -1,0 +1,36 @@
+{
+  "id": "tomorrow",
+  "name": "Tomorrow",
+  "scheme": "light",
+  "ui": {
+    "ground": "#efefef",
+    "panel": "#ffffff",
+    "raised": "#fafafa",
+    "ink": "#4d4d4c",
+    "muted": "#6c6c6b",
+    "faint": "#8e908c",
+    "line": "#d6d6d6",
+    "accent": "#4271ae",
+    "amber": "#b78f00",
+    "green": "#718c00",
+    "red": "#c82829"
+  },
+  "ansi": [
+    "#000000",
+    "#c82829",
+    "#718c00",
+    "#eab700",
+    "#4271ae",
+    "#8959a8",
+    "#3e999f",
+    "#d6d6d6",
+    "#8e908c",
+    "#c82829",
+    "#718c00",
+    "#eab700",
+    "#4271ae",
+    "#8959a8",
+    "#3e999f",
+    "#4d4d4c"
+  ]
+}

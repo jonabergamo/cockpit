@@ -1,0 +1,36 @@
+{
+  "id": "flexoki-dark",
+  "name": "Flexoki Dark",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#100f0f",
+    "panel": "#1c1b1a",
+    "raised": "#282726",
+    "ink": "#cecdc3",
+    "muted": "#b7b5ac",
+    "faint": "#878580",
+    "line": "#343331",
+    "accent": "#4385be",
+    "amber": "#d0a215",
+    "green": "#879a39",
+    "red": "#d14d41"
+  },
+  "ansi": [
+    "#100f0f",
+    "#d14d41",
+    "#879a39",
+    "#d0a215",
+    "#4385be",
+    "#ce5d97",
+    "#3aa99f",
+    "#878580",
+    "#575653",
+    "#d14d41",
+    "#879a39",
+    "#d0a215",
+    "#4385be",
+    "#ce5d97",
+    "#3aa99f",
+    "#cecdc3"
+  ]
+}

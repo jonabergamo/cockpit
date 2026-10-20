@@ -1,0 +1,36 @@
+{
+  "id": "tokyo-night-storm",
+  "name": "Tokyo Night Storm",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1f2335",
+    "panel": "#24283b",
+    "raised": "#292e42",
+    "ink": "#c0caf5",
+    "muted": "#a9b1d6",
+    "faint": "#737aa2",
+    "line": "#3b4261",
+    "accent": "#7aa2f7",
+    "amber": "#e0af68",
+    "green": "#9ece6a",
+    "red": "#f7768e"
+  },
+  "ansi": [
+    "#1d202f",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#a9b1d6",
+    "#414868",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#c0caf5"
+  ]
+}

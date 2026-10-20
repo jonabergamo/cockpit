@@ -1,0 +1,7 @@
+{
+  "id": "oxocarbon",
+  "name": "Oxocarbon",
+  "scheme": "dark",
+  "ui": { "ground": "#161616", "panel": "#1e1e1e", "raised": "#262626", "ink": "#f2f4f8", "muted": "#a2a9b0", "faint": "#7d848c", "line": "#393939", "accent": "#78a9ff", "amber": "#f1c21b", "green": "#42be65", "red": "#ee5396" },
+  "ansi": ["#262626", "#ee5396", "#42be65", "#ffe97b", "#33b1ff", "#ff7eb6", "#3ddbd9", "#dde1e6", "#525252", "#ee5396", "#42be65", "#ffe97b", "#33b1ff", "#ff7eb6", "#3ddbd9", "#ffffff"]
+}

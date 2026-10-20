@@ -1,0 +1,36 @@
+{
+  "id": "sonokai",
+  "name": "Sonokai",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#222327",
+    "panel": "#2c2e34",
+    "raised": "#33353f",
+    "ink": "#e2e2e3",
+    "muted": "#a7a9b0",
+    "faint": "#7f8490",
+    "line": "#414550",
+    "accent": "#76cce0",
+    "amber": "#e7c664",
+    "green": "#9ed072",
+    "red": "#fc5d7c"
+  },
+  "ansi": [
+    "#181819",
+    "#fc5d7c",
+    "#9ed072",
+    "#e7c664",
+    "#76cce0",
+    "#b39df3",
+    "#f39660",
+    "#e2e2e3",
+    "#7f8490",
+    "#fc5d7c",
+    "#9ed072",
+    "#e7c664",
+    "#76cce0",
+    "#b39df3",
+    "#f39660",
+    "#e2e2e3"
+  ]
+}

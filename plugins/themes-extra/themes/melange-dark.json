@@ -1,0 +1,36 @@
+{
+  "id": "melange-dark",
+  "name": "Melange Dark",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#211d1a",
+    "panel": "#292522",
+    "raised": "#34302c",
+    "ink": "#ece1d7",
+    "muted": "#c1a78e",
+    "faint": "#867462",
+    "line": "#403a36",
+    "accent": "#a3a9ce",
+    "amber": "#ebc06d",
+    "green": "#85b695",
+    "red": "#d47766"
+  },
+  "ansi": [
+    "#34302c",
+    "#bd8183",
+    "#78997a",
+    "#e49b5d",
+    "#7f91b2",
+    "#b380b0",
+    "#7b9695",
+    "#c1a78e",
+    "#867462",
+    "#d47766",
+    "#85b695",
+    "#ebc06d",
+    "#a3a9ce",
+    "#cf9bc2",
+    "#89b3b6",
+    "#ece1d7"
+  ]
+}

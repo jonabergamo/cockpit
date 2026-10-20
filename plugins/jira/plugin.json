@@ -1,0 +1,105 @@
+{
+  "id": "jira",
+  "name": "Jira",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Tickets, sprints and epics from Jira, through Atlassian's acli. Feeds Tickets, the Sprint report, Today and the worktree cleaner.",
+  "author": "cockpit",
+  "defaultOn": false,
+  "settings": [
+    {
+      "key": "board",
+      "label": "Board name",
+      "type": "text",
+      "help": "As Jira shows it, used to find the sprints"
+    },
+    {
+      "key": "assignee",
+      "label": "Your name in Jira",
+      "type": "text",
+      "help": "Only these tickets count as yours in the sprint report"
+    },
+    {
+      "key": "pointsField",
+      "label": "Story points field",
+      "type": "text",
+      "default": "customfield_10016"
+    },
+    {
+      "key": "keyPattern",
+      "label": "Ticket key pattern",
+      "type": "text",
+      "default": "[A-Z][A-Z0-9]+-\\d+",
+      "help": "A regular expression, matched in branch names and titles"
+    },
+    {
+      "key": "statusOrder",
+      "label": "Statuses, in order",
+      "type": "list",
+      "default": [
+        "To Do",
+        "In Progress",
+        "Review",
+        "QA",
+        "Done"
+      ],
+      "help": "One per line"
+    },
+    {
+      "key": "releasedStatuses",
+      "label": "Released statuses",
+      "type": "list",
+      "default": [
+        "Done"
+      ],
+      "help": "Count as shipped in the burnup"
+    },
+    {
+      "key": "doneStatuses",
+      "label": "Done for the sprint",
+      "type": "list",
+      "default": [],
+      "help": "Done but maybe not released yet, like QA. Empty uses the released ones"
+    },
+    {
+      "key": "buckets",
+      "label": "Status groups",
+      "type": "json",
+      "default": {},
+      "help": "For the status chart, e.g. {\"Done\": [\"QA\", \"Done\"], \"Review\": [\"Review\"]}"
+    }
+  ],
+  "requires": [
+    {
+      "id": "acli",
+      "name": "Atlassian CLI (acli)",
+      "check": [
+        "acli",
+        "--version"
+      ],
+      "auth": [
+        "acli",
+        "jira",
+        "auth",
+        "status"
+      ],
+      "login": [
+        "acli",
+        "jira",
+        "auth",
+        "login",
+        "--web"
+      ],
+      "install": {
+        "linux": "mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/acli https://acli.atlassian.com/linux/latest/acli_linux_amd64/acli && chmod +x ~/.local/bin/acli",
+        "darwin": "brew tap atlassian/homebrew-acli && brew install acli"
+      },
+      "docs": "https://developer.atlassian.com/cloud/acli/guides/install-acli/"
+    }
+  ],
+  "skills": [
+    {
+      "name": "cockpit-ticket"
+    }
+  ]
+}

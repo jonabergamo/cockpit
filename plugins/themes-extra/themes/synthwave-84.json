@@ -1,0 +1,36 @@
+{
+  "id": "synthwave-84",
+  "name": "Synthwave '84",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1e1a2b",
+    "panel": "#262335",
+    "raised": "#2a2139",
+    "ink": "#f0eff1",
+    "muted": "#c2c0c9",
+    "faint": "#848bbd",
+    "line": "#34294f",
+    "accent": "#ff7edb",
+    "amber": "#fede5d",
+    "green": "#72f1b8",
+    "red": "#fe4450"
+  },
+  "ansi": [
+    "#262335",
+    "#fe4450",
+    "#72f1b8",
+    "#fede5d",
+    "#03edf9",
+    "#ff7edb",
+    "#03edf9",
+    "#ffffff",
+    "#614d85",
+    "#fe4450",
+    "#72f1b8",
+    "#f3e70f",
+    "#03edf9",
+    "#ff7edb",
+    "#03edf9",
+    "#ffffff"
+  ]
+}

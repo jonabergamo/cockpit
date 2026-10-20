@@ -1,0 +1,36 @@
+{
+  "id": "moonlight",
+  "name": "Moonlight",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1e2030",
+    "panel": "#222436",
+    "raised": "#2f334d",
+    "ink": "#c8d3f5",
+    "muted": "#a9b8e8",
+    "faint": "#7a88cf",
+    "line": "#3b4261",
+    "accent": "#82aaff",
+    "amber": "#ffc777",
+    "green": "#c3e88d",
+    "red": "#ff757f"
+  },
+  "ansi": [
+    "#1b1d2b",
+    "#ff757f",
+    "#c3e88d",
+    "#ffc777",
+    "#82aaff",
+    "#c099ff",
+    "#86e1fc",
+    "#828bb8",
+    "#444a73",
+    "#ff757f",
+    "#c3e88d",
+    "#ffc777",
+    "#82aaff",
+    "#c099ff",
+    "#86e1fc",
+    "#c8d3f5"
+  ]
+}

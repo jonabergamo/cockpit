@@ -1,0 +1,235 @@
+@import "tailwindcss";
+@import "@fontsource-variable/schibsted-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+
+
+:root {
+  --ground: #e7eaee;
+  --panel: #f6f7f9;
+  --raised: #ffffff;
+  --ink: #1b2333;
+  --muted: #5d6778;
+  --faint: #8b94a3;
+  --line: #cbd1da;
+  --cobalt: #2f5bd3;
+  --cobalt-soft: #dfe6fa;
+  --amber: #b97c06;
+  --amber-soft: #f6ead0;
+  --green: #2e8b57;
+  --green-soft: #dcefe3;
+  --red: #c2413a;
+  --red-soft: #f6dedc;
+  --on-accent: #ffffff;
+  --on-status: #ffffff;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #151a22;
+    --panel: #1c222c;
+    --raised: #232a35;
+    --ink: #dce2ea;
+    --muted: #8c96a6;
+    --faint: #626c7c;
+    --line: #2c3441;
+    --cobalt: #6f93f5;
+    --cobalt-soft: #1f2b4a;
+    --amber: #e0a93a;
+    --amber-soft: #3a2f17;
+    --green: #5cbf86;
+    --green-soft: #1b3326;
+    --red: #e8706a;
+    --red-soft: #3c1f1e;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #151a22;
+  --panel: #1c222c;
+  --raised: #232a35;
+  --ink: #dce2ea;
+  --muted: #8c96a6;
+  --faint: #626c7c;
+  --line: #2c3441;
+  --cobalt: #6f93f5;
+  --cobalt-soft: #1f2b4a;
+  --amber: #e0a93a;
+  --amber-soft: #3a2f17;
+  --green: #5cbf86;
+  --green-soft: #1b3326;
+  --red: #e8706a;
+  --red-soft: #3c1f1e;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-cobalt: var(--cobalt);
+  --color-cobalt-soft: var(--cobalt-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-green: var(--green);
+  --color-green-soft: var(--green-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-on-accent: var(--on-accent);
+  --color-on-status: var(--on-status);
+  /* Settings → Fonts swaps these on <html> */
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+}
+
+:root {
+  --app-font-sans: "Schibsted Grotesk Variable", system-ui, sans-serif;
+  --app-font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* the app is a fixed frame whose panes scroll on their own; clip rather than hide, so nothing (like xterm
+   keeping its hidden input in view) can scroll the page itself and shift the whole layout up */
+html,
+body {
+  overflow: clip;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--app-font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--cobalt-soft);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* the running-session strip: a slow sweep while Claude is working */
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cobalt) 22%, transparent), transparent);
+  animation: sweep 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep::after {
+    animation: none;
+    display: none;
+  }
+}
+
+.prose-cockpit {
+  line-height: 1.6;
+  max-width: 78ch;
+}
+.prose-cockpit h1,
+.prose-cockpit h2,
+.prose-cockpit h3 {
+  font-weight: 650;
+  margin: 1.2em 0 0.4em;
+}
+.prose-cockpit h1 {
+  font-size: 1.35rem;
+}
+.prose-cockpit h2 {
+  font-size: 1.15rem;
+}
+.prose-cockpit p,
+.prose-cockpit ul,
+.prose-cockpit ol {
+  margin: 0.5em 0;
+}
+.prose-cockpit ul {
+  list-style: disc;
+  padding-left: 1.3em;
+}
+.prose-cockpit ol {
+  list-style: decimal;
+  padding-left: 1.3em;
+}
+.prose-cockpit code {
+  font-family: var(--app-font-mono);
+  font-size: 0.86em;
+  background: var(--ground);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+.prose-cockpit pre {
+  background: var(--ground);
+  padding: 0.8em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.prose-cockpit pre code {
+  background: none;
+  padding: 0;
+}
+.prose-cockpit a {
+  color: var(--cobalt);
+  text-decoration: underline;
+}
+.prose-cockpit table {
+  border-collapse: collapse;
+}
+.prose-cockpit td,
+.prose-cockpit th {
+  border: 1px solid var(--line);
+  padding: 0.25em 0.5em;
+}
+
+/* inside the desktop app the top of the window doubles as its title bar */
+[data-desktop] .drag {
+  -webkit-app-region: drag;
+}
+[data-desktop] .drag :is(a, button, input, select, textarea) {
+  -webkit-app-region: no-drag;
+}
+[data-desktop="darwin"] .traffic {
+  padding-left: 84px;
+}
+[data-desktop="linux"] .overlay-gap,
+[data-desktop="win32"] .overlay-gap {
+  padding-right: 150px;
+}
+
+/* terminals inside tmux scroll through tmux, so xterm's own bar is just in the way */
+.term-no-scrollbar .xterm .xterm-scrollable-element > .scrollbar {
+  display: none !important;
+}

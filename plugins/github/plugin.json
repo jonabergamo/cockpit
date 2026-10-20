@@ -1,0 +1,57 @@
+{
+  "id": "github",
+  "name": "GitHub",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Your pull requests, their checks and the review queue, through the gh CLI. Feeds PR badges, PR reviews and fixing failed checks with Claude.",
+  "author": "cockpit",
+  "defaultOn": false,
+  "settings": [
+    {
+      "key": "repo",
+      "label": "Repository",
+      "type": "text",
+      "help": "owner/name, the repo your PRs are in"
+    },
+    {
+      "key": "token",
+      "label": "Token",
+      "type": "secret",
+      "env": "GH_TOKEN",
+      "help": "Optional. A personal access token, instead of logging in with gh"
+    }
+  ],
+  "requires": [
+    {
+      "id": "gh",
+      "name": "GitHub CLI (gh)",
+      "check": [
+        "gh",
+        "--version"
+      ],
+      "auth": [
+        "gh",
+        "auth",
+        "status"
+      ],
+      "login": [
+        "gh",
+        "auth",
+        "login"
+      ],
+      "install": {
+        "linux": "see https://github.com/cli/cli/blob/trunk/docs/install_linux.md",
+        "darwin": "brew install gh"
+      },
+      "docs": "https://cli.github.com",
+      "settings": [
+        "token"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "name": "cockpit-pr-review"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "everblush",
+  "name": "Everblush",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#0f1416",
+    "panel": "#141b1e",
+    "raised": "#232a2d",
+    "ink": "#dadada",
+    "muted": "#b3b9b8",
+    "faint": "#8a9496",
+    "line": "#2d3437",
+    "accent": "#67b0e8",
+    "amber": "#e5c76b",
+    "green": "#8ccf7e",
+    "red": "#e57474"
+  },
+  "ansi": [
+    "#232a2d",
+    "#e57474",
+    "#8ccf7e",
+    "#e5c76b",
+    "#67b0e8",
+    "#c47fd5",
+    "#6cbfbf",
+    "#b3b9b8",
+    "#2d3437",
+    "#ef7e7e",
+    "#96d988",
+    "#f4d67a",
+    "#71baf2",
+    "#ce89df",
+    "#67cbe7",
+    "#bdc3c2"
+  ]
+}

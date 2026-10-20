@@ -1,0 +1,36 @@
+{
+  "id": "poimandres",
+  "name": "Poimandres",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#171922",
+    "panel": "#1b1e28",
+    "raised": "#252b37",
+    "ink": "#e4f0fb",
+    "muted": "#a6accd",
+    "faint": "#767c9d",
+    "line": "#303340",
+    "accent": "#89ddff",
+    "amber": "#fffac2",
+    "green": "#5de4c7",
+    "red": "#d0679d"
+  },
+  "ansi": [
+    "#1b1e28",
+    "#d0679d",
+    "#5de4c7",
+    "#fffac2",
+    "#89ddff",
+    "#fcc5e9",
+    "#add7ff",
+    "#ffffff",
+    "#a6accd",
+    "#d0679d",
+    "#5de4c7",
+    "#fffac2",
+    "#add7ff",
+    "#fae4fc",
+    "#89ddff",
+    "#ffffff"
+  ]
+}

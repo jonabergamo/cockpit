@@ -1,0 +1,36 @@
+{
+  "id": "snazzy",
+  "name": "Snazzy",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1e1f29",
+    "panel": "#282a36",
+    "raised": "#34353e",
+    "ink": "#eff0eb",
+    "muted": "#a9aab0",
+    "faint": "#78787e",
+    "line": "#3a3c4e",
+    "accent": "#57c7ff",
+    "amber": "#f3f99d",
+    "green": "#5af78e",
+    "red": "#ff5c57"
+  },
+  "ansi": [
+    "#282a36",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#f1f1f0",
+    "#686868",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#eff0eb"
+  ]
+}

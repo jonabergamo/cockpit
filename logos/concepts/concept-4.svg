@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <g id="icon">
+    <g id="bg">
+      <rect x="50" y="50" width="412" height="412" rx="92" fill="#151a22"/>
+    </g>
+
+    <!-- scope surface -->
+    <circle cx="256" cy="256" r="146" fill="#1c222c"/>
+
+    <!-- sweep wedge: 12 o'clock to 2 o'clock -->
+    <path d="M256 256 L256 110 A146 146 0 0 1 382.44 183 Z" fill="#6f93f5"/>
+
+    <!-- single inner ring -->
+    <circle cx="256" cy="256" r="58" fill="none" stroke="#151a22" stroke-width="24"/>
+
+    <!-- centre hub -->
+    <circle cx="256" cy="256" r="14" fill="#dce2ea"/>
+
+    <!-- blips (sessions) -->
+    <circle cx="316" cy="170" r="20" fill="#dce2ea"/>
+    <circle cx="174" cy="304" r="22" fill="#e0a93a"/>
+    <circle cx="306" cy="343" r="18" fill="#8aa8ff"/>
+  </g>
+</svg>

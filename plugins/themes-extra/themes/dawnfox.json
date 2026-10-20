@@ -1,0 +1,36 @@
+{
+  "id": "dawnfox",
+  "name": "Dawnfox",
+  "scheme": "light",
+  "ui": {
+    "ground": "#ebe5df",
+    "panel": "#faf4ed",
+    "raised": "#ffffff",
+    "ink": "#575279",
+    "muted": "#625c87",
+    "faint": "#8f8a9b",
+    "line": "#ddd6d0",
+    "accent": "#286983",
+    "amber": "#bb7e2a",
+    "green": "#618774",
+    "red": "#b4637a"
+  },
+  "ansi": [
+    "#575279",
+    "#b4637a",
+    "#618774",
+    "#ea9d34",
+    "#286983",
+    "#907aa9",
+    "#56949f",
+    "#e5e9f0",
+    "#5f5695",
+    "#c26d85",
+    "#629f81",
+    "#eea846",
+    "#2d81a3",
+    "#9a80b9",
+    "#5ca7b4",
+    "#e6ebf3"
+  ]
+}

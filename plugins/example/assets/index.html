@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Example</title>
+    <link rel="stylesheet" href="/plugin-sdk.css" />
+    <script src="/plugin-sdk.js"></script>
+  </head>
+  <body>
+    <h1 id="greeting">Example</h1>
+    <p class="muted">A plugin screen. It runs in a frame, follows the app's theme and talks to its own routes.</p>
+    <div class="card">
+      <h2>Counter</h2>
+      <p>Clicked <strong id="count">0</strong> times, kept on the server in the plugin's store.</p>
+      <div class="row">
+        <button class="primary" id="add">Add one</button>
+        <button id="sessions">Show my last sessions</button>
+      </div>
+    </div>
+    <div class="card" id="list" hidden></div>
+    <p class="faint" id="theme"></p>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      cockpit.api("/count").then((r) => {
+        $("greeting").textContent = r.greeting;
+        $("count").textContent = r.count;
+      });
+      $("add").onclick = async () => ($("count").textContent = (await cockpit.api("/count", { method: "POST" })).count);
+      $("sessions").onclick = async () => {
+        const list = await cockpit.core("/sessions?limit=5");
+        $("list").hidden = false;
+        $("list").innerHTML = "<h2>Last sessions</h2>" + list.map((s) => `<p><a href="#" data-id="${s.id}">${(s.title ?? s.id).replace(/</g, "&lt;")}</a></p>`).join("");
+        $("list").querySelectorAll("a").forEach((a) => (a.onclick = (e) => (e.preventDefault(), cockpit.navigate(`/sessions/${a.dataset.id}`))));
+      };
+      cockpit.onTheme((t) => ($("theme").textContent = t ? `Theme: ${t.name}` : "Opened outside cockpit"));
+    </script>
+  </body>
+</html>

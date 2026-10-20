@@ -1,0 +1,36 @@
+{
+  "id": "panda",
+  "name": "Panda",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1f2021",
+    "panel": "#292a2b",
+    "raised": "#31353a",
+    "ink": "#e6e6e6",
+    "muted": "#bbbbbb",
+    "faint": "#8c8c8c",
+    "line": "#3c3d3e",
+    "accent": "#45a9f9",
+    "amber": "#ffb86c",
+    "green": "#19f9d8",
+    "red": "#ff2c6d"
+  },
+  "ansi": [
+    "#292a2b",
+    "#ff2c6d",
+    "#19f9d8",
+    "#ffb86c",
+    "#45a9f9",
+    "#ff75b5",
+    "#6fc1ff",
+    "#e6e6e6",
+    "#676b79",
+    "#ff4b82",
+    "#6fe7d2",
+    "#ffcc95",
+    "#6fc1ff",
+    "#ff9ac1",
+    "#bcaafe",
+    "#ffffff"
+  ]
+}
