@@ -3,6 +3,7 @@ import { agentFile, getSession, listSessions, listSubagents, sessionFile } from 
 import { parseLine, readTail } from "../claude/transcript.ts";
 import { searchHistory } from "../claude/history.ts";
 import { searchSessions } from "../claude/search.ts";
+import { askOf, sendKeys, sendText } from "../agents.ts";
 
 export const sessions = new Hono()
   .get("/", (c) => {
@@ -24,4 +25,12 @@ export const sessions = new Hono()
     const tail = await readTail(file, bytes);
     return c.json({ entries: tail.lines.flatMap((l) => parseLine(l)), offset: tail.offset, truncated: tail.truncated });
   })
-  .get("/:id/agents", async (c) => c.json(await listSubagents(c.req.param("id"))));
+  .get("/:id/agents", async (c) => c.json(await listSubagents(c.req.param("id"))))
+  .get("/:id/ask", async (c) => c.json(await askOf(c.req.param("id"))))
+  // false means cockpit can't reach its pane; the caller resumes it in a terminal instead
+  .post("/:id/send", async (c) => {
+    const { text } = await c.req.json<{ text: string }>();
+    if (!text?.trim()) return c.json({ error: "nothing to send" }, 400);
+    return c.json({ sent: await sendText(c.req.param("id"), text) });
+  })
+  .post("/:id/keys", async (c) => c.json({ sent: sendKeys(c.req.param("id"), (await c.req.json<{ keys: string[] }>()).keys ?? []) }));

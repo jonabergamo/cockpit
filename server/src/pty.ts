@@ -31,11 +31,16 @@ const terms = new Map<string, Term>();
 
 // Terminals live in their own tmux server, so restarting cockpit only drops the viewer, not what runs inside.
 // Without tmux they are plain ptys and die with the server.
-const SOCKET = demo ? "cockpit-demo" : "cockpit";
+// a second cockpit for testing can keep to its own tmux server
+const SOCKET = process.env.COCKPIT_TMUX_SOCKET || (demo ? "cockpit-demo" : "cockpit");
 const hasTmux = spawnSync("tmux", ["-V"]).status === 0;
 const tmuxConf = `${paths.data}/${SOCKET}.tmux.conf`;
 
 const tmux = (...args: string[]) => execFileSync("tmux", ["-L", SOCKET, "-f", tmuxConf, ...args], { encoding: "utf8" });
+
+// For talking to panes cockpit hosts but didn't start itself, like a claude run from one of its shells
+export const tmuxIn = (args: string[], input?: string) => execFileSync("tmux", ["-L", SOCKET, "-f", tmuxConf, ...args], { encoding: "utf8", input });
+export const tmuxSocket = SOCKET;
 
 function startTmux() {
   writeFileSync(

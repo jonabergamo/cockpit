@@ -18,6 +18,8 @@ export interface Session {
   linesRemoved?: number;
   lastPrompt?: string;
   size: number;
+  // the cockpit terminal it runs in, when it runs inside one
+  term?: string;
 }
 
 export type Entry =
@@ -141,6 +143,18 @@ export interface PullRequest {
   mergedAt?: string;
   author?: string;
   ticket?: string;
+  // MERGEABLE, CONFLICTING or UNKNOWN
+  mergeable?: string;
+  // the host's own word on it, e.g. CLEAN, BLOCKED, BEHIND, DIRTY
+  mergeState?: string;
+  headSha?: string;
+}
+
+export interface ReviewThread {
+  path?: string;
+  line?: number;
+  author?: string;
+  body: string;
 }
 
 export interface Sprint {
@@ -215,7 +229,9 @@ export type ServerEvent =
   | { type: "terms"; terms: TermInfo[] }
   | { type: "notify"; id: number; title: string; body: string; link: string }
   // the plugin list, screens or themes changed
-  | { type: "plugins" };
+  | { type: "plugins" }
+  // something on the Board changed: tasks, verify results, autopilot
+  | { type: "board" };
 
 export type ClientEvent =
   | { type: "watch"; sessionId: string; agentId?: string; offset: number }
@@ -229,3 +245,71 @@ export type ClientEvent =
 export const ticketUrl = (base: string, key: string) => `${base.replace(/\/$/, "")}/browse/${key}`;
 export * from "./themes.ts";
 export * from "./plugin.ts";
+
+// What a running session is showing, for answering it without opening its terminal
+export interface Ask {
+  screen: string;
+  question?: string;
+  options: { key: string; label: string }[];
+  // text typed into its input box but not sent
+  draft?: string;
+}
+export interface AskInfo extends Partial<Ask> {
+  reachable: boolean;
+  options: { key: string; label: string }[];
+  last?: string;
+  pending?: { name: string; input: unknown };
+}
+
+export type BoardColumn = "queued" | "working" | "needs" | "review" | "ready" | "quiet";
+
+export interface BoardCard {
+  id: string;
+  kind: "worktree" | "session" | "task";
+  title: string;
+  ticket?: string;
+  folder: string;
+  path?: string;
+  branch?: string;
+  column: BoardColumn;
+  // why it's in its column, in a few words
+  reason: string;
+  session?: { id: string; status: SessionStatus; updatedAt: number; name?: string; term?: string; pid?: number; title?: string };
+  pr?: { number: number; url: string; title: string; state: string; checks?: PullRequest["checks"]; review?: string; mergeable?: string; mergeState?: string; isDraft: boolean };
+  verify?: { state: "running" | "pass" | "fail"; at: number; summary?: string; jobId?: string };
+  autopilot?: { on: boolean; attempts: number; gaveUp: boolean; note?: string };
+  task?: { id: string; group: string; status: TaskStatus; attempt: number; title: string };
+  stuck?: string;
+  updatedAt: number;
+}
+
+export type TaskStatus = "queued" | "starting" | "running" | "done" | "failed" | "cancelled";
+
+export interface Task {
+  id: string;
+  group: string;
+  title: string;
+  prompt: string;
+  ticket?: string;
+  model?: string;
+  attempt: number;
+  status: TaskStatus;
+  dependsOn: string[];
+  worktree?: string;
+  branch?: string;
+  jobId?: string;
+  termId?: string;
+  sessionId?: string;
+  createdAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+}
+
+export interface DigestItem {
+  at: number;
+  kind: string;
+  title: string;
+  body?: string;
+  link?: string;
+}

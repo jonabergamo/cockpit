@@ -9,7 +9,7 @@ import { chromium } from "playwright";
 const port = Number(process.env.SMOKE_PORT ?? 8799);
 const base = `http://127.0.0.1:${port}`;
 const data = mkdtempSync(join(tmpdir(), "cockpit-smoke-"));
-const pages = ["/", "/sessions", "/workflows", "/tickets", "/worktrees", "/code", "/terminals", "/memory", "/reviews", "/report", "/usage", "/settings"];
+const pages = ["/", "/board", "/tasks", "/tasks/g-423", "/sessions", "/workflows", "/tickets", "/worktrees", "/code", "/terminals", "/memory", "/reviews", "/report", "/usage", "/settings"];
 const phone = ["/settings", "/terminals", "/"];
 
 const server = spawn("pnpm", ["--filter", "server", "start"], {

@@ -1,4 +1,4 @@
-import type { PullRequest, Session, Sprint, TermInfo, Ticket } from "./index.ts";
+import type { PullRequest, ReviewThread, Session, Sprint, Task, TermInfo, Ticket } from "./index.ts";
 import type { Theme } from "./themes.ts";
 
 // The contract between cockpit and its plugins. See plugins/PLUGINS.md for the guide.
@@ -77,7 +77,19 @@ export interface PluginInfo {
   provides: ("tracker" | "codeHost" | "access")[];
 }
 
-export type PluginEvent = "session.started" | "session.idle" | "session.ended" | "worktree.created" | "worktree.removed" | "terminal.opened" | "notify";
+export type PluginEvent =
+  | "session.started"
+  | "session.idle"
+  | "session.ended"
+  | "session.stuck"
+  | "worktree.created"
+  | "worktree.removed"
+  | "terminal.opened"
+  | "notify"
+  | "task.started"
+  | "task.done"
+  | "autopilot.acted"
+  | "verify.done";
 
 export interface RouteRequest {
   query: Record<string, string>;
@@ -134,6 +146,8 @@ export interface CodeHost {
   deploys?(since: string): Promise<unknown[]>;
   // the failing checks of a PR with the end of their logs, for the "fix the checks" prompt
   failingChecks?(n: number): Promise<{ name: string; state: string; link: string; tail: string }[]>;
+  // unresolved review threads on one of your PRs, for handing them to Claude
+  reviewThreads?(n: number): Promise<ReviewThread[]>;
   parsePr?(input: string): PrRef | undefined;
   prInfo?(ref: PrRef): Promise<{ title: string; author: string; url: string; additions?: number; deletions?: number; changedFiles?: number; state?: string; isDraft?: boolean; headRefName?: string }>;
   pendingReview?(ref: PrRef): Promise<{ id: number; url: string; comments: number } | undefined>;
@@ -176,7 +190,13 @@ export interface Cockpit {
   sessions(opts?: { liveOnly?: boolean; limit?: number }): Session[];
   terminals(): TermInfo[];
   claude(c: { cwd: string; prompt?: string; title?: string }): TermInfo;
-  notify(n: { title: string; body?: string; link?: string }): void;
+  notify(n: { title: string; body?: string; link?: string; urgent?: boolean }): void;
+  // types a message into a running Claude session cockpit hosts, and presses Enter; false when it can't reach it
+  sendToSession(sessionId: string, text: string): Promise<boolean>;
+  // queues work for a new worker: a worktree and branch, then Claude with the prompt
+  task(t: { title: string; prompt?: string; ticket?: string; attempts?: number; model?: string; dependsOn?: string[] }): Promise<Task[]>;
+  // a shell command whose output streams to cockpit's job log
+  job(label: string, command: string, cwd?: string): Promise<{ code: number; output: string }>;
   onStop(fn: () => void): void;
   // remembered in cockpit's cache table for maxAge ms; force fetches again. Keys are kept per plugin.
   cache<T>(key: string, maxAge: number, fn: () => Promise<T>, force?: boolean): Promise<T>;

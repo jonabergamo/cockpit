@@ -13,6 +13,8 @@ EnvironmentFile=-%h/.config/cockpit/env
 ExecStart=%h/projects/cockpit/server/node_modules/.bin/tsx src/index.ts
 Restart=on-failure
 RestartSec=5
+# tsx exits with 143 when systemd stops it with SIGTERM
+SuccessExitStatus=143
 StandardOutput=append:%h/projects/cockpit/data/server.log
 StandardError=append:%h/projects/cockpit/data/server.log
 

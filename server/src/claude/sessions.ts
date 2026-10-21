@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Session, SessionStatus, Subagent } from "@cockpit/shared";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
-import { sessionsChanged } from "../notify.ts";
+import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
 import { day, ticketOf } from "../util.ts";
 import { readFrom } from "./transcript.ts";
@@ -19,9 +19,12 @@ interface Live {
   cwd: string;
   startedAt: number;
   updatedAt: number;
+  // "<tmux session>:@window.%pane" when it runs inside tmux
+  tmux?: string;
 }
 
 let live = new Map<string, Live>();
+export const liveInfo = (id: string) => live.get(id);
 
 async function readRegistry() {
   const next = new Map<string, Live>();
@@ -38,6 +41,7 @@ async function readRegistry() {
         cwd: r.cwd,
         startedAt: r.startedAt,
         updatedAt: r.statusUpdatedAt ?? r.updatedAt,
+        tmux: typeof r.tmux === "string" ? r.tmux : undefined,
       });
     } catch {
       // registry files get rewritten while we read them, next poll catches up
@@ -162,9 +166,38 @@ function worktreeOf(cwd?: string | null) {
   return join(config.repo.worktreesDir, ...rest.slice(0, 2));
 }
 
+// The transcript only notes the branch when Claude writes to it, so for running sessions read it from git itself:
+// a checkout in another terminal shows up on the next poll.
+const currentBranch = new Map<string, string>();
+
+async function headOf(cwd: string) {
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    const dotGit = join(dir, ".git");
+    const info = await stat(dotGit).catch(() => undefined);
+    if (info) {
+      // a worktree's .git is a file pointing at its real git dir
+      const gitDir = info.isDirectory() ? dotGit : resolve(dir, (await readFile(dotGit, "utf8")).replace(/^gitdir:\s*/, "").trim());
+      const head = (await readFile(join(gitDir, "HEAD"), "utf8")).trim();
+      return head.startsWith("ref: refs/heads/") ? head.slice(16) : head.slice(0, 7);
+    }
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+async function refreshBranches() {
+  const cwds = new Set([...live.values()].map((l) => l.cwd).filter(Boolean) as string[]);
+  for (const cwd of cwds) {
+    const branch = await headOf(cwd).catch(() => undefined);
+    if (branch) currentBranch.set(cwd, branch);
+    else currentBranch.delete(cwd);
+  }
+  for (const cwd of currentBranch.keys()) if (!cwds.has(cwd)) currentBranch.delete(cwd);
+}
+
 function toSession(r: Row): Session {
   const l = live.get(r.id);
   const cwd = r.cwd ?? l?.cwd ?? "";
+  const branch = (l && currentBranch.get(l.cwd)) ?? r.branch ?? undefined;
   return {
     id: r.id,
     project: r.project,
@@ -175,15 +208,16 @@ function toSession(r: Row): Session {
     pid: l?.pid,
     startedAt: l?.startedAt ?? (r.first_ts ? Date.parse(r.first_ts) : 0),
     updatedAt: Math.max(l?.updatedAt ?? 0, r.last_ts ? Date.parse(r.last_ts) : 0),
-    branch: r.branch ?? undefined,
+    branch,
     // the worktree folder in the path beats the branch, which moves between tickets in an epic worktree
-    ticket: ticketOf(cwd, r.branch ?? undefined, r.title ?? undefined),
+    ticket: ticketOf(cwd, branch, r.title ?? undefined),
     worktree: worktreeOf(cwd),
     costUSD: r.cost ?? undefined,
     linesAdded: r.lines_added ?? undefined,
     linesRemoved: r.lines_removed ?? undefined,
     lastPrompt: r.last_prompt ?? undefined,
     size: r.size,
+    term: l?.tmux?.match(/^cockpit-([^:]+):/)?.[1],
   };
 }
 
@@ -287,13 +321,15 @@ async function poll() {
     if (file) await indexFile(file, basename(dirname(file))).catch(() => {});
     else await indexAll();
   }
+  await refreshBranches();
   const sessions = listSessions({ liveOnly: true });
-  const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.title, s.costUSD, s.updatedAt]));
+  const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.title, s.costUSD, s.updatedAt, s.branch]));
   if (snap !== lastSnapshot) {
     lastSnapshot = snap;
     broadcast({ type: "sessions", sessions });
     sessionsChanged(sessions);
   }
+  escalate(sessions);
 }
 
 export function startSessions() {

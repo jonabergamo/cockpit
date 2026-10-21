@@ -1,0 +1,19 @@
+{
+  "id": "push",
+  "name": "Phone push",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Sends cockpit's notifications to your phone through ntfy or Pushover: a session waiting, checks failing, a task done, autopilot giving up. Sessions left waiting get a second, high-priority push.",
+  "author": "cockpit",
+  "defaultOn": false,
+  "settings": [
+    { "key": "service", "label": "Service", "type": "choice", "choices": ["ntfy", "pushover"], "default": "ntfy" },
+    { "key": "ntfyServer", "label": "ntfy server", "type": "text", "default": "https://ntfy.sh", "help": "Your own server, or ntfy.sh" },
+    { "key": "ntfyTopic", "label": "ntfy topic", "type": "text", "help": "Pick something hard to guess; anyone who knows a topic on ntfy.sh can read it" },
+    { "key": "ntfyToken", "label": "ntfy access token", "type": "secret", "help": "Only for a protected topic" },
+    { "key": "pushoverToken", "label": "Pushover app token", "type": "secret" },
+    { "key": "pushoverUser", "label": "Pushover user key", "type": "secret" },
+    { "key": "onlyUrgent", "label": "Only the urgent ones", "type": "bool", "default": false, "help": "Just the second nudge for sessions left waiting, and autopilot giving up" },
+    { "key": "openUrl", "label": "Cockpit's address on your phone", "type": "text", "help": "e.g. https://your-box.your-tailnet.ts.net:8444, so tapping a push opens the right page" }
+  ]
+}

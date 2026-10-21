@@ -1,6 +1,7 @@
 // Fake data for COCKPIT_DEMO=1, used for screenshots and the launch video. Nothing here touches Jira, GitHub or ~/.claude.
 import type { Hono } from "hono";
-import type { Entry, PullRequest, Session, Ticket, WorkflowRun, Worktree } from "@cockpit/shared";
+import type { AskInfo, BoardCard, Entry, PullRequest, Session, Task, Ticket, WorkflowRun, Worktree } from "@cockpit/shared";
+import { columnOf, matchWorker } from "./board.ts";
 import { paths } from "./config.ts";
 import { broadcast } from "./hub.ts";
 import { burndown, burnup, distribution, people, spans, workdays, type Transition } from "./report.ts";
@@ -275,6 +276,123 @@ const reviews = [
   { id: 1, repo: "acme/shop", pr: 1281, url: "https://github.com/acme/shop/pull/1281", title: "Wishlist sharing links", author: "ana", started_at: now - 26 * H, term_id: null, status: "done", review_url: "https://github.com/acme/shop/pull/1281#pullrequestreview-2", verdict: "Changes requested", comments: 5 },
 ];
 
+// ---------- the Board, tasks and the rest of the orchestration screens ----------
+const demoTasks: Task[] = [
+  { id: "t-423-1", group: "g-423", title: "Spike: offline basket sync", prompt: "Try a service worker that keeps the basket in IndexedDB and syncs it when the network is back. Write up what works.", ticket: "ACME-423", attempt: 1, status: "running", dependsOn: [], worktree: wt("ACME-423"), branch: "feat/ACME-423/offline-basket", sessionId: "d10", createdAt: now - 1.2 * H, startedAt: now - 1.1 * H },
+  { id: "t-423-2", group: "g-423", title: "Spike: offline basket sync", prompt: "Try a service worker that keeps the basket in IndexedDB and syncs it when the network is back. Write up what works.", ticket: "ACME-423", attempt: 2, status: "done", dependsOn: [], worktree: wt("ACME-423-2"), branch: "feat/ACME-423-2/offline-basket", sessionId: "d11", createdAt: now - 1.2 * H, startedAt: now - 1.1 * H, finishedAt: now - 0.3 * H },
+  { id: "t-420-1", group: "g-420", title: "Empty state for the wishlist", prompt: "Add the empty state from the design file to the wishlist page, with a link back to the shop.", ticket: "ACME-420", attempt: 1, status: "queued", dependsOn: ["g-423"], createdAt: now - 0.5 * H },
+];
+
+function demoBoard(): BoardCard[] {
+  const live = sessions.filter((x) => x.status !== "ended");
+  const cards: BoardCard[] = [];
+  for (const w of worktrees.filter((x) => !x.main)) {
+    const { pr: p, session: ss } = matchWorker(w, prs.mine, live);
+    const autopilot = w.ticket === "ACME-412" ? { on: true, attempts: 1, gaveUp: false, note: "Fixing the checks: told its session" } : undefined;
+    const verify = w.ticket === "ACME-418" ? { state: "pass" as const, at: now - 0.8 * H } : undefined;
+    const placed = columnOf({ session: ss, pr: p, verify, autopilot });
+    cards.push({
+      id: w.path,
+      kind: "worktree",
+      title: tickets.find((t) => t.key === w.ticket)?.summary ?? w.name,
+      ticket: w.ticket,
+      folder: `${w.name} · acme`,
+      path: w.path,
+      branch: w.branch,
+      ...placed,
+      session: ss && { id: ss.id, status: ss.status, updatedAt: ss.updatedAt, title: ss.title, pid: ss.pid },
+      pr: p && { number: p.number, url: p.url, title: p.title, state: p.state, checks: p.checks, review: p.reviewDecision, isDraft: p.isDraft, mergeable: p.state === "OPEN" ? "MERGEABLE" : undefined },
+      verify,
+      autopilot,
+      updatedAt: Math.max(ss?.updatedAt ?? 0, p ? Date.parse(p.mergedAt ?? p.createdAt) : 0),
+    });
+  }
+  for (const t of demoTasks) {
+    const busy = t.status === "running";
+    const placed = t.status === "queued" ? { column: "queued" as const, reason: "Waiting on another task or a free slot" } : columnOf({ session: { status: busy ? "busy" : "idle", updatedAt: now }, task: t });
+    cards.push({
+      id: t.worktree ?? `t:${t.id}`,
+      kind: t.worktree ? "worktree" : "task",
+      title: t.title,
+      ticket: t.ticket,
+      folder: t.worktree ? `${t.worktree.split("/").slice(-2, -1)[0]} · acme` : "new worktree",
+      path: t.worktree,
+      branch: t.branch,
+      ...placed,
+      session: t.sessionId ? { id: t.sessionId, status: busy ? "busy" : "idle", updatedAt: now - (busy ? 0 : 0.3 * H) } : undefined,
+      task: { id: t.id, group: t.group, status: t.status, attempt: t.attempt, title: t.title },
+      updatedAt: t.createdAt,
+    });
+  }
+  const main = live.find((x) => !x.worktree);
+  if (main) {
+    const stuck = "Busy for 41 minutes with nothing new in its transcript";
+    cards.push({ id: `s:${main.id}`, kind: "session", title: main.title ?? "claude", folder: "acme", path: main.cwd, branch: main.branch, ...columnOf({ session: main, stuck }), session: { id: main.id, status: main.status, updatedAt: main.updatedAt, title: main.title }, stuck, updatedAt: main.updatedAt });
+  }
+  return cards.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+const demoAsk = (id: string): AskInfo => {
+  const s = sessions.find((x) => x.id === id);
+  if (s?.status !== "idle") return { reachable: true, options: [], screen: "● Reading the checkout components…\n\n✻ Working (esc to interrupt)" };
+  if (id === "d2")
+    return {
+      reachable: true,
+      screen: "● The prefix index is in. I'll run the search tests next.\n\n Bash command\n   pnpm test --filter search\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and don't ask again for pnpm test\n   3. No, and tell Claude what to do differently (esc)",
+      question: "Do you want to proceed?",
+      options: [
+        { key: "1", label: "Yes" },
+        { key: "2", label: "Yes, and don't ask again for pnpm test" },
+        { key: "3", label: "No, and tell Claude what to do differently (esc)" },
+      ],
+      last: "The prefix index is in. I'll run the search tests next.",
+    };
+  return { reachable: true, options: [], screen: "● Apple Pay now shows on Safari and Chrome on Android. The review comment about the button size is fixed too.\n\n  Should I also hide it on desktop browsers that don't support it, or leave the fallback button?\n\n✻ Cooked for 2m 10s", last: "Should I also hide it on desktop browsers that don't support it, or leave the fallback button?" };
+};
+
+const demoGroup = (g: string) => {
+  const list = demoTasks.filter((t) => t.group === g);
+  if (!list.length) return undefined;
+  const files = (n: number) =>
+    [
+      { path: "src/basket/offline.ts", added: 84 + n * 20, removed: 0, status: "A" },
+      { path: "src/sw.ts", added: 41 - n * 9, removed: 3, status: "M" },
+      { path: "docs/offline-basket.md", added: 36, removed: 0, status: "A" },
+    ].slice(0, 2 + n);
+  return {
+    title: list[0].title,
+    prompt: list[0].prompt,
+    ticket: list[0].ticket,
+    dependsOn: list[0].dependsOn,
+    attempts: list.map((t, i) => ({ task: t, files: t.worktree ? files(i) : [], session: t.sessionId ? { id: t.sessionId, status: t.status === "running" ? "busy" : "idle", costUSD: 1.4 + i, linesAdded: 120 + i * 30, linesRemoved: 3, updatedAt: now - i * 0.3 * H } : undefined })),
+  };
+};
+
+const demoDigest = [
+  { at: now - 0.3 * H, kind: "task", title: "Task done: Spike: offline basket sync", body: "Attempt 2", link: "/tasks/g-423" },
+  { at: now - 0.8 * H, kind: "notify", title: "Claude is waiting", body: "Prefix index for search", link: "/sessions/d2" },
+  { at: now - 1.1 * H, kind: "autopilot", title: "Autopilot is on #1291", body: "Checks failed, so it told its session.", link: "/board" },
+];
+
+const demoTools = {
+  days: 30,
+  tools: [
+    { name: "Read", calls: 1840, tokens: 2_400_000 },
+    { name: "Bash", calls: 1210, tokens: 1_650_000 },
+    { name: "Grep", calls: 960, tokens: 610_000 },
+    { name: "Edit", calls: 720, tokens: 140_000 },
+    { name: "WebFetch", calls: 44, tokens: 120_000 },
+    { name: "Glob", calls: 310, tokens: 60_000 },
+  ],
+  commands: [
+    { name: "pnpm test", calls: 220, tokens: 690_000 },
+    { name: "git diff", calls: 160, tokens: 380_000 },
+    { name: "pnpm build", calls: 90, tokens: 240_000 },
+    { name: "rg", calls: 140, tokens: 120_000 },
+    { name: "git log", calls: 80, tokens: 60_000 },
+  ],
+};
+
 export function mountDemo(app: Hono) {
   const ok = (v: unknown) => () => new Response(JSON.stringify(v), { headers: { "content-type": "application/json" } });
   const routes: Record<string, (q: URLSearchParams) => Response> = {
@@ -285,7 +403,11 @@ export function mountDemo(app: Hono) {
     "/api/sprints": ok([sprint]),
     "/api/worktrees": ok(worktrees),
     "/api/jobs": ok([]),
-    "/api/code/terms": ok([]),
+    "/api/board": () => Response.json(demoBoard()),
+    "/api/tasks": ok(demoTasks),
+    "/api/digest": ok(demoDigest),
+    "/api/usage/tools": ok(demoTools),
+    "/api/preview": ok(null),
     "/api/code/roots": ok({ worktrees: worktrees.map((w) => ({ path: w.path, name: w.name, branch: w.branch, ticket: w.ticket })), projects: [paths.root], folders: [] }),
     "/api/usage": ok(usage()),
     "/api/reviews": ok(reviews),
@@ -317,8 +439,15 @@ export function mountDemo(app: Hono) {
       const s = sessions.find((x) => x.id === sm[1]);
       if (!sm[2]) return c.json(s ?? sessions[0]);
       if (sm[2] === "/agents") return c.json([]);
+      if (sm[2] === "/ask") return c.json(demoAsk(sm[1]));
       if (sm[2] === "/entries") return c.json({ entries: withIds(script, 0), offset: 0, truncated: false });
     }
+    const gm = p.match(/^\/api\/tasks\/group\/([^/]+)$/);
+    if (gm && c.req.method === "GET") {
+      const g = demoGroup(gm[1]);
+      return g ? c.json(g) : c.notFound();
+    }
+    if (/^\/api\/sessions\/[^/]+\/(send|keys)$/.test(p) && c.req.method === "POST") return c.json({ sent: true });
     const tm = p.match(/^\/api\/tickets\/([A-Z]+-\d+)$/);
     if (tm && c.req.method === "GET") {
       const t = tickets.find((x) => x.key === tm[1]) ?? tickets[0];

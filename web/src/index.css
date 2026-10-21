@@ -233,3 +233,7 @@ body {
 .term-no-scrollbar .xterm .xterm-scrollable-element > .scrollbar {
   display: none !important;
 }
+
+/* lines with a review note in DiffReview */
+.review-note-line { background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.review-note-glyph { background: var(--amber); border-radius: 99px; width: 6px !important; height: 6px !important; margin: 7px 0 0 6px; }

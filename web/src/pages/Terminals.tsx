@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { DiffReview } from "../components/DiffReview";
 import { FileTree } from "../components/FileTree";
 import { GitHistory } from "../components/GitHistory";
 import { Terminal } from "../components/Terminal";
@@ -213,6 +214,8 @@ function ChangesSide({ id, onHide }: { id: string; onHide: () => void }) {
   const d = q.data;
   const changed = new Map((d?.changes ?? []).map((c) => [c.path, (c.index + c.work).trim().replace("??", "U")]));
   const open = (file?: string) => d?.root && navigate({ to: "/code", search: { root: d.root, file, diff: file ? true : undefined } });
+  const [reviewing, setReviewing] = useState(false);
+  const sessionHere = useLiveSessions().find((x) => x.term === id);
   const [history, setHistory] = useState(() => {
     try {
       return localStorage.getItem(HISTORY) !== "0";
@@ -234,6 +237,11 @@ function ChangesSide({ id, onHide }: { id: string; onHide: () => void }) {
           Changes{d?.changes.length ? ` ${d.changes.length}` : ""}
           {d?.root && <span className="text-muted font-normal"> · {shortPath(d.root).split("/").pop()}</span>}
         </span>
+        {d?.root && !!d.changes.length && (
+          <button onClick={() => setReviewing(true)} className="text-[12px] text-cobalt px-1.5 h-6 rounded hover:bg-ground" title="Read the diff and leave notes for Claude on specific lines">
+            Review
+          </button>
+        )}
         {d?.root && (
           <button onClick={() => open()} className="text-[12px] text-cobalt px-1.5 h-6 rounded hover:bg-ground" title={`Open ${d.root} in Code`}>
             Code
@@ -267,6 +275,7 @@ function ChangesSide({ id, onHide }: { id: string; onHide: () => void }) {
           )}
         </>
       )}
+      {reviewing && d?.root && <DiffReview root={d.root} sessionId={sessionHere?.id} onClose={() => setReviewing(false)} />}
     </aside>
   );
 }

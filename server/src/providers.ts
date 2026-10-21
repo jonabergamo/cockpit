@@ -60,6 +60,7 @@ export const myPrs = async (fresh = false): Promise<PullRequest[]> => (await cod
 export const reviewQueue = async (fresh = false): Promise<PullRequest[]> => (await codeHost()?.reviewQueue?.(fresh)) ?? [];
 export const deploys = async (since: string) => (await codeHost()?.deploys?.(since)) ?? [];
 export const failingChecks = async (n: number) => (await codeHost()?.failingChecks?.(n)) ?? [];
+export const reviewThreads = async (n: number) => (await codeHost()?.reviewThreads?.(n)) ?? [];
 export const parsePr = (input: string): PrRef | undefined => codeHost()?.parsePr?.(input);
 
 // PR reviews need these three from the code host

@@ -97,7 +97,8 @@ export function unlink(ticket: string, worktree: string) {
   db.prepare("delete from links where ticket = ? and worktree = ?").run(ticket, worktree);
 }
 
-export function createWorktree(key: string, summary: string) {
+// `ticket` is what the worktree belongs to when the folder key isn't the ticket itself, like a second attempt
+export function createWorktree(key: string, summary: string, opts: { ticket?: string; onDone?: (ok: boolean, path: string, branch: string, output: string) => void } = {}) {
   const slug = slugify(summary) || "work";
   const branch = fill(repo.branchTemplate, { key, slug });
   const command = fill(repo.createCommand, {
@@ -108,10 +109,12 @@ export function createWorktree(key: string, summary: string) {
     branch,
     name: repo.name,
   });
+  const path = join(repo.worktreesDir, key, repo.name);
   return startJob(`create ${key}`, command, repo.path, (job) => {
+    opts.onDone?.(job.code === 0, path, branch, job.output);
     if (job.code !== 0) return;
-    link(key, join(repo.worktreesDir, key, repo.name));
-    emit("worktree.created", { key, path: join(repo.worktreesDir, key, repo.name), branch });
+    if (opts.ticket !== "") link(opts.ticket ?? key, path);
+    emit("worktree.created", { key, path, branch });
   });
 }
 

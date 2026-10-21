@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Entry, Session, Subagent } from "@cockpit/shared";
+import { ReplyPanel } from "../components/ReplyPanel";
 import { Timeline } from "../components/Timeline";
 import { Button, copy, ErrorNote, Loading, Tag } from "../components/ui";
 import { api, qs } from "../lib/api";
@@ -143,7 +144,7 @@ export function SessionPage() {
             const el = e.currentTarget;
             follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
-          className="h-[calc(100vh-230px)] overflow-y-auto pr-2"
+          className={`${status && status !== "ended" ? "h-[calc(100vh-330px)]" : "h-[calc(100vh-230px)]"} overflow-y-auto pr-2`}
         >
           {t.truncated && (
             <div className="text-center mb-3">
@@ -156,6 +157,11 @@ export function SessionPage() {
           <ErrorNote error={t.error} />
           {status === "busy" && <div className="text-cobalt text-[13px] mt-3 animate-pulse">Claude is working</div>}
         </div>
+        {s?.id && status && status !== "ended" && (
+          <div className="border-t border-line pt-3 mt-2">
+            <ReplyPanel session={{ ...s, status }} compact />
+          </div>
+        )}
       </div>
 
       <aside className="hidden lg:block w-[280px] shrink-0 space-y-4">

@@ -29,6 +29,10 @@ const schema = z.object({
       createCommand: z.string().default("git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/main"),
       deleteCommand: z.string().default("git -C {repo} worktree remove {path}"),
       openCommand: z.string().default("code {path}"),
+      // run in a worktree when its session finishes, e.g. "pnpm lint && pnpm test"; empty skips the check
+      verifyCommand: z.string().default(""),
+      // starts the app for a preview; {port} is a free port cockpit picks
+      devCommand: z.string().default(""),
     })
     .prefault({}),
   jira: z

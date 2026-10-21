@@ -121,6 +121,57 @@ function TopList({ title, items }: { title: string; items: { key: string; label:
   );
 }
 
+interface ToolReport {
+  days: number;
+  tools: { name: string; calls: number; tokens: number }[];
+  commands: { name: string; calls: number; tokens: number }[];
+}
+
+const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+
+function Bars({ title, rows }: { title: string; rows: ToolReport["tools"] }) {
+  const max = Math.max(1, ...rows.map((r) => r.tokens));
+  return (
+    <div className="min-w-0">
+      <h3 className="text-[13px] font-medium mb-1.5">{title}</h3>
+      <div className="space-y-1">
+        {rows.slice(0, 10).map((r) => (
+          <div key={r.name} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 items-center text-[12.5px]" title={`${r.calls} calls, about ${compact(r.tokens)} tokens of results`}>
+            <div className="min-w-0">
+              <div className="truncate font-mono text-[12px]">{r.name}</div>
+              <div className="h-1.5 rounded-full bg-ground mt-0.5">
+                <div className="h-full rounded-full bg-cobalt" style={{ width: `${Math.max(2, (r.tokens / max) * 100)}%` }} />
+              </div>
+            </div>
+            <div className="text-right tabular-nums text-muted">
+              {compact(r.tokens)} <span className="text-faint">· {r.calls}×</span>
+            </div>
+          </div>
+        ))}
+        {!rows.length && <div className="text-[12px] text-faint">Nothing yet. This fills in as transcripts are indexed.</div>}
+      </div>
+    </div>
+  );
+}
+
+// What tool results put back into the context, the part of a session that grows fastest
+function WhereTokensGo() {
+  const q = useQuery({ queryKey: ["usage-tools"], queryFn: () => api.get<ToolReport>("/usage/tools?days=30"), staleTime: 5 * 60_000 });
+  if (!q.data) return null;
+  return (
+    <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
+      <div>
+        <h2 className="font-semibold">Where tokens go</h2>
+        <p className="text-[13px] text-muted mt-0.5">What tool results added to the context over the last 30 days, at about 4 characters a token. Big readers and chatty commands are where trimming pays off.</p>
+      </div>
+      <div className="grid md:grid-cols-2 gap-5">
+        <Bars title="Tools" rows={q.data.tools} />
+        <Bars title="Shell commands" rows={q.data.commands} />
+      </div>
+    </section>
+  );
+}
+
 export function UsagePage() {
   const q = useQuery({ queryKey: ["usage"], queryFn: () => api.get<UsageRes>("/usage?days=30") });
   const t = useTokens();
@@ -258,6 +309,8 @@ export function UsagePage() {
             />
             <TopList title="Top folders" items={u.top.folders.map((x) => ({ key: x.name, costUSD: x.costUSD, label: x.name }))} />
           </div>
+
+          <WhereTokensGo />
 
           <section className="bg-panel border border-line rounded-lg p-4">
             <h2 className="font-semibold">5 hour window over the last week</h2>

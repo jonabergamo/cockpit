@@ -30,7 +30,22 @@ const core: Requirement[] = [
     docs: "https://github.com/tmux/tmux/wiki/Installing",
     optional: true,
   },
+  {
+    // the MCP server in server/mcp: lets a Claude session see the Board, queue tasks and answer workers
+    id: "cockpit-mcp",
+    name: "Cockpit tools for Claude",
+    check: ["claude", "mcp", "get", "cockpit"],
+    install: { linux: mcpInstall(), darwin: mcpInstall() },
+    docs: "https://docs.anthropic.com/en/docs/claude-code/mcp",
+    optional: true,
+  },
 ];
+
+function mcpInstall() {
+  const tsx = join(paths.root, "server/node_modules/.bin/tsx");
+  const entry = join(paths.root, "server/mcp/cockpit-mcp.ts");
+  return `claude mcp add --scope user cockpit -e COCKPIT_URL=http://127.0.0.1:${config.port} -- ${JSON.stringify(tsx)} ${JSON.stringify(entry)}`;
+}
 
 // installers that need root or a package manager are shown to copy, never run from here
 const SAFE = (cmd: string) => !/\b(sudo|su|brew|apt|apt-get|dnf|yum|pacman|zypper|snap|port|xcode-select)\b/.test(cmd) && !/^see /.test(cmd);

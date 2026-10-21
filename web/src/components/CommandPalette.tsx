@@ -7,6 +7,7 @@ import { type ConfigFile, type Session, type Ticket, type Worktree } from "@cock
 import { api } from "../lib/api";
 import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
+import { newTask } from "./NewTask";
 import { useAppConfig } from "../lib/queries";
 import { themeStore, useThemes } from "../lib/theme";
 
@@ -79,6 +80,9 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
           <Command.Group heading="Terminals" className={group}>
             <Command.Item value="new terminal shell claude launch" className={item} onSelect={() => go(launcher.open)}>
               New terminal…
+            </Command.Item>
+            <Command.Item value="new task queue worktree claude attempts" className={item} onSelect={() => go(() => newTask.open())}>
+              New task…
             </Command.Item>
           </Command.Group>
           <Command.Group heading="Pages" className={group}>

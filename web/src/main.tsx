@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { Layout } from "./components/Layout";
 import { EmbedTerminal } from "./components/EmbedTerminal";
 import { PluginFrame } from "./components/PluginFrame";
+import { BoardPage } from "./pages/Board";
+import { TaskGroupPage, TasksPage } from "./pages/Tasks";
 import { CodePage } from "./pages/Code";
 import { MemoryPage } from "./pages/Memory";
 import { ReportPage } from "./pages/Report";
@@ -31,6 +33,9 @@ const root = createRootRoute({ component: Layout });
 
 const routes = [
   createRoute({ getParentRoute: () => root, path: "/", component: TodayPage }),
+  createRoute({ getParentRoute: () => root, path: "/board", component: BoardPage, validateSearch: (s): { card?: string } => ({ card: str(s.card) }) }),
+  createRoute({ getParentRoute: () => root, path: "/tasks", component: TasksPage }),
+  createRoute({ getParentRoute: () => root, path: "/tasks/$group", component: TaskGroupPage }),
   createRoute({ getParentRoute: () => root, path: "/sessions", component: SessionsPage }),
   createRoute({ getParentRoute: () => root, path: "/sessions/$id", component: SessionPage, validateSearch: (s): { agent?: string } => ({ agent: str(s.agent) }) }),
   createRoute({ getParentRoute: () => root, path: "/workflows", component: WorkflowsPage }),

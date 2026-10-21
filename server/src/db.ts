@@ -81,6 +81,59 @@ db.exec(`
     value text not null,
     updated_at integer not null
   );
+
+  -- work cockpit starts for you: one row per attempt, grouped when you ask for several
+  create table if not exists tasks (
+    id text primary key,
+    group_id text not null,
+    title text not null,
+    prompt text not null,
+    ticket text,
+    model text,
+    attempt integer not null default 1,
+    status text not null,
+    depends_on text not null default '[]',
+    worktree text,
+    branch text,
+    job_id text,
+    term_id text,
+    session_id text,
+    created_at integer not null,
+    started_at integer,
+    finished_at integer,
+    error text
+  );
+
+  create table if not exists autopilot (
+    worktree text primary key,
+    enabled integer not null,
+    attempts integer not null default 0,
+    signature text,
+    last_at integer,
+    gave_up integer not null default 0,
+    note text
+  );
+
+  create table if not exists verify (
+    worktree text primary key,
+    state text not null,
+    at integer not null,
+    code integer,
+    job_id text,
+    fingerprint text,
+    summary text
+  );
+
+  -- what happened, for "while you were away"
+  create table if not exists events_log (
+    id integer primary key autoincrement,
+    at integer not null,
+    kind text not null,
+    title text not null,
+    body text,
+    link text,
+    ref text
+  );
 `);
 
 const inflight = new Map<string, Promise<unknown>>();

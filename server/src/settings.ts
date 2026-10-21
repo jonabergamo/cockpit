@@ -25,6 +25,33 @@ const schema = z.object({
       codeSize: z.number().int().min(9).max(24).default(13),
     })
     .default({ ui: "", code: "", codeSize: 13 }),
+  // what the Board does on its own
+  autopilot: z
+    .object({
+      // how many times it hands the same PR back to Claude before it stops and asks you
+      maxAttempts: z.number().int().min(1).max(10).default(3),
+      // new worktrees start with autopilot on
+      onByDefault: z.boolean().default(false),
+    })
+    .prefault({}),
+  tasks: z
+    .object({
+      maxParallel: z.number().int().min(1).max(12).default(3),
+      // queued tasks wait while the 5 hour limit is above this
+      pauseAbovePct: z.number().int().min(10).max(100).default(85),
+      defaultModel: z.string().max(60).default(""),
+    })
+    .prefault({}),
+  verify: z.object({ auto: z.boolean().default(true) }).prefault({}),
+  alerts: z
+    .object({
+      // busy this long without the transcript growing counts as stuck
+      stuckMinutes: z.number().int().min(5).max(240).default(20),
+      // waiting this long sends a second, urgent notification
+      escalateMinutes: z.number().int().min(0).max(240).default(15),
+    })
+    .prefault({}),
+  away: z.object({ minutes: z.number().int().min(5).max(24 * 60).default(30) }).prefault({}),
 });
 export type Settings = z.infer<typeof schema>;
 

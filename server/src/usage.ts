@@ -131,6 +131,99 @@ async function indexFile(path: string) {
   putFile.run(path, offset, size);
 }
 
+// ---------- which tools the tokens go to ----------
+// Every tool call, and how much text its result put back into the context. Results are what fill the context,
+// so their size (about 4 characters a token) is the cost of a tool, more than the call itself.
+db.exec(`
+  create table if not exists tool_usage (
+    tool_use_id text primary key,
+    session_id text,
+    ts text not null,
+    tool text not null,
+    detail text,
+    result_chars integer not null default 0
+  );
+  create index if not exists tool_usage_ts on tool_usage (ts);
+  create table if not exists tool_files (path text primary key, offset integer not null, size integer not null);
+`);
+
+// "cd app && pnpm test --filter web" is a pnpm call
+export function commandHead(cmd: string) {
+  const parts = cmd.split(/&&|;|\|\|/).map((p) => p.trim()).filter(Boolean);
+  const main = parts.find((p) => !/^(cd|export|source|set)\b/.test(p)) ?? parts[0] ?? "";
+  const words = main.split(/\s+/).filter((w) => !/^\w+=/.test(w));
+  const head = (words[0] ?? "").replace(/^.*\//, "");
+  return ["npx", "pnpm", "npm", "yarn", "bun", "uv", "python", "python3", "node", "git", "docker", "gh"].includes(head) && words[1] && !words[1].startsWith("-") ? `${head} ${words[1]}` : head;
+}
+
+export interface ToolCall {
+  id: string;
+  tool: string;
+  detail?: string;
+  ts: string;
+  sessionId?: string;
+}
+// the tool calls and results on one transcript line
+export function toolsOf(line: string): { calls: ToolCall[]; results: { id: string; chars: number }[] } {
+  const out = { calls: [] as ToolCall[], results: [] as { id: string; chars: number }[] };
+  if (!line.includes('"tool_use"') && !line.includes('"tool_result"')) return out;
+  const d = JSON.parse(line);
+  const content = d.message?.content;
+  if (!Array.isArray(content)) return out;
+  for (const c of content) {
+    if (c.type === "tool_use") out.calls.push({ id: c.id, tool: c.name, detail: c.name === "Bash" && typeof c.input?.command === "string" ? commandHead(c.input.command) : undefined, ts: d.timestamp ?? "", sessionId: d.sessionId });
+    if (c.type === "tool_result") out.results.push({ id: c.tool_use_id, chars: typeof c.content === "string" ? c.content.length : JSON.stringify(c.content ?? "").length });
+  }
+  return out;
+}
+
+const getToolFile = db.prepare<[string], { offset: number; size: number }>("select offset, size from tool_files where path = ?");
+const putToolFile = db.prepare("insert or replace into tool_files (path, offset, size) values (?, ?, ?)");
+const putCall = db.prepare("insert or ignore into tool_usage (tool_use_id, session_id, ts, tool, detail) values (?, ?, ?, ?, ?)");
+const putResult = db.prepare("update tool_usage set result_chars = ? where tool_use_id = ?");
+
+async function indexTools(path: string) {
+  const { size } = await stat(path);
+  const prev = getToolFile.get(path);
+  if (prev?.size === size) return;
+  let offset = prev && prev.offset <= size ? prev.offset : 0;
+  while (offset < size) {
+    const chunk = await readFrom(path, offset);
+    if (chunk.offset === offset) break;
+    const calls: ToolCall[] = [];
+    const results: { id: string; chars: number }[] = [];
+    for (const line of chunk.lines) {
+      try {
+        const t = toolsOf(line);
+        calls.push(...t.calls);
+        results.push(...t.results);
+      } catch {}
+    }
+    db.transaction(() => {
+      for (const c of calls) putCall.run(c.id, c.sessionId ?? null, c.ts, c.tool, c.detail ?? null);
+      for (const r of results) putResult.run(r.chars, r.id);
+    })();
+    offset = chunk.offset;
+  }
+  putToolFile.run(path, offset, size);
+}
+
+export function toolReport(days: number) {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const tools = db
+    .prepare<[string], { tool: string; calls: number; chars: number }>("select tool, count(*) calls, sum(result_chars) chars from tool_usage where ts >= ? group by tool order by chars desc limit 25")
+    .all(since);
+  const commands = db
+    .prepare<[string], { detail: string; calls: number; chars: number }>("select detail, count(*) calls, sum(result_chars) chars from tool_usage where ts >= ? and tool = 'Bash' and detail is not null and detail != '' group by detail order by chars desc limit 20")
+    .all(since);
+  const tok = (chars: number) => Math.round((chars ?? 0) / 4);
+  return {
+    days,
+    tools: tools.map((t) => ({ name: t.tool, calls: t.calls, tokens: tok(t.chars) })),
+    commands: commands.map((c) => ({ name: c.detail, calls: c.calls, tokens: tok(c.chars) })),
+  };
+}
+
 async function* transcripts(dir: string): AsyncGenerator<string> {
   for (const d of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
     const p = join(dir, d.name);
@@ -143,7 +236,10 @@ let running: Promise<void> | null = null;
 
 export function indexUsage() {
   running ??= (async () => {
-    for await (const p of transcripts(projectsDir)) await indexFile(p).catch(() => {});
+    for await (const p of transcripts(projectsDir)) {
+      await indexFile(p).catch(() => {});
+      await indexTools(p).catch(() => {});
+    }
   })().finally(() => (running = null));
   return running;
 }

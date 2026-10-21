@@ -14,6 +14,7 @@ export interface NavItem {
 
 export const coreNav: NavItem[] = [
   { to: "/", label: "Today", key: "t" },
+  { to: "/board", label: "Board", key: "b" },
   { to: "/sessions", label: "Sessions", key: "s" },
   { to: "/workflows", label: "Workflows", key: "f" },
   { to: "/tickets", label: "Tickets", key: "j", needs: "tracker" as const },

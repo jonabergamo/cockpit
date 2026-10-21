@@ -9,6 +9,7 @@ import { themeStore } from "../lib/theme";
 import { CommandPalette } from "./CommandPalette";
 import { UsageMini } from "./UsageMini";
 import { TerminalLauncher } from "./TerminalLauncher";
+import { NewTaskModal } from "./NewTask";
 import { SessionStrip } from "./SessionStrip";
 import { ThemePicker } from "./ThemePicker";
 import { notifyStore, useNotifyMode, type NotifyMode } from "../lib/notifications";
@@ -131,6 +132,7 @@ export function Layout() {
       </div>
       <CommandPalette nav={nav} />
       <TerminalLauncher />
+      <NewTaskModal />
     </div>
   );
 }

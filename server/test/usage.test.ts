@@ -50,3 +50,21 @@ describe("reviews", () => {
     expect(out).toEqual({ reviewUrl: "https://github.com/acme/shop/pull/1288#pullrequestreview-555", verdict: "Approved with comments" });
   });
 });
+
+import { commandHead, toolsOf } from "../src/usage.ts";
+
+describe("tool usage", () => {
+  it("names the command a Bash call ran", () => {
+    expect(commandHead("cd web && pnpm test --filter web")).toBe("pnpm test");
+    expect(commandHead("NODE_ENV=test node scripts/x.mjs")).toBe("node scripts/x.mjs");
+    expect(commandHead("/usr/bin/rg -n foo src")).toBe("rg");
+    expect(commandHead("git status -sb")).toBe("git status");
+  });
+  it("reads calls and result sizes off transcript lines", () => {
+    const call = JSON.stringify({ type: "assistant", sessionId: "s1", timestamp: "2026-10-01T00:00:00Z", message: { content: [{ type: "tool_use", id: "u1", name: "Bash", input: { command: "ls -la" } }] } });
+    const result = JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "u1", content: "a".repeat(400) }] } });
+    expect(toolsOf(call).calls).toEqual([{ id: "u1", tool: "Bash", detail: "ls", ts: "2026-10-01T00:00:00Z", sessionId: "s1" }]);
+    expect(toolsOf(result).results).toEqual([{ id: "u1", chars: 400 }]);
+    expect(toolsOf('{"type":"assistant"}')).toEqual({ calls: [], results: [] });
+  });
+});

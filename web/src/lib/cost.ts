@@ -9,7 +9,16 @@ export interface Billing {
   why: string;
 }
 export interface SettingsRes {
-  settings: { costs: CostMode; hidden: string[]; fonts: Fonts };
+  settings: {
+    costs: CostMode;
+    hidden: string[];
+    fonts: Fonts;
+    autopilot: { maxAttempts: number; onByDefault: boolean };
+    tasks: { maxParallel: number; pauseAbovePct: number; defaultModel: string };
+    verify: { auto: boolean };
+    alerts: { stuckMinutes: number; escalateMinutes: number };
+    away: { minutes: number };
+  };
   billing: Billing;
 }
 

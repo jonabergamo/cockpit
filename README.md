@@ -60,16 +60,25 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 ## Features
 
 - **Live sessions.** A strip of every running Claude session that sweeps while Claude works and turns amber when it's waiting. You get a notification when one needs you, and the tab title shows the count.
+- **Board.** Every worktree, session outside a worktree and queued task is a card. Each card sits in the column that says what it needs next: queued, working, needs you, in review or ready to merge. Cards show the PR, its checks and the session. A busy session that has written nothing new for a while is flagged as stuck.
+- **Replies without the terminal.** Answer a permission prompt or type a reply to a running session from the Board, Today, the session strip or its transcript. This works for sessions running in cockpit's terminals.
+- **Autopilot.** Turn it on for a worktree and its PR's failing checks and requested changes go back to its Claude session, with the check logs and the review comments. After a set number of tries it stops and tells you.
+- **Checks before the PR.** Set `repo.verifyCommand` and cockpit runs it in a worktree each time its session finishes. A failure moves the card to Needs you, with a button that sends the output to Claude.
+- **Tasks.** Queue some work and cockpit creates the worktree and starts Claude there with your prompt. It keeps to a limit on how many tasks run at once, and holds new ones when the 5-hour limit is nearly used. A task can run up to 4 attempts, which you compare side by side before keeping one. Tasks can wait for other tasks, so a plan runs in waves.
+- **A lead session.** Cockpit ships an MCP server and a `cockpit-lead` skill. With them, one Claude session plans the work with you, queues the tasks, watches the workers and answers them.
+- **Review before the PR.** Read a worker's diff, leave notes on its lines and send them all to its session as one message.
+- **Previews.** With `repo.devCommand` set, the Board starts a worktree's dev server on a free port and shows it.
+- **While you were away.** After a break, Today lists what finished, failed or waited for you. The Phone push plugin sends notifications to ntfy or Pushover, plus a second, urgent one for a session left waiting.
 - **Transcripts.** Any session in full, with tool calls, subagents and cost, updating as it runs. Full-text search covers everything said in every session.
 - **Browser terminals.** They run in tmux, so they survive a page reload or a server restart. You get split shells next to Claude, search, copy on select and clickable links, and you can paste or drop images straight into Claude.
 - **Git next to the terminal.** The changes in the terminal's repo and its commit history with a branch graph. A commit opens to its files, and a file opens to its diff.
 - **Worktrees.** Each worktree's size on disk, dirty files and ahead/behind, plus a cleaner that finds the ones whose work has shipped.
 - **Code.** A file tree, the Monaco editor, a diff against HEAD, git grep, and stage, commit and push.
-- **Tickets and sprints.** A board from your tracker. A ticket opens a drawer with its worktree, PR, CI state, sessions and comments, and you can start Claude on it from there.
+- **Tickets and sprints.** Your sprint from the tracker, each ticket with its PR, CI state and Claude session. From there you can create its worktree, open it in VS Code, or start or resume Claude on it.
 - **Sprint report.** A burnup of released points, the time each ticket spent in each status, Claude cost per ticket and a day-by-day log, plus a daily update you can polish with Claude.
 - **PR reviews.** Start a Claude review of a pull request, or let Claude fix failed checks and answer review comments.
 - **Memory and skills.** An editor for CLAUDE.md, memories, skills, plans, settings and saved workflows. Every save keeps a backup you can diff and restore.
-- **Usage.** The 5-hour and weekly plan limits, tokens by model and a heatmap of when you use Claude. Cockpit works out from your Claude login whether the dollars are a real bill and labels them "API value" when they aren't. You can also hide them.
+- **Usage.** The 5-hour and weekly plan limits, tokens by model and a heatmap of when you use Claude, plus the tools and shell commands that use the most tokens. Cockpit works out from your Claude login whether the dollars are a real bill and labels them "API value" when they aren't. You can also hide them.
 - **Themes and fonts.** 26 themes from well-known editor palettes, with 34 more in a plugin. Auto follows the system's light or dark mode. Any font installed on your device can be used for the interface and for code.
 - **Plugins.** They add screens, themes, API routes, event listeners and Claude Code skills, or replace the tracker, the code host or the way in from other devices.
 - **Setup in the app.** Settings → Setup checks every tool, login, token and skill that cockpit and your plugins need. It installs what it safely can and opens a terminal for logins.
@@ -134,7 +143,17 @@ A small Electron wrapper for the computer in front of you, while the server stay
 
 On macOS it builds `~/Applications/cockpit.app`. On Linux it adds cockpit to the app menu.
 
+### A lead session (optional)
+
+Settings → Setup has **Cockpit tools for Claude**, which adds cockpit's MCP server to Claude Code (`claude mcp add --scope user cockpit ...`), and the `cockpit-lead` skill. With both installed, **Lead** on the Board opens a Claude session in your repo that can see the Board, queue tasks, read a worker's screen and reply to it. It never merges anything, and it asks you before approving anything risky. The tools talk to cockpit on `127.0.0.1`, or on `COCKPIT_URL` if you set it.
+
 ## Features in action
+
+### Board
+
+Every worktree, session and task, sorted by what it needs next. Open a card to reply to its session, review its changes, run its checks or turn on autopilot.
+
+<img src="docs/board.webp" alt="The Board with columns for queued, working, needs you, in review and ready to merge">
 
 ### Today
 
@@ -180,6 +199,7 @@ A plugin is a folder with a `plugin.json`, plus an optional `server.ts`, themes,
 | --- | --- |
 | **Jira** | Tickets, sprints and epics through Atlassian's `acli`. Feeds Tickets, the Sprint report, Today and the worktree cleaner. |
 | **GitHub** | Your PRs, their checks and the review queue through `gh`. Feeds PR badges, PR reviews and fixing failed checks. |
+| **Phone push** | Sends notifications to your phone through ntfy or Pushover, with a high-priority push for sessions left waiting. Off by default. |
 | **Tailscale** | Lets one Tailscale login in from other devices. |
 | **Extra themes** | 34 more themes, as JSON files with no code. |
 | **Example** | A small plugin to copy from: one screen, two routes, a setting and a listener. |
@@ -204,6 +224,7 @@ flowchart LR
 ```
 
 - The server reads Claude Code's session registry to know what's running. It tails each JSONL transcript by byte offset, so following a 250 MB transcript costs almost nothing. A SQLite index keeps the title, branch and cost of every session.
+- Replies go to the session's tmux pane: text as a bracketed paste, menu answers as key presses. Permission prompts aren't written to the transcript, so cockpit reads the pane to find the question and its options.
 - Terminals live in their own tmux server, so restarting cockpit only drops the browser's connection and the terminal keeps running.
 - Trackers and code hosts are providers that plugins register. Core pages ask whichever one is active, and leave out their ticket or PR parts when there isn't one.
 - The Jira CLI doesn't give status history, so cockpit takes an hourly snapshot of the sprint and records every change itself. The burnup and the status lanes come from those changes.
@@ -232,7 +253,8 @@ The repo is a pnpm workspace with three packages:
 ## Limitations
 
 - Status history starts the first time you run cockpit, so older sprints only show the last status change the tracker knows about.
-- You can't type into a running Claude session from its transcript yet. Resume it in a terminal instead.
+- Replies only reach sessions running in cockpit's terminals. A session started somewhere else is resumed in a cockpit terminal instead.
+- Autopilot needs a code host plugin that reports checks and review comments, like the bundled GitHub one.
 - The worktree commands are templates in the config. Setups that aren't plain `git worktree` need their own.
 - Windows isn't supported. WSL might work, but nobody has tested it.
 

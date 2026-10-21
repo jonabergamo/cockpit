@@ -13,5 +13,5 @@
     "noUnusedLocals": true,
     "paths": { "@cockpit/shared": ["../shared/src/index.ts"] }
   },
-  "include": ["src", "../plugins/**/*.ts"]
+  "include": ["src", "mcp", "../plugins/**/*.ts"]
 }

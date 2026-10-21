@@ -1,6 +1,6 @@
 import type { Cockpit, PrRef, PullRequest } from "@cockpit/shared";
 
-const PR_FIELDS = "number,title,url,headRefName,state,isDraft,reviewDecision,statusCheckRollup,createdAt,mergedAt,author";
+const PR_FIELDS = "number,title,url,headRefName,headRefOid,state,isDraft,reviewDecision,statusCheckRollup,createdAt,mergedAt,author,mergeable,mergeStateStatus";
 
 function checks(rollup: any[] | undefined): PullRequest["checks"] {
   if (!rollup?.length) return "none";
@@ -44,6 +44,9 @@ export default function setup(k: Cockpit) {
     mergedAt: p.mergedAt || undefined,
     author: p.author?.login,
     ticket: k.ticketOf(p.headRefName, p.title),
+    mergeable: p.mergeable || undefined,
+    mergeState: p.mergeStateStatus || undefined,
+    headSha: p.headRefOid || undefined,
   });
 
   const me = () => k.cache("me", 24 * 3600_000, async () => (await gh(["api", "user", "--jq", ".login"])).trim());
@@ -69,6 +72,15 @@ export default function setup(k: Cockpit) {
           return { ...c, tail: errorTail(log) };
         }),
       );
+    },
+    async reviewThreads(n) {
+      const [owner, name] = repo().split("/");
+      const query = `query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved path line comments(first:20){nodes{author{login} body}}}}}}}`;
+      const d = await ghJson<any>(["api", "graphql", "-f", `query=${query}`, "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `n=${n}`]);
+      const threads: any[] = d?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+      return threads
+        .filter((t) => !t.isResolved)
+        .flatMap((t) => t.comments.nodes.map((c: any) => ({ path: t.path ?? undefined, line: t.line ?? undefined, author: c.author?.login, body: c.body })));
     },
     parsePr(input) {
       const s = input.trim();

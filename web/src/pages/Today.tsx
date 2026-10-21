@@ -1,7 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { Session, Worktree } from "@cockpit/shared";
+import { AwayDigest } from "../components/AwayDigest";
 import { PrFix } from "../components/PrFix";
+import { ReplyPanel } from "../components/ReplyPanel";
 import { SetupBanner } from "../components/SetupSection";
 import { RefreshButton } from "../components/RefreshButton";
 import { Button, Empty, ErrorNote, Loading, StatusTag, Tag } from "../components/ui";
@@ -95,6 +97,7 @@ export function TodayPage() {
   return (
     <div className="max-w-[1200px] space-y-5">
       <SetupBanner />
+      <AwayDigest />
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex-1">
           <h1 className="text-[26px] font-semibold tracking-tight">{hello}.</h1>
@@ -204,14 +207,19 @@ export function TodayPage() {
             <h2 className="font-semibold px-4 pt-3 pb-2">Needs you</h2>
             <div className="divide-y divide-line">
               {waiting.map((s) => (
-                <Link key={s.id} to="/sessions/$id" params={{ id: s.id }} className="block px-4 py-2 hover:bg-ground">
-                  <div className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-amber shrink-0" />
-                    <span className="truncate flex-1 text-[13px] font-medium">{s.title ?? s.name ?? shortPath(s.cwd)}</span>
-                    <span className="text-[12px] text-muted">{ago(s.updatedAt)}</span>
+                <div key={s.id} className="px-4 py-2 space-y-1.5">
+                  <Link to="/sessions/$id" params={{ id: s.id }} className="block hover:text-cobalt">
+                    <div className="flex items-center gap-2">
+                      <span className="size-2 rounded-full bg-amber shrink-0" />
+                      <span className="truncate flex-1 text-[13px] font-medium">{s.title ?? s.name ?? shortPath(s.cwd)}</span>
+                      <span className="text-[12px] text-muted">{ago(s.updatedAt)}</span>
+                    </div>
+                    <div className="text-[12px] text-muted pl-4 truncate">Claude is waiting · {shortPath(s.cwd)}</div>
+                  </Link>
+                  <div className="pl-4">
+                    <ReplyPanel session={s} compact />
                   </div>
-                  <div className="text-[12px] text-muted pl-4 truncate">Claude is waiting · {shortPath(s.cwd)}</div>
-                </Link>
+                </div>
               ))}
               {failing.map((p) => (
                 <div key={p.number} className="flex items-center gap-2 px-4 py-2 hover:bg-ground">

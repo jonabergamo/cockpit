@@ -2,12 +2,13 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { backups, createMemory, doctor, listFiles, memories, readBackup, readConfig, writeConfig } from "../claude/memory.ts";
-import { getSession, projectsDir } from "../claude/sessions.ts";
+import { getSession, listSessions, projectsDir } from "../claude/sessions.ts";
+import { readRow, writeRow } from "../settings.ts";
 import { getRun, listRuns } from "../claude/workflows.ts";
 import { config } from "../config.ts";
 import { allowedRoot, gitRoot, insideSaved } from "../files.ts";
 import { startJob } from "../jobs.ts";
-import { spawnTerm } from "../pty.ts";
+import { listTerms, spawnTerm } from "../pty.ts";
 import { fill } from "../util.ts";
 
 export const claude = new Hono()
@@ -48,6 +49,24 @@ export const claude = new Hono()
     if (!ok) return c.json({ error: "cwd not allowed" }, 403);
     const args = picker ? ["--resume"] : prompt ? [prompt] : [];
     return c.json(spawnTerm({ cwd, command: "claude", args, title: title ?? (picker ? "claude --resume" : "claude") }));
+  })
+  // The lead: one long-running Claude per repo that plans with you and runs the work through cockpit's tools.
+  // Opens its terminal when it's running, resumes it when it isn't, or starts one.
+  .post("/lead", (c) => {
+    if (!config.repo.path || !existsSync(config.repo.path)) return c.json({ error: "Set repo.path in config.local.toml first" }, 400);
+    const key = `lead:${config.repo.path}`;
+    const saved = readRow<{ term?: string; session?: string }>(key) ?? {};
+    const terms = listTerms();
+    const term = saved.term && terms.find((t) => t.id === saved.term && t.exited === undefined);
+    // the session that started in its terminal, remembered for next time
+    const live = term && listSessions({ liveOnly: true }).find((s) => s.term === term.id || (!!term.pid && s.pid === term.pid));
+    if (live && live.id !== saved.session) writeRow(key, { ...saved, session: live.id });
+    if (term) return c.json(term);
+    const system = "You are the lead for this repository in cockpit. Use the cockpit-lead skill and the cockpit MCP tools (list_workers, start_task, read_screen, send_message, answer_prompt, pr_status) to plan with the user and run the work through workers. Start by asking what we're working on, unless they already said.";
+    const resume = saved.session && getSession(saved.session) ? ["--resume", saved.session] : [];
+    const t = spawnTerm({ cwd: config.repo.path, command: "claude", args: [...resume, "--append-system-prompt", system], title: `lead · ${config.repo.name}`, session: resume.length ? saved.session : undefined });
+    writeRow(key, { ...saved, term: t.id });
+    return c.json(t);
   })
   .post("/ask", async (c) => {
     const { cwd, prompt } = await c.req.json<{ cwd?: string; prompt: string }>();

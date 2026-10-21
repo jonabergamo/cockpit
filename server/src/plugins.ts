@@ -9,6 +9,9 @@ import { cached } from "./db.ts";
 import { onEvent } from "./events.ts";
 import { broadcast } from "./hub.ts";
 import { notify } from "./notify.ts";
+import { sendText } from "./agents.ts";
+import { startJob } from "./jobs.ts";
+import { createTasks } from "./tasks.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { getSettings, readRow, writeRow } from "./settings.ts";
@@ -238,7 +241,10 @@ function makeApi(p: Plugin): Cockpit {
     sessions: (o) => listSessions(o ?? {}),
     terminals: () => listTerms(),
     claude: (c) => spawnTerm({ cwd: c.cwd, command: "claude", args: c.prompt ? [c.prompt] : [], title: c.title ?? "claude" }),
-    notify: (n) => notify({ title: n.title, body: n.body ?? "", link: n.link ?? "/" }),
+    notify: (n) => notify({ title: n.title, body: n.body ?? "", link: n.link ?? "/", urgent: n.urgent }),
+    sendToSession: (sessionId, text) => sendText(sessionId, text),
+    task: (t) => createTasks(t),
+    job: (label, command, cwd) => new Promise((resolve) => startJob(label, command, cwd, (j) => resolve({ code: j.code ?? 1, output: j.output }))),
     onStop: (fn) => void (live() && p.stops.push(fn)),
     cache: (key, maxAge, fn, force) => cached(`plugin:${id}:${key}`, maxAge, fn, force),
     ticketOf: (...hay) => ticketOf(...hay),

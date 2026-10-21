@@ -13,6 +13,11 @@ import { migrateLegacy, statusConfig } from "./providers.ts";
 import { startSnapshots } from "./report.ts";
 import { install, installSkill, login, setupStatus } from "./requirements.ts";
 import { detectBilling, getSettings, putSettings } from "./settings.ts";
+import { startStuckWatch } from "./stuck.ts";
+import { startAutopilot } from "./autopilot.ts";
+import { startVerify } from "./verify.ts";
+import { startTasks } from "./tasks.ts";
+import { tasks } from "./routes/tasks.ts";
 import { startUsage } from "./usage.ts";
 import { startSearch } from "./claude/search.ts";
 import { claude } from "./routes/claude.ts";
@@ -42,6 +47,9 @@ export const appConfig = () => ({
   hidden: getSettings().hidden,
   screens: pluginScreens(),
   themes: pluginThemes(),
+  // which of the repo's own commands are set, so the Board only offers what will work
+  verify: !!config.repo.verifyCommand,
+  preview: !!config.repo.devCommand,
 });
 
 const plugins = new Hono()
@@ -103,6 +111,7 @@ const api = new Hono()
   .route("/sessions", sessions)
   .route("/claude", claude)
   .route("/code", code)
+  .route("/tasks", tasks)
   .route("/report", report)
   .route("/", work);
 
@@ -154,6 +163,10 @@ if (!demo) {
   startSnapshots();
   startUsage();
   startSearch();
+  startStuckWatch();
+  startVerify();
+  startAutopilot();
+  startTasks();
   const restored = restoreTerms();
   if (restored) console.log(`reattached ${restored} terminals`);
 }

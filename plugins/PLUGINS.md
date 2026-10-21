@@ -101,11 +101,14 @@ What `k` offers:
 | `k.route(method, path, handler)` | Serves `/api/plugins/<id>/x<path>`. `:name` parts end up in `params`. The handler gets `{ query, body, params }` and returns JSON-able data. To send a 400, throw an `Error` with `status: 400`. |
 | `k.screen({ id, title, page })` | Adds a screen to the sidebar and ⌘K, at `/p/<id>/<screen>`. `page` is a file in your folder. |
 | `k.theme(theme)` | Adds a theme from code, for themes you generate. Static ones go in `themes/`. |
-| `k.on(event, fn)` | `session.started`, `session.idle`, `session.ended`, `worktree.created`, `worktree.removed`, `terminal.opened`, `notify`. |
+| `k.on(event, fn)` | `session.started`, `session.idle`, `session.ended`, `session.stuck`, `worktree.created`, `worktree.removed`, `terminal.opened`, `notify`, `task.started`, `task.done`, `autopilot.acted`, `verify.done`. |
 | `k.run(cmd, args, { cwd, input })` | Runs a command and resolves with its output, with your `env` settings set. |
 | `k.terminal({ cwd, title, command, args })` | Opens a cockpit terminal. |
 | `k.claude({ cwd, prompt, title })` | Starts Claude in a terminal. |
-| `k.notify({ title, body, link })` | Shows a cockpit notification. |
+| `k.notify({ title, body, link, urgent })` | Shows a cockpit notification. `urgent` marks the second nudge for a session left waiting, and autopilot giving up. |
+| `k.sendToSession(sessionId, text)` | Types a message into a running Claude session and presses Enter. Resolves to `false` when the session isn't in a cockpit terminal. |
+| `k.task({ title, prompt, ticket, attempts, model, dependsOn })` | Queues work: cockpit creates a worktree and branch, then starts Claude there with the prompt. Resolves with the tasks it created. |
+| `k.job(label, command, cwd)` | Runs a shell command as a cockpit job, so its output shows in the job log. Resolves with the exit code and output. |
 | `k.sessions({ liveOnly, limit })`, `k.terminals()` | The Claude sessions and terminals cockpit knows about. |
 | `k.cache(key, maxAge, fn, force)` | Runs `fn` and keeps its result for `maxAge` ms in cockpit's cache. `force` runs it again. |
 | `k.ticketOf(...strings)` | Finds a ticket key in branch names or titles, using the active tracker's pattern. |
@@ -134,7 +137,7 @@ k.tracker({
   - `sprints`, `activeSprint` and `sprintTickets` give you the Sprint report and its snapshots.
   - `worktreeEpics` and `epicInfo` give you epics.
   - `search` and `assignToMe` let other plugins build queues.
-- A code host needs `myPrs`. Add `reviewQueue`, `failingChecks`, `parsePr`, `prInfo`, `pendingReview` and `deletePending` for PR reviews and for fixing failed checks with Claude.
+- A code host needs `myPrs`. Add `reviewThreads` so autopilot and the lead session can quote unresolved review comments. Add `reviewQueue`, `failingChecks`, `parsePr`, `prInfo`, `pendingReview` and `deletePending` for PR reviews and for fixing failed checks with Claude.
 - The shapes are in `shared/src/plugin.ts` (`Tracker`, `CodeHost`). Tickets and PRs use the same `Ticket` and `PullRequest` types the screens already read.
 - Only one of each is in use at a time. If two plugins offer one, Settings lets you pick. With none, the screens that need it leave the sidebar.
 
@@ -222,4 +225,5 @@ A plugin with code runs inside the cockpit server, as your user, with the same a
 - `plugins/example`: a screen, two routes, a setting and a listener. It's off by default.
 - `plugins/themes-extra`: two themes and no code.
 - `plugins/jira`: a tracker, through Atlassian's `acli`.
+- `plugins/push`: listens to `notify` and posts to ntfy or Pushover, with secret settings and a test route.
 - `plugins/github`: a code host, through `gh`, with a token setting passed as `GH_TOKEN`.

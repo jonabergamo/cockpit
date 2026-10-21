@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Epic, PullRequest, Ticket, Worktree } from "@cockpit/shared";
 import { JobLog } from "../components/JobLog";
 import { PrFix } from "../components/PrFix";
+import { newTask } from "../components/NewTask";
 import { RefreshButton } from "../components/RefreshButton";
 import { Button, ErrorNote, inputClass, Loading, Modal, PageHeader, StatusTag, Tag } from "../components/ui";
 import { api } from "../lib/api";
@@ -293,6 +294,11 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
           {t.lastSession && (
             <Button size="sm" variant="primary" disabled={resume.isPending} onClick={() => resume.mutate(t.lastSession!.id)} title={`Last session ${ago(t.lastSession.updatedAt)}`}>
               {resume.isPending ? "Opening" : "Resume Claude"}
+            </Button>
+          )}
+          {!wt && (
+            <Button size="sm" variant="ghost" onClick={() => newTask.open({ ticket: t.key })} title="Queue it: cockpit makes the worktree and starts Claude on it, optionally a few attempts at once">
+              Task
             </Button>
           )}
         </div>

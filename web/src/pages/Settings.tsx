@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AutomationSettings } from "../components/AutomationSettings";
 import { FontSection } from "../components/FontSettings";
 import { PluginsSection, ScreensSection } from "../components/PluginSettings";
 import { SetupSection } from "../components/SetupSection";
@@ -54,6 +55,7 @@ export function SettingsPage() {
           {!cost.hidden && <p className="text-[12px] text-faint">{cost.hint}.</p>}
         </section>
       )}
+      <AutomationSettings />
       <FontSection />
       <ScreensSection />
       <PluginsSection />

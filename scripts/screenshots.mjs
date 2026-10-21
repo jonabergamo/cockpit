@@ -96,6 +96,7 @@ try {
   };
 
   await shot("/", "today");
+  await shot("/board", "board");
   await shot("/sessions/d1", "session");
   await shot("/report", "report");
   await shot("/usage", "usage");

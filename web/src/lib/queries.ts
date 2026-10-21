@@ -15,6 +15,8 @@ export interface AppConfig {
   // the plugins in use for these, null when none is on
   tracker: { plugin: string; name: string } | null;
   codeHost: { plugin: string; name: string } | null;
+  verify: boolean;
+  preview: boolean;
 }
 
 export interface TicketsRes {

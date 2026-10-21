@@ -1,13 +1,18 @@
 import { Hono } from "hono";
 import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
+import { db } from "../db.ts";
 import { fixPlan } from "../fix.ts";
 import { activeSprint, deploys, epicInfo, myPrs, myTickets, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
 import { ticketOf } from "../util.ts";
 import { getJob, listJobs } from "../jobs.ts";
 import { getReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
-import { usageReport } from "../usage.ts";
+import { toolReport, usageReport } from "../usage.ts";
 import { cleanupPlan } from "../cleaner.ts";
+import { archive, board } from "../board.ts";
+import { setAutopilot } from "../autopilot.ts";
+import { runVerify, sendFailure } from "../verify.ts";
+import { previewOf, startPreview, stopPreview } from "../preview.ts";
 import { createWorktree, deleteWorktree, deleteWorktrees, leftoverFolders, link, listWorktrees, openInEditor, refreshSizes, unlink } from "../worktrees.ts";
 
 // the newest Claude session per ticket comes from the local index, no extra calls
@@ -22,6 +27,52 @@ function lastSessions() {
 }
 
 export const work = new Hono()
+  .get("/board", async (c) => c.json(await board()))
+  .post("/autopilot", async (c) => {
+    const { worktree, on } = await c.req.json<{ worktree: string; on: boolean }>();
+    if (!(await listWorktrees(false)).some((w) => w.path === worktree && !w.main)) return c.json({ error: "not a worktree" }, 400);
+    setAutopilot(worktree, on);
+    return c.json({ ok: true });
+  })
+  .post("/verify", async (c) => {
+    const { worktree } = await c.req.json<{ worktree: string }>();
+    if (!(await listWorktrees(false)).some((w) => w.path === worktree)) return c.json({ error: "not a worktree" }, 400);
+    try {
+      const job = await runVerify(worktree, true);
+      return c.json({ jobId: job?.id ?? null });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  })
+  .post("/verify/send", async (c) => {
+    try {
+      await sendFailure((await c.req.json<{ worktree: string }>()).worktree);
+      return c.json({ ok: true });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  })
+  .get("/preview", (c) => c.json(previewOf(c.req.query("worktree") ?? "")))
+  .post("/preview", async (c) => {
+    const { worktree, stop } = await c.req.json<{ worktree: string; stop?: boolean }>();
+    if (!(await listWorktrees(false)).some((w) => w.path === worktree)) return c.json({ error: "not a worktree" }, 400);
+    try {
+      if (stop) return c.json((stopPreview(worktree), { ok: true }));
+      return c.json(await startPreview(worktree));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  })
+  // what happened since a time, for "while you were away"
+  .get("/digest", (c) => {
+    const since = Number(c.req.query("since")) || Date.now() - 3600_000;
+    return c.json(db.prepare("select at, kind, title, body, link from events_log where at > ? order by at desc limit 80").all(since));
+  })
+  .post("/board/archive", async (c) => {
+    const { id, on } = await c.req.json<{ id: string; on?: boolean }>();
+    archive(id, on !== false);
+    return c.json({ ok: true });
+  })
   .get("/tickets", async (c) => {
     const fresh = c.req.query("fresh") === "1";
     const wtKeys = (await listWorktrees(false)).filter((w) => !w.main && w.ticket).map((w) => w.ticket!);
@@ -86,6 +137,7 @@ export const work = new Hono()
     (remove ? unlink : link)(ticket, worktree);
     return c.json({ ok: true });
   })
+  .get("/usage/tools", (c) => c.json(toolReport(Math.min(Math.max(Number(c.req.query("days")) || 30, 1), 365))))
   .get("/usage", async (c) => c.json(await usageReport(Number(c.req.query("days")) || 30)))
   .get("/reviews", async (c) => c.json(await listReviews()))
   .post("/reviews/check", async (c) => {
