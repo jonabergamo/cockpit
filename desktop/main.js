@@ -131,7 +131,7 @@ const label = (s) => s.title || s.name || path.basename(s.cwd)
 
 function refresh() {
   const busy = live.filter((s) => s.status === 'busy')
-  const waiting = live.filter((s) => s.status === 'idle')
+  const waiting = live.filter((s) => s.status === 'waiting')
   if (process.platform === 'darwin') {
     tray.setTitle(busy.length || waiting.length ? ` ${busy.length} · ${waiting.length}` : '')
     app.dock.setBadge(waiting.length ? String(waiting.length) : '')

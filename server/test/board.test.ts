@@ -6,8 +6,14 @@ import { alertKey, looksStuck } from "../src/stuck.ts";
 const pr = (over: object = {}) => ({ state: "OPEN", checks: "pass" as const, isDraft: false, reviewDecision: undefined as string | undefined, mergeable: "MERGEABLE", ...over });
 
 describe("columnOf", () => {
-  it("puts a waiting session without a PR in Needs you", () => {
-    expect(columnOf({ session: { status: "idle", updatedAt: 0 } }).column).toBe("needs");
+  it("puts a session with a question in Needs you, even when its PR is open or merged", () => {
+    expect(columnOf({ session: { status: "waiting", waitingFor: "input needed", updatedAt: 0 } })).toEqual({ column: "needs", reason: "Claude needs your input" });
+    expect(columnOf({ session: { status: "waiting", updatedAt: 0 }, pr: pr() }).column).toBe("needs");
+    expect(columnOf({ session: { status: "waiting", updatedAt: 0 }, pr: { ...pr(), state: "MERGED" } }).column).toBe("needs");
+  });
+  it("leaves a session that only finished its turn out of Needs you", () => {
+    expect(columnOf({ session: { status: "idle", updatedAt: 0 } }).column).toBe("quiet");
+    expect(columnOf({ session: { status: "idle", updatedAt: 0 }, task: { status: "done" } }).column).toBe("needs");
   });
   it("keeps a busy session in Working even with failing checks", () => {
     expect(columnOf({ session: { status: "busy", updatedAt: 0 }, pr: pr({ checks: "fail" }) }).column).toBe("working");

@@ -59,7 +59,7 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 
 ## Features
 
-- **Live sessions.** A strip of every running Claude session that sweeps while Claude works and turns amber when it's waiting. You get a notification when one needs you, and the tab title shows the count.
+- **Live sessions.** A strip of every running Claude session. It sweeps while Claude works, turns amber when Claude asks you something (a question, a permission prompt or a dialog) and goes grey once it has just finished its turn. You get a notification when one needs you, and the tab title shows the count.
 - **Board.** Every worktree, session outside a worktree and queued task is a card. Each card sits in the column that says what it needs next: queued, working, needs you, in review or ready to merge. Cards show the PR, its checks and the session. A busy session that has written nothing new for a while is flagged as stuck.
 - **Replies without the terminal.** Answer a permission prompt or type a reply to a running session from the Board, Today, the session strip or its transcript. This works for sessions running in cockpit's terminals.
 - **Autopilot.** Turn it on for a worktree and its PR's failing checks and requested changes go back to its Claude session, with the check logs and the review comments. After a set number of tries it stops and tells you.

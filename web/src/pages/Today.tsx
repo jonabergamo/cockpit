@@ -50,7 +50,7 @@ function DayStrip({ day }: { day: DayRes }) {
           return (
             <Link key={s.id} to="/sessions/$id" params={{ id: s.id }} className="relative block h-5 bg-ground rounded group" title={`${s.title ?? s.id}\n${time(s.startedAt)} to ${time(s.updatedAt)}`}>
               <span
-                className={`absolute top-0 bottom-0 rounded-[4px] ${s.status === "busy" ? "bg-cobalt" : s.status === "idle" ? "bg-amber" : "bg-cobalt/45"} group-hover:brightness-110`}
+                className={`absolute top-0 bottom-0 rounded-[4px] ${s.status === "busy" ? "bg-cobalt" : s.status === "waiting" ? "bg-amber" : "bg-cobalt/45"} group-hover:brightness-110`}
                 style={{ left: `${l}%`, width: `${w}%` }}
               />
               <span className="absolute inset-y-0 left-1.5 flex items-center text-[11px] text-ink/80 truncate max-w-[60%] pointer-events-none">{s.title ?? shortPath(s.cwd)}</span>
@@ -82,7 +82,7 @@ export function TodayPage() {
   const report = useQuery({ queryKey: ["report", undefined, "me"], queryFn: () => api.get<ReportLite>("/report/sprint?scope=me"), enabled: !!tracker });
   const openEditor = useMutation({ mutationFn: (path: string) => api.post("/worktrees/open", { path }) });
 
-  const waiting = live.filter((s) => s.status === "idle");
+  const waiting = live.filter((s) => s.status === "waiting");
   const failing = prs.data?.mine.filter((p) => p.state === "OPEN" && p.checks === "fail") ?? [];
   const reviews = prs.data?.review ?? [];
   const wtBy = new Map<string, Worktree>();

@@ -13,6 +13,7 @@ import { launch, launcher, useLauncher } from "../lib/launcher";
 import { useOpenSession } from "../lib/openSession";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { ago, shortPath } from "../lib/format";
+import { statusLook } from "../lib/status";
 
 export interface TermInfo {
   id: string;
@@ -122,12 +123,14 @@ export function TerminalsPage() {
             title={`${t.command}\n${t.cwd}\nstarted ${ago(t.createdAt)}`}
           >
             {(() => {
-              // what Claude is doing in it: working, or waiting for you
-              const st = sessionOf(t)?.status;
+              // what Claude is doing in it: working, waiting for you, or done with its turn
+              const s = sessionOf(t);
+              const st = s?.status;
+              const look = statusLook(st, s?.waitingFor);
               return (
                 <span
-                  className={`size-1.5 rounded-full ${st === "busy" ? "bg-cobalt animate-pulse" : st === "idle" ? "bg-amber" : t.exited === undefined ? "bg-green" : "bg-line"}`}
-                  title={st === "busy" ? "Claude is working" : st === "idle" ? "Claude is waiting for you" : undefined}
+                  className={`size-1.5 rounded-full ${st === "busy" ? "bg-cobalt animate-pulse" : st === "waiting" || st === "idle" ? look.dot : t.exited === undefined ? "bg-green" : "bg-line"}`}
+                  title={st && st !== "ended" ? look.hint : undefined}
                 />
               );
             })()}

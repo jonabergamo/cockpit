@@ -1,4 +1,6 @@
-export type SessionStatus = "busy" | "idle" | "ended";
+// waiting: Claude asked you something (a question, a permission prompt, a dialog) and can't go on without you.
+// idle: it finished its turn and nothing is pending.
+export type SessionStatus = "busy" | "waiting" | "idle" | "ended";
 
 export interface Session {
   id: string;
@@ -20,6 +22,8 @@ export interface Session {
   size: number;
   // the cockpit terminal it runs in, when it runs inside one
   term?: string;
+  // what a waiting session waits on, as Claude Code puts it: "input needed", "dialog open"...
+  waitingFor?: string;
 }
 
 export type Entry =
@@ -274,7 +278,7 @@ export interface BoardCard {
   column: BoardColumn;
   // why it's in its column, in a few words
   reason: string;
-  session?: { id: string; status: SessionStatus; updatedAt: number; name?: string; term?: string; pid?: number; title?: string };
+  session?: { id: string; status: SessionStatus; waitingFor?: string; updatedAt: number; name?: string; term?: string; pid?: number; title?: string };
   pr?: { number: number; url: string; title: string; state: string; checks?: PullRequest["checks"]; review?: string; mergeable?: string; mergeState?: string; isDraft: boolean };
   verify?: { state: "running" | "pass" | "fail"; at: number; summary?: string; jobId?: string };
   autopilot?: { on: boolean; attempts: number; gaveUp: boolean; note?: string };

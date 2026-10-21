@@ -23,7 +23,7 @@ export function matchWorker(wt: Pick<Worktree, "path" | "branch" | "ticket">, pr
 }
 
 export interface ColumnInput {
-  session?: Pick<Session, "status" | "updatedAt">;
+  session?: Pick<Session, "status" | "updatedAt" | "waitingFor">;
   pr?: Pick<PullRequest, "state" | "checks" | "reviewDecision" | "mergeable" | "isDraft">;
   verify?: { state: string };
   autopilot?: { on: boolean; gaveUp: boolean; busy?: boolean };
@@ -38,6 +38,7 @@ export function columnOf(c: ColumnInput): { column: BoardColumn; reason: string 
   if (c.stuck) return { column: "needs", reason: c.stuck };
   if (c.task?.status === "running" && !c.session) return c.task.error ? { column: "needs", reason: c.task.error } : { column: "working", reason: "Starting Claude" };
   if (c.task && (c.task.status === "queued" || c.task.status === "starting") && !c.session) return { column: "queued", reason: c.task.status === "starting" ? "Setting up its worktree" : "Waiting for a free slot" };
+  if (c.session?.status === "waiting") return { column: "needs", reason: c.session.waitingFor === "input needed" ? "Claude needs your input" : c.session.waitingFor ? `Claude is waiting: ${c.session.waitingFor}` : "Claude is waiting for you" };
   if (pr?.state === "MERGED") return { column: "ready", reason: "Merged" };
   if (c.session?.status === "busy") return { column: "working", reason: "Claude is working" };
   if (c.verify?.state === "running") return { column: "working", reason: "Running the checks" };
@@ -48,10 +49,10 @@ export function columnOf(c: ColumnInput): { column: BoardColumn; reason: string 
   if (c.verify?.state === "fail") return { column: "needs", reason: "Its checks failed here" };
   if (c.autopilot?.gaveUp) return { column: "needs", reason: "Autopilot gave up" };
   if (c.task?.status === "done" && !open) return { column: "needs", reason: "Done, ready for you to look at" };
-  if (c.session?.status === "idle" && !open) return { column: "needs", reason: "Claude is waiting for you" };
   if (open && pr.reviewDecision === "APPROVED" && pr.checks !== "pending") return { column: "ready", reason: "Approved" };
   if (open) return { column: "review", reason: pr.isDraft ? "Draft PR" : pr.checks === "pending" ? "Checks running" : "Waiting for review" };
-  if (c.session?.status === "idle") return { column: "needs", reason: "Claude is waiting for you" };
+  // a finished turn with nothing else going on isn't a call for you
+  if (c.session?.status === "idle") return { column: "quiet", reason: "Claude finished its turn" };
   return { column: "quiet", reason: "Nothing running" };
 }
 
@@ -82,7 +83,7 @@ export async function board(): Promise<BoardCard[]> {
   const cards: BoardCard[] = [];
   const recent = Date.now() - QUIET_DAYS * 24 * 3600_000;
 
-  const sessionOf = (s?: Session): BoardCard["session"] => s && { id: s.id, status: s.status, updatedAt: s.updatedAt, name: s.name, term: s.term, pid: s.pid, title: s.title };
+  const sessionOf = (s?: Session): BoardCard["session"] => s && { id: s.id, status: s.status, waitingFor: s.waitingFor, updatedAt: s.updatedAt, name: s.name, term: s.term, pid: s.pid, title: s.title };
   const prOf = (p?: PullRequest): BoardCard["pr"] =>
     p && { number: p.number, url: p.url, title: p.title, state: p.state, checks: p.checks, review: p.reviewDecision, mergeable: p.mergeable, mergeState: p.mergeState, isDraft: p.isDraft };
   const taskOf = (t?: Task): BoardCard["task"] => t && { id: t.id, group: t.group, status: t.status, attempt: t.attempt, title: t.title };

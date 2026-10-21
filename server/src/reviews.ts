@@ -113,7 +113,7 @@ async function refresh(r: ReviewRow): Promise<ReviewRow> {
       next.comments = pending.comments;
     }
   } else if (ended) next.status = "stopped";
-  else next.status = session?.status === "idle" ? "waiting" : "running";
+  else next.status = session && session.status !== "busy" ? "waiting" : "running";
 
   update.run(next);
   return next;

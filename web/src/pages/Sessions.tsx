@@ -8,6 +8,7 @@ import { api, qs } from "../lib/api";
 import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { useLiveSessions } from "../lib/live";
+import { statusLook } from "../lib/status";
 
 interface HistoryItem {
   text: string;
@@ -109,7 +110,7 @@ export function SessionsPage() {
               return (
                 <li key={s.id}>
                   <Link to="/sessions/$id" params={{ id: s.id }} className="flex items-center gap-3 px-3 py-2 hover:bg-ground">
-                    <span className={`size-2 rounded-full shrink-0 ${st === "busy" ? "bg-cobalt animate-pulse" : st === "idle" ? "bg-amber" : "bg-line"}`} />
+                    <span className={`size-2 rounded-full shrink-0 ${st === "busy" ? "bg-cobalt animate-pulse" : statusLook(st).dot}`} />
                     <div className="flex-1 min-w-0">
                       <div className="truncate font-medium">{s.title ?? s.lastPrompt ?? s.id.slice(0, 8)}</div>
                       <div className="truncate text-[12px] text-muted">

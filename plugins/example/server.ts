@@ -10,5 +10,5 @@ export default function setup(k: Cockpit) {
     return { count };
   });
 
-  k.on("session.idle", (s) => k.log("a session is waiting:", (s as { title?: string }).title ?? "untitled"));
+  k.on("session.waiting", (s) => k.log("a session needs you:", (s as { title?: string }).title ?? "untitled"));
 }

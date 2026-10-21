@@ -20,8 +20,8 @@ export function notify(n: { title: string; body: string; link: string; urgent?: 
   logEvent(n.kind ?? "notify", n.title, n.body, n.link);
 }
 
-// A session going from working to waiting is the moment it needs you: a finished review or call, a question,
-// a permission prompt. Reviews get named after their terminal.
+// A session asking a question, showing a permission prompt or a dialog is the moment it needs you. One that
+// just finishes its turn gets a quieter "finished". Reviews get named after their terminal.
 const last = new Map<string, string>();
 export function sessionsChanged(sessions: Session[]) {
   const seen = new Set<string>();
@@ -32,13 +32,19 @@ export function sessionsChanged(sessions: Session[]) {
     last.set(s.id, s.status);
     if (before === undefined) emit("session.started", s);
     if (s.status === "idle" && before === "busy") emit("session.idle", s);
-    // a quick first answer can start and finish between two polls, so a new session already waiting on a
-    // prompt it was given counts too
-    const finishedFirst = before === undefined && !!s.title && Date.now() - s.startedAt < 60_000;
-    if (s.status !== "idle" || !(before === "busy" || finishedFirst)) continue;
+    if (s.status === "waiting" && before !== "waiting") emit("session.waiting", s);
+    // a quick first answer can start and finish between two polls, so a new session that already did counts too
+    const fresh = before === undefined && !!s.title && Date.now() - s.startedAt < 60_000;
+    const link = `/terminals?resume=${s.id}${s.pid ? `&pid=${s.pid}` : ""}`;
+    const body = s.title ?? shortPath(s.cwd);
+    if (s.status === "waiting" && before !== "waiting" && (before !== undefined || fresh)) {
+      notify({ title: s.waitingFor === "input needed" ? "Claude needs your input" : "Claude is waiting for you", body: s.waitingFor ? `${body} · ${s.waitingFor}` : body, link });
+      continue;
+    }
+    if (s.status !== "idle" || !(before === "busy" || fresh)) continue;
     const term = terms.find((t) => t.session === s.id || (!!s.pid && t.pid === s.pid));
-    const what = term?.title.startsWith("review #") ? `${term.title.replace(/^review/, "Review")} is ready` : "Claude is waiting";
-    notify({ title: what, body: s.title ?? shortPath(s.cwd), link: `/terminals?resume=${s.id}${s.pid ? `&pid=${s.pid}` : ""}` });
+    const what = term?.title.startsWith("review #") ? `${term.title.replace(/^review/, "Review")} is ready` : "Claude finished";
+    notify({ title: what, body, link });
   }
   for (const id of last.keys()) {
     if (seen.has(id)) continue;
@@ -53,16 +59,16 @@ const waitingSince = new Map<string, { at: number; nudged: boolean }>();
 export function escalate(sessions: Session[]) {
   const minutes = getSettings().alerts.escalateMinutes;
   for (const s of sessions) {
-    if (s.status !== "idle") {
+    if (s.status !== "waiting") {
       waitingSince.delete(s.id);
       continue;
     }
-    // timed from when it went idle; ones already overdue when cockpit starts don't all go off at once
+    // timed from when it started waiting; ones already overdue when cockpit starts don't all go off at once
     const w = waitingSince.get(s.id) ?? { at: s.updatedAt, nudged: Date.now() - s.updatedAt > minutes * 60_000 };
     waitingSince.set(s.id, w);
     if (!minutes || w.nudged || Date.now() - w.at < minutes * 60_000) continue;
     w.nudged = true;
-    notify({ title: `Still waiting: ${s.title ?? s.name ?? shortPath(s.cwd)}`, body: `Claude has been waiting for you for ${minutes} minutes.`, link: `/sessions/${s.id}`, urgent: true });
+    notify({ title: `Still waiting: ${s.title ?? s.name ?? shortPath(s.cwd)}`, body: `Claude has been waiting on you for ${minutes} minutes${s.waitingFor ? ` (${s.waitingFor})` : ""}.`, link: `/sessions/${s.id}`, urgent: true });
   }
 }
 

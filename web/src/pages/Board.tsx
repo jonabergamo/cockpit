@@ -8,6 +8,7 @@ import { Button, Drawer, Empty, ErrorNote, Loading, PageHeader, Tag } from "../c
 import { api } from "../lib/api";
 import { ago } from "../lib/format";
 import { useLive, useLiveSessions } from "../lib/live";
+import { statusLook } from "../lib/status";
 
 const COLUMNS: { id: BoardColumn; title: string; hint: string }[] = [
   { id: "queued", title: "Queued", hint: "Tasks waiting for a free slot" },
@@ -49,7 +50,7 @@ function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
     <button onClick={onOpen} className="w-full text-left rounded-md border border-line bg-raised hover:border-faint px-3 py-2 space-y-1.5">
       <div className="flex items-start gap-2">
         <span className="flex-1 min-w-0 text-[13px] font-medium leading-snug line-clamp-2">{c.title}</span>
-        {s && s.status !== "ended" && <span className={`mt-1 size-2 rounded-full shrink-0 ${s.status === "busy" ? "bg-cobalt animate-pulse" : "bg-amber"}`} title={s.status === "busy" ? "working" : "waiting"} />}
+        {s && s.status !== "ended" && <span className={`mt-1 size-2 rounded-full shrink-0 ${statusLook(s.status, s.waitingFor).dot} ${s.status === "busy" ? "animate-pulse" : ""}`} title={statusLook(s.status, s.waitingFor).hint} />}
       </div>
       <div className="flex items-center gap-1.5 text-[12px] text-muted min-w-0">
         {c.ticket && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{c.ticket}</span>}

@@ -84,7 +84,7 @@ import type { Cockpit } from "@cockpit/shared";
 export default function setup(k: Cockpit) {
   k.screen({ id: "main", title: "My plugin", page: "assets/index.html" });
   k.route("GET", "/items", async () => ({ items: k.store.get("items") ?? [] }));
-  k.on("session.idle", (s) => k.log("a session is waiting", s));
+  k.on("session.waiting", (s) => k.log("a session needs you", s));
 }
 ```
 
@@ -101,7 +101,7 @@ What `k` offers:
 | `k.route(method, path, handler)` | Serves `/api/plugins/<id>/x<path>`. `:name` parts end up in `params`. The handler gets `{ query, body, params }` and returns JSON-able data. To send a 400, throw an `Error` with `status: 400`. |
 | `k.screen({ id, title, page })` | Adds a screen to the sidebar and ⌘K, at `/p/<id>/<screen>`. `page` is a file in your folder. |
 | `k.theme(theme)` | Adds a theme from code, for themes you generate. Static ones go in `themes/`. |
-| `k.on(event, fn)` | `session.started`, `session.idle`, `session.ended`, `session.stuck`, `worktree.created`, `worktree.removed`, `terminal.opened`, `notify`, `task.started`, `task.done`, `autopilot.acted`, `verify.done`. |
+| `k.on(event, fn)` | `session.started`, `session.waiting` (Claude asked you something: a question, a permission prompt, a dialog), `session.idle` (it finished its turn), `session.ended`, `session.stuck`, `worktree.created`, `worktree.removed`, `terminal.opened`, `notify`, `task.started`, `task.done`, `autopilot.acted`, `verify.done`. |
 | `k.run(cmd, args, { cwd, input })` | Runs a command and resolves with its output, with your `env` settings set. |
 | `k.terminal({ cwd, title, command, args })` | Opens a cockpit terminal. |
 | `k.claude({ cwd, prompt, title })` | Starts Claude in a terminal. |

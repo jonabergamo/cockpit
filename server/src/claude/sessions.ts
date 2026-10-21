@@ -15,6 +15,7 @@ const registryDir = join(config.claude.dir, "sessions");
 interface Live {
   pid: number;
   status: SessionStatus;
+  waitingFor?: string;
   name?: string;
   cwd: string;
   startedAt: number;
@@ -36,7 +37,9 @@ async function readRegistry() {
       if (!existsSync(`/proc/${r.pid}`)) continue;
       next.set(r.sessionId, {
         pid: r.pid,
-        status: r.status === "busy" ? "busy" : "idle",
+        // Claude Code writes "waiting" with a waitingFor when a question or dialog needs you
+        status: r.status === "busy" ? "busy" : r.status === "waiting" ? "waiting" : "idle",
+        waitingFor: r.status === "waiting" && typeof r.waitingFor === "string" ? r.waitingFor : undefined,
         name: r.name,
         cwd: r.cwd,
         startedAt: r.startedAt,
@@ -205,6 +208,7 @@ function toSession(r: Row): Session {
     title: r.title ?? undefined,
     name: l?.name,
     status: l ? l.status : "ended",
+    waitingFor: l?.waitingFor,
     pid: l?.pid,
     startedAt: l?.startedAt ?? (r.first_ts ? Date.parse(r.first_ts) : 0),
     updatedAt: Math.max(l?.updatedAt ?? 0, r.last_ts ? Date.parse(r.last_ts) : 0),
@@ -323,7 +327,7 @@ async function poll() {
   }
   await refreshBranches();
   const sessions = listSessions({ liveOnly: true });
-  const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.title, s.costUSD, s.updatedAt, s.branch]));
+  const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.waitingFor, s.title, s.costUSD, s.updatedAt, s.branch]));
   if (snap !== lastSnapshot) {
     lastSnapshot = snap;
     broadcast({ type: "sessions", sessions });

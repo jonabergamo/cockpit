@@ -26,7 +26,7 @@ export function ReplyPanel({ session, compact = false, onSent }: { session: Pick
     queryKey: ["ask", session.id],
     queryFn: () => api.get<AskInfo>(`/sessions/${session.id}/ask`),
     enabled: live,
-    refetchInterval: session.status === "idle" ? 2500 : 6000,
+    refetchInterval: session.status === "waiting" ? 2500 : 6000,
   });
   const ask = q.data;
   const refresh = () => setTimeout(() => qc.invalidateQueries({ queryKey: ["ask", session.id] }), 400);
@@ -74,7 +74,7 @@ export function ReplyPanel({ session, compact = false, onSent }: { session: Pick
             </Button>
           </div>
         </div>
-      ) : ask?.pending && session.status === "idle" ? (
+      ) : ask?.pending && session.status !== "busy" ? (
         <div className="text-muted">
           Waiting on <span className="font-mono text-ink">{summary(ask.pending)}</span>
         </div>

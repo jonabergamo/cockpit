@@ -119,7 +119,7 @@ const session = (id: string, title: string, ticket: string | undefined, status: 
 
 const sessions: Session[] = [
   session("d1", "Saved cards on checkout", "ACME-412", "busy", 3, 0, 4.12),
-  session("d2", "Prefix index for search", "ACME-418", "idle", 6, 0.3, 6.8),
+  { ...session("d2", "Prefix index for search", "ACME-418", "waiting", 6, 0.3, 6.8), waitingFor: "input needed" },
   session("d3", "Apple Pay review fixes", "ACME-405", "idle", 2, 0.8, 1.94),
   session("d4", "Release notes for sprint 24", undefined, "busy", 0.6, 0, 0.42),
   session("d5", "Order history filters", "ACME-401", "ended", 100, 96, 9.3),
@@ -334,7 +334,7 @@ function demoBoard(): BoardCard[] {
 
 const demoAsk = (id: string): AskInfo => {
   const s = sessions.find((x) => x.id === id);
-  if (s?.status !== "idle") return { reachable: true, options: [], screen: "● Reading the checkout components…\n\n✻ Working (esc to interrupt)" };
+  if (s?.status === "busy") return { reachable: true, options: [], screen: "● Reading the checkout components…\n\n✻ Working (esc to interrupt)" };
   if (id === "d2")
     return {
       reachable: true,

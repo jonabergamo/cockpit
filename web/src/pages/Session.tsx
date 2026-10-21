@@ -10,6 +10,7 @@ import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { keep, send, useLive, useLiveSessions } from "../lib/live";
 import { useOpenSession } from "../lib/openSession";
+import { statusLook } from "../lib/status";
 import { useTerms } from "./Terminals";
 
 interface Tail {
@@ -109,7 +110,7 @@ export function SessionPage() {
             </div>
             <h1 className="text-[22px] font-semibold tracking-tight leading-tight">{agent ? (currentAgent?.description ?? `Agent ${agent}`) : (s?.title ?? s?.name ?? id)}</h1>
             <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[13px] text-muted">
-              {status && <Tag tone={status === "busy" ? "cobalt" : status === "idle" ? "amber" : "faint"}>{status === "busy" ? "working" : status === "idle" ? "waiting for you" : "ended"}</Tag>}
+              {status && <Tag tone={status === "busy" ? "cobalt" : status === "waiting" ? "amber" : "faint"}>{statusLook(status, s?.waitingFor).label}</Tag>}
               {s?.ticket && (
                 <Link to="/tickets" search={{ key: s.ticket }} className="text-cobalt hover:underline">
                   {s.ticket}

@@ -6,6 +6,7 @@ import { api, qs } from "../lib/api";
 import { ago, shortPath } from "../lib/format";
 import { useOpenSession } from "../lib/openSession";
 import { useAppConfig, useJobs } from "../lib/queries";
+import { statusLook } from "../lib/status";
 import { asPr } from "../pages/Board";
 import { PrBadge } from "../pages/Tickets";
 import { PrFix } from "./PrFix";
@@ -231,7 +232,7 @@ export function BoardCardDetail({ c, onClose }: { c: BoardCard; onClose: () => v
       {live && (
         <section className="space-y-1.5">
           <h3 className="font-medium text-[13px]">
-            Claude {s.status === "busy" ? "is working" : "is waiting"} <span className="text-faint font-normal">· {ago(s.updatedAt)}</span>
+            {statusLook(s.status, s.waitingFor).hint} <span className="text-faint font-normal">· {ago(s.updatedAt)}</span>
           </h3>
           <ReplyPanel session={s} />
         </section>

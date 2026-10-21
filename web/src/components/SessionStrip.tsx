@@ -4,6 +4,7 @@ import { useLiveSessions } from "../lib/live";
 import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { useOpenSession } from "../lib/openSession";
+import { statusLook } from "../lib/status";
 import { ReplyPanel } from "./ReplyPanel";
 import { Button, Modal } from "./ui";
 
@@ -20,18 +21,18 @@ function place(s: Session) {
   return { folder, branch };
 }
 
-// Fires a browser notification when a session stops working, which usually means it's waiting on me.
+// Fires a browser notification when a session asks you something: a question, a permission prompt, a dialog.
 function useIdleAlerts(sessions: Session[]) {
   const prev = useRef(new Map<string, string>());
   useEffect(() => {
     const before = prev.current;
     for (const s of sessions) {
-      if (before.get(s.id) === "busy" && s.status === "idle" && document.visibilityState !== "visible" && Notification.permission === "granted") {
+      if (before.has(s.id) && before.get(s.id) !== "waiting" && s.status === "waiting" && document.visibilityState !== "visible" && Notification.permission === "granted") {
         new Notification(`${label(s)} needs you`, { body: s.ticket ? `${s.ticket} · ${shortPath(s.cwd)}` : shortPath(s.cwd), tag: s.id });
       }
     }
     prev.current = new Map(sessions.map((s) => [s.id, s.status]));
-    const waiting = sessions.filter((s) => s.status === "idle").length;
+    const waiting = sessions.filter((s) => s.status === "waiting").length;
     const busy = sessions.filter((s) => s.status === "busy").length;
     document.title = busy || waiting ? `(${busy}·${waiting}) cockpit` : "cockpit";
   }, [sessions]);
@@ -58,24 +59,27 @@ export function SessionStrip() {
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "denied");
   useIdleAlerts(sessions);
 
-  const sorted = [...sessions].sort((a, b) => Number(b.status === "busy") - Number(a.status === "busy") || b.updatedAt - a.updatedAt);
+  // what needs you first, then what's working, then what's idle
+  const rank = (s: Session) => (s.status === "waiting" ? 2 : s.status === "busy" ? 1 : 0);
+  const sorted = [...sessions].sort((a, b) => rank(b) - rank(a) || b.updatedAt - a.updatedAt);
 
   return (
     <div className="drag overlay-gap flex items-stretch gap-2 overflow-x-auto px-4 py-2 border-b border-line bg-panel min-h-[74px]">
       {sorted.length === 0 && <div className="text-muted self-center">No Claude sessions running.</div>}
       {sorted.map((s) => {
         const where = place(s);
+        const look = statusLook(s.status, s.waitingFor);
         return (
         <div key={s.id} className="relative shrink-0 group/card">
         <button
           onClick={() => open(s)}
           disabled={opening === s.id}
           className={`group text-left relative overflow-hidden w-[250px] rounded-md border pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${
-            s.status === "busy" ? "border-cobalt/50 sweep" : "border-amber/50"
-          }`}
+            look.border
+          } ${s.status === "busy" ? "sweep" : ""}`}
           title={`${label(s)}\n${[s.ticket, shortPath(s.cwd), s.branch].filter(Boolean).join(" · ")}\nClick to open it in a terminal`}
         >
-          <span className={`absolute left-0 top-0 bottom-0 w-1 ${s.status === "busy" ? "bg-cobalt" : "bg-amber"}`} />
+          <span className={`absolute left-0 top-0 bottom-0 w-1 ${look.dot} ${s.status === "idle" ? "opacity-50" : ""}`} />
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium text-[13px] flex-1">{label(s)}</span>
             {s.costUSD && !cost.hidden ? <span className="text-[11px] text-muted" title={`${cost.label}. ${cost.hint}`}>{usd(s.costUSD)}</span> : null}
@@ -86,14 +90,14 @@ export function SessionStrip() {
             {where.branch && <span className="truncate text-faint font-mono text-[11px]">{where.branch}</span>}
           </div>
           <div className="flex items-center gap-1.5 text-[12px] text-muted">
-            <span className={s.status === "busy" ? "text-cobalt" : "text-amber"}>{opening === s.id ? "opening" : s.status === "busy" ? "working" : "waiting"}</span>
+            <span className={look.text} title={look.hint}>{opening === s.id ? "opening" : look.label}</span>
             <span className="truncate ml-auto">{ago(s.updatedAt)}</span>
           </div>
         </button>
-        {s.status === "idle" && (
+        {s.status !== "busy" && (
           <button
             onClick={() => setReplying(s)}
-            className="absolute right-1.5 bottom-1.5 rounded px-1.5 text-[11px] leading-5 bg-amber-soft text-amber opacity-0 group-hover/card:opacity-100 focus:opacity-100 max-md:opacity-100"
+            className={`absolute right-1.5 bottom-1.5 rounded px-1.5 text-[11px] leading-5 ${s.status === "waiting" ? "bg-amber-soft text-amber" : "bg-ground text-muted"} opacity-0 group-hover/card:opacity-100 focus:opacity-100 max-md:opacity-100`}
             title="Answer it from here"
           >
             Reply
