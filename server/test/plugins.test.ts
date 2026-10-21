@@ -1,4 +1,4 @@
-import type { Cockpit } from "@cockpit/shared";
+import type { Cockpit, PullRequest } from "@cockpit/shared";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -73,6 +73,43 @@ describe("shipped skills", () => {
 import type { AccessProvider } from "@cockpit/shared";
 import tailscale from "../../plugins/tailscale/server.ts";
 import { allowed } from "../src/auth.ts";
+
+import { mergeQueues } from "../src/providers.ts";
+
+describe("the review queue", () => {
+  const pr = (url: string, createdAt: string): PullRequest => ({
+    number: Number(url.split("/").pop()),
+    title: url,
+    url,
+    branch: "b",
+    state: "OPEN",
+    isDraft: false,
+    createdAt,
+  });
+
+  it("puts every source's PRs in one list, oldest first", () => {
+    const host = [pr("https://h/pull/2", "2026-02-02"), pr("https://h/pull/9", "2026-01-01")];
+    const plugin = [pr("https://h/pull/5", "2026-01-15")];
+    expect(mergeQueues([host, plugin]).map((p) => p.number)).toEqual([9, 5, 2]);
+  });
+
+  it("shows a PR once when two sources both have it", () => {
+    const same = "https://h/pull/7";
+    const merged = mergeQueues([[pr(same, "2026-01-01")], [pr(same, "2026-01-01")]]);
+    expect(merged).toHaveLength(1);
+  });
+
+  it("keeps the code host's version of a PR a plugin also has", () => {
+    const same = "https://h/pull/7";
+    const host = { ...pr(same, "2026-01-01"), author: "from-host" };
+    const plugin = { ...pr(same, "2026-01-01"), author: "from-plugin" };
+    expect(mergeQueues([[host], [plugin]])[0].author).toBe("from-host");
+  });
+
+  it("is empty when nothing is waiting", () => {
+    expect(mergeQueues([[], []])).toEqual([]);
+  });
+});
 
 describe("access", () => {
   it("lets this machine in and nobody else when no access plugin is on", () => {

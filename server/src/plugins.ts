@@ -3,7 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { watch } from "chokidar";
 import { z } from "zod";
-import { PLUGIN_API, type AccessProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type RouteRequest, type ScreenInfo, type SettingValue, type Theme, type Tracker } from "@cockpit/shared";
+import { PLUGIN_API, type AccessProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type ReviewSource, type RouteRequest, type ScreenInfo, type SettingValue, type Theme, type Tracker } from "@cockpit/shared";
 import { config, paths } from "./config.ts";
 import { cached } from "./db.ts";
 import { onEvent } from "./events.ts";
@@ -96,6 +96,7 @@ interface Plugin {
   generation: number;
   tracker?: Tracker;
   codeHost?: CodeHost;
+  reviewSource?: ReviewSource;
   access?: AccessProvider;
 }
 
@@ -193,6 +194,7 @@ function unload(p: Plugin) {
   p.stops = [];
   p.tracker = undefined;
   p.codeHost = undefined;
+  p.reviewSource = undefined;
   p.access = undefined;
 }
 
@@ -253,6 +255,9 @@ function makeApi(p: Plugin): Cockpit {
     },
     codeHost(h) {
       if (live()) p.codeHost = h;
+    },
+    reviewSource(r) {
+      if (live()) p.reviewSource = r;
     },
     access(a) {
       if (live()) p.access = a;
@@ -394,7 +399,12 @@ function info(p: Plugin): PluginInfo {
     settings,
     screens: p.screens,
     themes: p.themes.map((t) => t.name),
-    provides: [...(p.tracker ? (["tracker"] as const) : []), ...(p.codeHost ? (["codeHost"] as const) : []), ...(p.access ? (["access"] as const) : [])],
+    provides: [
+      ...(p.tracker ? (["tracker"] as const) : []),
+      ...(p.codeHost ? (["codeHost"] as const) : []),
+      ...(p.reviewSource ? (["reviewSource"] as const) : []),
+      ...(p.access ? (["access"] as const) : []),
+    ],
   };
 }
 
@@ -417,6 +427,10 @@ function pick<K extends "tracker" | "codeHost">(kind: K) {
 export const accessProviders = () => [...plugins.values()].filter((p) => p.state === "on" && p.access).map((p) => p.access!);
 export const activeTracker = () => pick("tracker");
 export const activeCodeHost = () => pick("codeHost");
+// Unlike the tracker and the code host, every plugin that offers one of these counts: they add to the queue
+// rather than replacing where it comes from.
+export const reviewSources = () => active().flatMap((p) => (p.reviewSource ? [p.reviewSource] : []));
+
 export const providerOptions = (kind: "tracker" | "codeHost") =>
   [...plugins.values()].filter((p) => (p.state === "on" || p.state === "error") && p[kind]).map((p) => ({ plugin: p.manifest.id, name: p[kind]!.name }));
 const active = () => [...plugins.values()].filter((p) => p.state === "on" || p.state === "error");

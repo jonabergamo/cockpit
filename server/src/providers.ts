@@ -1,7 +1,7 @@
 import type { PrRef, PullRequest, StatusConfig, Ticket, TrackerSprint, TrackerTicket } from "@cockpit/shared";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
-import { activeCodeHost, activeTracker } from "./plugins.ts";
+import { activeCodeHost, activeTracker, reviewSources } from "./plugins.ts";
 import { readRow, writeRow } from "./settings.ts";
 
 // What core asks of the tracker and code host, whichever plugins provide them. With none, the answers are
@@ -57,7 +57,35 @@ export async function sprintTickets(sprintId?: number, force = false, maxAge?: n
 }
 
 export const myPrs = async (fresh = false): Promise<PullRequest[]> => (await codeHost()?.myPrs(fresh)) ?? [];
-export const reviewQueue = async (fresh = false): Promise<PullRequest[]> => (await codeHost()?.reviewQueue?.(fresh)) ?? [];
+/**
+ * A PR can be waiting on you in more than one place at once, asked for on the
+ * code host and tracked by a plugin as well, so the first mention of a url
+ * wins. Oldest first, which is the order they should be dealt with in.
+ */
+export function mergeQueues(lists: PullRequest[][]): PullRequest[] {
+  const seen = new Set<string>();
+  return lists
+    .flat()
+    .filter((p) => !seen.has(p.url) && seen.add(p.url))
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+}
+
+/** The code host's own queue plus anything the plugins add. */
+export async function reviewQueue(fresh = false): Promise<PullRequest[]> {
+  const lists = await Promise.all([
+    codeHost()?.reviewQueue?.(fresh) ?? [],
+    ...reviewSources().map(async (s) => {
+      try {
+        return await s.queue(fresh);
+      } catch (e) {
+        // One source being unreachable must not empty the whole screen.
+        console.error(`review source ${s.name} failed:`, (e as Error).message);
+        return [];
+      }
+    }),
+  ]);
+  return mergeQueues(lists);
+}
 export const deploys = async (since: string) => (await codeHost()?.deploys?.(since)) ?? [];
 export const failingChecks = async (n: number) => (await codeHost()?.failingChecks?.(n)) ?? [];
 export const reviewThreads = async (n: number) => (await codeHost()?.reviewThreads?.(n)) ?? [];

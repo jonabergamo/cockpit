@@ -113,6 +113,7 @@ What `k` offers:
 | `k.cache(key, maxAge, fn, force)` | Runs `fn` and keeps its result for `maxAge` ms in cockpit's cache. `force` runs it again. |
 | `k.ticketOf(...strings)` | Finds a ticket key in branch names or titles, using the active tracker's pattern. |
 | `k.tracker(provider)`, `k.codeHost(provider)` | Plugs a work tracker or a code host into cockpit. See below. |
+| `k.reviewSource(provider)` | Adds PRs to the PR reviews queue without replacing the code host. See below. |
 | `k.access(provider)` | Decides which requests from other machines get in. See below. |
 | `k.providers.tracker()`, `k.providers.codeHost()` | The ones in use, possibly from other plugins. |
 
@@ -140,6 +141,25 @@ k.tracker({
 - A code host needs `myPrs`. Add `reviewThreads` so autopilot and the lead session can quote unresolved review comments. Add `reviewQueue`, `failingChecks`, `parsePr`, `prInfo`, `pendingReview` and `deletePending` for PR reviews and for fixing failed checks with Claude.
 - The shapes are in `shared/src/plugin.ts` (`Tracker`, `CodeHost`). Tickets and PRs use the same `Ticket` and `PullRequest` types the screens already read.
 - Only one of each is in use at a time. If two plugins offer one, Settings lets you pick. With none, the screens that need it leave the sidebar.
+
+## More PRs to review
+
+The PR reviews screen lists what is waiting for your review, from the code host's own queue. If something else
+decides who reviews what, a rota or a board of your own, add it to that list instead of replacing the code host:
+
+```ts
+k.reviewSource({
+  name: "Our rota",
+  queue: async (fresh) => [/* PullRequest[] */],
+});
+```
+
+- Every plugin that offers one counts, unlike the tracker and the code host where only one is in use.
+- The lists are merged oldest first, and a PR in two of them is shown once, with the code host's version of it.
+- A source that throws is left out and logged, so one being unreachable does not empty the screen.
+- `fresh` is true when you press Refresh. Cache the rest of the time: this is called whenever the screen loads.
+- The rows are ordinary `PullRequest` values, so `url` has to be a real PR the code host can open, or Claude
+  has nothing to review.
 
 ## Access from other machines
 

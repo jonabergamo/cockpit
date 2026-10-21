@@ -74,12 +74,13 @@ export interface PluginInfo {
   settings: Record<string, SettingValue>;
   screens: ScreenInfo[];
   themes: string[];
-  provides: ("tracker" | "codeHost" | "access")[];
+  provides: ("tracker" | "codeHost" | "reviewSource" | "access")[];
 }
 
 export type PluginEvent =
   | "session.started"
   | "session.idle"
+  | "session.waiting"
   | "session.ended"
   | "session.stuck"
   | "worktree.created"
@@ -154,6 +155,13 @@ export interface CodeHost {
   deletePending?(ref: PrRef, id: number): Promise<unknown>;
 }
 
+// More PRs waiting for your review, from somewhere that is not the code host: a rota, a review board, a queue
+// of your own. They join the code host's own queue on the PR reviews screen, deduplicated by url.
+export interface ReviewSource {
+  name: string;
+  queue(fresh?: boolean): Promise<PullRequest[]>;
+}
+
 // Lets requests from other machines in. Cockpit alone only answers its own machine; anything proxied or remote
 // gets in when an access plugin says yes, like Tailscale's login header, a VPN or a reverse proxy's auth.
 export interface AccessRequest {
@@ -204,6 +212,8 @@ export interface Cockpit {
   ticketOf(...hay: (string | undefined)[]): string | undefined;
   tracker(t: Tracker): void;
   codeHost(h: CodeHost): void;
+  // adds to the PR reviews queue without replacing the code host
+  reviewSource(s: ReviewSource): void;
   access(a: AccessProvider): void;
   // the active ones, which may come from other plugins
   providers: { tracker(): Tracker | undefined; codeHost(): CodeHost | undefined };
