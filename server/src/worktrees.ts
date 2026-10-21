@@ -128,14 +128,22 @@ function forget(path: string) {
   if (dirname(path) === base) run("rm", ["-f", `${base}.status`, `${base}.tracked.diff`]).catch(() => {});
 }
 
+// Removes a worktree's parent folder once the worktree is gone, along with the editor workspace files some
+// setups keep there. Anything else in it keeps the folder.
+export function tidyParent(parent: string) {
+  const q = JSON.stringify(parent);
+  return `[ -d ${q} ] && [ -z "$(find ${q} -mindepth 1 -maxdepth 1 ! -name '*.code-workspace')" ] && rm -f ${q}/*.code-workspace ; rmdir ${q} 2>/dev/null`;
+}
+
 // The delete command, then a way past files Docker containers left behind as root: those can only be removed
-// from inside a container, so mount just this worktree and empty it there. The empty parent folder goes too.
+// from inside a container, so mount just this worktree and empty it there. The parent folder goes too when
+// nothing but workspace files is left in it.
 export function removeStep(path: string, leftover = false) {
   const q = JSON.stringify(path);
   const del = leftover ? `rm -rf ${q}` : fill(repo.deleteCommand, { repo: repo.path, path, name: nameOf(path) });
   const docker = `command -v docker >/dev/null && echo "some files belong to docker containers, removing them through docker" && docker run --rm -v ${q}:/w alpine:3.22 find /w -mindepth 1 -delete && rmdir ${q}`;
   const parent = join(repo.worktreesDir, nameOf(path));
-  const tidy = dirname(path) === parent ? ` ; rmdir ${JSON.stringify(parent)} 2>/dev/null` : "";
+  const tidy = dirname(path) === parent ? ` ; ${tidyParent(parent)}` : "";
   return `echo "removing ${nameOf(path)}" && ( (${del}) || (${docker}) || echo "could not remove ${nameOf(path)}" )${tidy}`;
 }
 

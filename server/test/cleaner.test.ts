@@ -1,8 +1,12 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Worktree } from "@cockpit/shared";
 import { judge } from "../src/cleaner.ts";
 import { config } from "../src/config.ts";
-import { removeStep } from "../src/worktrees.ts";
+import { removeStep, tidyParent } from "../src/worktrees.ts";
 
 const now = Date.parse("2026-10-20T12:00:00Z");
 const wt = (extra: Partial<Worktree> = {}): Worktree => ({ path: "/w/ACME-1/repo", name: "ACME-1", branch: "feat/ACME-1/x", head: "abc", main: false, ticket: "ACME-1", lastCommitAt: now - 864e5, ...extra });
@@ -49,11 +53,26 @@ describe("worktree removal", () => {
     const step = removeStep(`${config.repo.worktreesDir}/ACME-1/${config.repo.name}`);
     expect(step).toContain("docker run --rm -v");
     expect(step).toContain("could not remove ACME-1");
-    expect(step).toContain(`rmdir "${config.repo.worktreesDir}/ACME-1"`);
+    expect(step).toContain(`rmdir "${config.repo.worktreesDir}/ACME-1" 2>/dev/null`);
   });
 
   it("removes leftover folders with rm, not the git command", () => {
     expect(removeStep("/w/old", true)).toContain('rm -rf "/w/old"');
+  });
+
+  it("drops a parent folder left with only workspace files, and keeps one with anything else", () => {
+    const root = mkdtempSync(join(tmpdir(), "cockpit-tidy-"));
+    const only = join(root, "ACME-1");
+    const more = join(root, "ACME-2");
+    mkdirSync(only);
+    mkdirSync(more);
+    writeFileSync(join(only, "ACME-1.code-workspace"), "{}");
+    writeFileSync(join(more, "ACME-2.code-workspace"), "{}");
+    writeFileSync(join(more, "notes.md"), "keep me");
+    execFileSync("bash", ["-c", `${tidyParent(only)} ; ${tidyParent(more)} ; ${tidyParent(join(root, "gone"))} ; true`]);
+    expect(existsSync(only)).toBe(false);
+    expect(readdirSync(more).sort()).toEqual(["ACME-2.code-workspace", "notes.md"]);
+    rmSync(root, { recursive: true });
   });
 });
 
