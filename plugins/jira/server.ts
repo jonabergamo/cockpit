@@ -62,6 +62,9 @@ export default function setup(k: Cockpit) {
       url: url ? `${url}/browse/${raw.key}` : undefined,
       created: f.created,
       parent: f.parent?.key,
+      parentSummary: f.parent?.fields?.summary,
+      parentStatus: f.parent?.fields?.status?.name,
+      parentType: f.parent?.fields?.issuetype?.name,
       statusChangedAt: f.statuscategorychangedate,
       resolvedAt: f.resolutiondate ?? undefined,
     };

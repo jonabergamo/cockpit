@@ -109,7 +109,8 @@ export interface StatusConfig {
   buckets: Record<string, string[]>;
 }
 
-export type TrackerTicket = Ticket & { created?: string; parent?: string; statusChangedAt?: string; resolvedAt?: string };
+// parent is the epic or story a ticket belongs to, with its title, status and type when the tracker gives them
+export type TrackerTicket = Ticket & { created?: string; parent?: string; parentSummary?: string; parentStatus?: string; parentType?: string; statusChangedAt?: string; resolvedAt?: string };
 export type TrackerSprint = Sprint & { state: string };
 
 // A work tracker, like Jira or Linear. Only myTickets and statusesOf are required; the rest light up more of
