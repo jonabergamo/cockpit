@@ -5,11 +5,10 @@ import { DiffReview } from "../components/DiffReview";
 import { FileTree } from "../components/FileTree";
 import { GitHistory } from "../components/GitHistory";
 import { Terminal } from "../components/Terminal";
-import { useRecentFolders } from "../components/TerminalLauncher";
 import { Button, Empty, ErrorNote } from "../components/ui";
 import { api } from "../lib/api";
 import { useLiveSessions } from "../lib/live";
-import { launch, launcher, useLauncher } from "../lib/launcher";
+import { launcher } from "../lib/launcher";
 import { useOpenSession } from "../lib/openSession";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { ago, shortPath } from "../lib/format";
@@ -113,7 +112,16 @@ export function TerminalsPage() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center h-11 border-b border-line bg-panel shrink-0">
-        <QuickClaude />
+        <div className="flex items-center pl-2 pr-1 h-full border-r border-line shrink-0">
+          <button
+            onClick={launcher.open}
+            className="size-8 grid place-items-center rounded-md text-muted hover:text-ink hover:bg-ground"
+            title="New terminal: Claude, resume a session or a shell, in any folder"
+            aria-label="New terminal"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>
+          </button>
+        </div>
         <div className="flex items-center gap-1 px-2 h-full overflow-x-auto min-w-0 flex-1">
         {tabs.map((t) => (
           <div
@@ -148,9 +156,6 @@ export function TerminalsPage() {
             </button>
           </div>
         ))}
-        <Button size="sm" variant="ghost" onClick={launcher.open} className="shrink-0">
-          New terminal
-        </Button>
         </div>
         <div className="hidden md:flex items-center gap-1 px-2 h-full border-l border-line shrink-0">
           <Button size="sm" variant={split ? "default" : "ghost"} onClick={() => (split ? setShowSplit(false) : shown.length ? setShowSplit(true) : addPane())} title={split ? "Hide the shells, they keep running" : "A shell in the same folder, side by side"}>
@@ -164,7 +169,7 @@ export function TerminalsPage() {
       <ErrorNote error={resumeErr} />
       <ErrorNote error={splitErr} />
       <div className="flex-1 min-h-0 flex">
-        <div className="flex-1 min-w-0">{active ? <Terminal key={active} id={active} onExit={() => ended(active)} /> : <Empty>No terminals open. Start one in a worktree or from a session.</Empty>}</div>
+        <div className="flex-1 min-w-0">{active ? <Terminal key={active} id={active} onExit={() => ended(active)} /> : <Empty>No terminals open. Start one with + above, in a worktree or from a session.</Empty>}</div>
         {split && active && window.innerWidth >= 768 && (
           <div className="flex-1 min-w-0 flex flex-col border-l border-line">
             {shown.map((p, i) => (
@@ -280,43 +285,5 @@ function ChangesSide({ id, onHide }: { id: string; onHide: () => void }) {
       )}
       {reviewing && d?.root && <DiffReview root={d.root} sessionId={sessionHere?.id} onClose={() => setReviewing(false)} />}
     </aside>
-  );
-}
-
-function QuickClaude() {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const { folders, label, ready } = useRecentFolders();
-  const { last } = useLauncher();
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>();
-  const target = last && (folders.includes(last) || !ready) ? last : folders[0];
-
-  const start = async (cwd: string) => {
-    setBusy(true);
-    setErr(undefined);
-    try {
-      const id = await launch(qc, cwd, "resume", label(cwd));
-      navigate({ to: "/terminals", search: { id } });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="relative flex items-center pl-3 pr-2 h-full border-r border-line shrink-0">
-      <div className="flex">
-        <Button size="sm" variant="primary" disabled={!target || busy} onClick={() => target && start(target)} className="rounded-r-none" title={target ? `Pick a session to resume in ${target}` : undefined}>
-          {busy ? "Starting" : "Resume"}
-          {target && <span className="hidden sm:inline font-normal opacity-80 max-w-[140px] truncate">in {label(target)}</span>}
-        </Button>
-        <Button size="sm" variant="primary" onClick={launcher.open} className="rounded-l-none border-l border-on-accent/25 px-1.5" aria-label="Pick a folder">
-          ▾
-        </Button>
-      </div>
-      {err && <span className="ml-2 text-[12px] text-red max-w-[220px] truncate" title={err}>{err}</span>}
-    </div>
   );
 }
