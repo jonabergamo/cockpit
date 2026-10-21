@@ -1,9 +1,9 @@
 // Spots sessions that look stuck: busy for a long time without writing anything, calling the same tool over
-// and over, failing tool calls in a row, or close to running out of context. Checked once a minute.
+// and over, or failing tool calls in a row. Checked once a minute. A nearly full context isn't one of them:
+// Claude Code compacts it by itself.
 import type { Entry, Session } from "@cockpit/shared";
 import { listSessions, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
-import { db } from "./db.ts";
 import { emit } from "./events.ts";
 import { notify } from "./notify.ts";
 import { getSettings } from "./settings.ts";
@@ -30,14 +30,8 @@ export function looksStuck(entries: Entry[]): string | undefined {
   return;
 }
 
-// the usage table belongs to usage.ts, which may not have made it yet when this file loads
-const contextUsed = (id: string) => {
-  try {
-    return db.prepare<[string], { tokens: number }>("select input + cache_read + cache_write as tokens from usage where session_id = ? order by ts desc limit 1").get(id)?.tokens ?? 0;
-  } catch {
-    return 0;
-  }
-};
+// one notification per kind of problem: "No progress for 21 minutes" and "...22 minutes" are the same one
+export const alertKey = (id: string, reason: string) => `${id}:${reason.replace(/\d+/g, "#")}`;
 
 async function check() {
   const minutes = getSettings().alerts.stuckMinutes;
@@ -54,16 +48,13 @@ async function check() {
       const tail = await readTail(file, 192 * 1024).catch(() => undefined);
       if (tail) reason = looksStuck(tail.lines.flatMap((l) => parseLine(l)));
     }
-    if (!reason) {
-      const used = contextUsed(s.id);
-      // a session past 200k tokens is on a 1M window
-      const window = used > 200_000 ? 1_000_000 : 200_000;
-      if (used > window * 0.85) reason = `Context is ${Math.round((used / window) * 100)}% full`;
-    }
     if (reason) flags.set(s.id, reason);
-    else flags.delete(s.id);
-    const key = `${s.id}:${reason}`;
-    if (reason && !told.has(key)) {
+    else if (flags.delete(s.id)) {
+      // it recovered, so getting stuck again later is news again
+      for (const k of told) if (k.startsWith(`${s.id}:`)) told.delete(k);
+    }
+    const key = reason && alertKey(s.id, reason);
+    if (reason && key && !told.has(key)) {
       told.add(key);
       notify({ title: `${s.title ?? s.name ?? "A session"} looks stuck`, body: reason, link: `/sessions/${s.id}` });
       emit("session.stuck", { id: s.id, reason });

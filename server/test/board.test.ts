@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Entry } from "@cockpit/shared";
 import { columnOf } from "../src/board.ts";
-import { looksStuck } from "../src/stuck.ts";
+import { alertKey, looksStuck } from "../src/stuck.ts";
 
 const pr = (over: object = {}) => ({ state: "OPEN", checks: "pass" as const, isDraft: false, reviewDecision: undefined as string | undefined, mergeable: "MERGEABLE", ...over });
 
@@ -41,6 +41,12 @@ const tool = (name: string, input: unknown, i: number): Entry => ({ kind: "tool"
 const result = (isError: boolean, i: number): Entry => ({ kind: "tool_result", id: `r${i}`, ts: "", toolUseId: `u${i}`, text: "", isError });
 
 describe("looksStuck", () => {
+  it("alerts once per kind of problem, not once per minute or count", () => {
+    expect(alertKey("s1", "No progress for 21 minutes")).toBe(alertKey("s1", "No progress for 22 minutes"));
+    expect(alertKey("s1", "3 tool calls failed in a row")).not.toBe(alertKey("s1", "No progress for 21 minutes"));
+    expect(alertKey("s1", "No progress for 21 minutes")).not.toBe(alertKey("s2", "No progress for 21 minutes"));
+  });
+
   it("notices the same call over and over", () => {
     const entries = [0, 1, 2, 3].flatMap((i) => [tool("Bash", { command: "pnpm test" }, i), result(false, i)]);
     expect(looksStuck(entries)).toMatch(/Bash the same way 4 times/);
