@@ -52,6 +52,11 @@ const schema = z.object({
     })
     .prefault({}),
   away: z.object({ minutes: z.number().int().min(5).max(24 * 60).default(30) }).prefault({}),
+  // the instructions for the sprint report's additional notes; empty uses the built-in ones
+  // liveBranch: the branch that is production, so the notes can tell shipped work from work still on its way
+  notes: z
+    .object({ prompt: z.string().max(8000).default(""), maxChars: z.number().int().min(0).max(20000).default(0), liveBranch: z.string().max(100).default("") })
+    .prefault({}),
 });
 export type Settings = z.infer<typeof schema>;
 

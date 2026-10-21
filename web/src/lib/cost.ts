@@ -18,6 +18,7 @@ export interface SettingsRes {
     verify: { auto: boolean };
     alerts: { stuckMinutes: number; escalateMinutes: number };
     away: { minutes: number };
+    notes: { prompt: string; maxChars: number; liveBranch: string };
   };
   billing: Billing;
 }

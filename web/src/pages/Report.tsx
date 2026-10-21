@@ -5,8 +5,8 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart,
 import type { BurnPoint, DayActivity, Sprint, StatusSpan, Ticket } from "@cockpit/shared";
 import { Button, copy, ErrorNote, inputClass, Loading, PageHeader, StatusTag, statusTone, Tag } from "../components/ui";
 import { api, qs } from "../lib/api";
-import { usd } from "../lib/format";
-import { useCost } from "../lib/cost";
+import { ago, usd } from "../lib/format";
+import { useCost, useSaveSettings, useSettings } from "../lib/cost";
 
 interface Person {
   name: string;
@@ -286,6 +286,144 @@ function CostChart({ days }: { days: DayActivity[] }) {
   );
 }
 
+// Notes for people outside the team, written by Claude from everything the report has: every ticket with its
+// status history, PRs, commits and sessions, day by day. It only runs when you press the button.
+function AdditionalNotes({ sprintId }: { sprintId: number }) {
+  const qc = useQueryClient();
+  const settings = useSettings();
+  const saveSettings = useSaveSettings();
+  const notes = useQuery({ queryKey: ["notes", sprintId], queryFn: () => api.get<{ saved?: { text: string; at: number }; jobId?: string; defaultPrompt: string }>(`/report/notes${qs({ id: sprintId })}`) });
+  const [jobId, setJobId] = useState<string>();
+  const running = jobId ?? notes.data?.jobId;
+  const job = useQuery({
+    queryKey: ["job", running],
+    queryFn: () => api.get<{ output: string; code?: number; startedAt: number }>(`/jobs/${running}`),
+    enabled: !!running,
+    refetchInterval: (q) => (q.state.data?.code === undefined ? 2000 : false),
+  });
+  const [text, setText] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+  const [prompt, setPrompt] = useState<string>();
+  const brief = useQuery({ queryKey: ["notes-brief", sprintId], queryFn: () => api.get<string>(`/report/notes/brief${qs({ id: sprintId })}`), enabled: showSetup });
+
+  useEffect(() => {
+    if (notes.data?.saved) setText(notes.data.saved.text);
+  }, [notes.data?.saved]);
+  // once the run ends, pick up what it saved
+  const done = job.data?.code !== undefined;
+  useEffect(() => {
+    if (!done) return;
+    setJobId(undefined);
+    qc.invalidateQueries({ queryKey: ["notes", sprintId] });
+  }, [done, qc, sprintId]);
+
+  const generate = useMutation({
+    mutationFn: () => api.post<{ jobId: string }>("/report/notes", { id: sprintId }),
+    onSuccess: (r) => setJobId(r.jobId),
+  });
+  const failed = job.data?.code !== undefined && job.data.code !== 0 ? new Error(job.data.output.slice(-500) || "Claude stopped without writing anything") : undefined;
+  const custom = settings.data?.settings.notes.prompt ?? "";
+  const maxChars = settings.data?.settings.notes.maxChars ?? 0;
+  const liveBranch = settings.data?.settings.notes.liveBranch ?? "";
+  const saveNotes = (patch: Partial<{ prompt: string; maxChars: number; liveBranch: string }>) => saveSettings({ notes: { prompt: custom, maxChars, liveBranch, ...patch } });
+  const shownPrompt = prompt ?? (custom || notes.data?.defaultPrompt || "");
+  const saved = notes.data?.saved;
+
+  return (
+    <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex-1 min-w-[220px]">
+          <h2 className="font-semibold">Additional notes</h2>
+          <p className="text-[13px] text-muted">
+            {running ? `Claude is reading the sprint and writing, started ${ago(job.data?.startedAt ?? Date.now())}.` : saved ? `Written ${ago(saved.at)}. Edit them here before you copy them.` : "A write-up of the sprint for people outside the team, from every ticket, status change, PR and commit cockpit has. Runs only when you ask."}
+          </p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setShowSetup((v) => !v)}>
+          {showSetup ? "Hide what Claude gets" : "What Claude gets"}
+        </Button>
+        <Button size="sm" onClick={() => generate.mutate()} disabled={!!running || generate.isPending}>
+          {running ? "Writing" : saved ? "Write again" : "Write the notes"}
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={!text}
+          onClick={() => {
+            copy(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+
+      {showSetup && (
+        <div className="grid lg:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <div className="text-[12px] text-muted">Instructions, saved for every sprint</div>
+            <textarea value={shownPrompt} onChange={(e) => setPrompt(e.target.value)} rows={9} className={`${inputClass} h-auto w-full py-2 font-sans text-[13px] leading-relaxed`} />
+            <div className="flex gap-1.5">
+              <Button size="sm" disabled={prompt === undefined || prompt === (custom || notes.data?.defaultPrompt)} onClick={() => saveNotes({ prompt: prompt === notes.data?.defaultPrompt ? "" : (prompt ?? "") }).then(() => setPrompt(undefined))}>
+                Save
+              </Button>
+              {custom && (
+                <Button size="sm" variant="ghost" onClick={() => saveNotes({ prompt: "" }).then(() => setPrompt(undefined))}>
+                  Back to the default
+                </Button>
+              )}
+              <label className="ml-auto flex items-center gap-2 text-[12px] text-muted" title="The branch that is production. Each ticket then says whether its work has reached it, so done work still on its way isn't called live">
+                Production branch
+                <input
+                  key={liveBranch}
+                  defaultValue={liveBranch}
+                  placeholder="none"
+                  onBlur={(e) => {
+                    const b = e.target.value.trim();
+                    if (b !== liveBranch) saveNotes({ liveBranch: b });
+                  }}
+                  className={`${inputClass} w-24`}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-[12px] text-muted" title="A draft that comes out longer goes back to Claude to shorten. 0 is no limit">
+                At most
+                <input
+                  key={maxChars}
+                  defaultValue={maxChars || ""}
+                  placeholder="no limit"
+                  inputMode="numeric"
+                  onBlur={(e) => {
+                    const n = Math.max(0, Math.round(Number(e.target.value) || 0));
+                    if (n !== maxChars) saveNotes({ maxChars: n });
+                  }}
+                  className={`${inputClass} w-24 text-right tabular-nums`}
+                />
+                characters
+              </label>
+            </div>
+          </div>
+          <div className="space-y-1.5 min-w-0">
+            <div className="text-[12px] text-muted">The sprint's data, as Claude reads it</div>
+            <pre className="h-[236px] overflow-auto rounded-md border border-line bg-ground p-2 text-[12px] leading-relaxed whitespace-pre-wrap">{brief.data ?? (brief.isLoading ? "Gathering it" : "")}</pre>
+          </div>
+        </div>
+      )}
+
+      {(saved || text) && (
+        <div className="space-y-1">
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={maxChars && maxChars <= 1000 ? 10 : 18} className={`${inputClass} h-auto w-full py-2 font-sans leading-relaxed`} />
+          <div className={`text-right text-[12px] tabular-nums ${maxChars && text.length > maxChars ? "text-red" : "text-faint"}`}>
+            {text.length}
+            {maxChars ? ` / ${maxChars}` : ""} characters
+          </div>
+        </div>
+      )}
+      <ErrorNote error={notes.error ?? generate.error ?? failed ?? brief.error} />
+    </section>
+  );
+}
+
 function DailyText() {
   const daily = useQuery({ queryKey: ["daily"], queryFn: () => api.get<string>("/report/daily") });
   const [text, setText] = useState("");
@@ -496,6 +634,8 @@ export function ReportPage() {
             <p className="text-[13px] text-muted mb-3">History builds up from hourly syncs. Before the first sync only the latest status change is known.</p>
             <StatusLanes report={r} />
           </section>
+
+          <AdditionalNotes sprintId={r.sprint.id} />
         </>
       )}
 

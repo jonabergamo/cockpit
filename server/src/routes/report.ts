@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { listSessions } from "../claude/sessions.ts";
+import { DEFAULT_NOTES_PROMPT, generateNotes, savedNotes, sprintBrief } from "../notes.ts";
 import { activity, dailyText, sayDo, sprintReport, takeSnapshot, weekly } from "../report.ts";
 import { day } from "../util.ts";
 
@@ -21,6 +22,24 @@ export const report = new Hono()
   .get("/saydo", async (c) => c.json(await sayDo(Number(c.req.query("count")) || 6, c.req.query("scope") === "me" ? "me" : "team")))
   .get("/daily", async (c) => c.text(await dailyText()))
   .get("/weekly", async (c) => c.json(await weekly()))
+  // additional notes: the last ones written for a sprint, the data they're written from, and a new run
+  .get("/notes", (c) => c.json({ ...savedNotes(Number(c.req.query("id"))), defaultPrompt: DEFAULT_NOTES_PROMPT }))
+  .get("/notes/brief", async (c) => {
+    const id = Number(c.req.query("id")) || undefined;
+    try {
+      return c.text((await sprintBrief(id)).text);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 404);
+    }
+  })
+  .post("/notes", async (c) => {
+    const { id } = await c.req.json<{ id?: number }>().catch(() => ({ id: undefined }));
+    try {
+      return c.json(await generateNotes(id || undefined));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 404);
+    }
+  })
   // sessions that overlap a given day, for the "my day" timeline
   .get("/day", async (c) => {
     const date = c.req.query("date") ?? day(new Date());
