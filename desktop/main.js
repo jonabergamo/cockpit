@@ -132,10 +132,12 @@ const label = (s) => s.title || s.name || path.basename(s.cwd)
 function refresh() {
   const busy = live.filter((s) => s.status === 'busy')
   const waiting = live.filter((s) => s.status === 'waiting')
+  // the icon counts only sessions working or waiting for you; ones that finished their turn don't count
+  const active = busy.length + waiting.length
   if (process.platform === 'darwin') {
-    tray.setTitle(busy.length || waiting.length ? ` ${busy.length} · ${waiting.length}` : '')
-    app.dock.setBadge(waiting.length ? String(waiting.length) : '')
-  }
+    tray.setTitle(active ? ` ${busy.length} · ${waiting.length}` : '')
+    app.dock.setBadge(active ? String(active) : '')
+  } else app.setBadgeCount(active)
   tray.setToolTip(`cockpit: ${busy.length} working, ${waiting.length} waiting`)
   tray.setContextMenu(trayMenu(busy, waiting))
 }

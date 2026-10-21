@@ -135,7 +135,7 @@ Then turn on Tailscale in Settings → Plugins and enter your login. For a VPN, 
 
 ### Desktop app (optional)
 
-A small Electron wrapper for the computer in front of you, while the server stays on your dev box. It adds a menu bar item showing how many sessions are working and waiting, a waiting count on the dock icon, and ⌘⇧K to open it from anywhere.
+A small Electron wrapper for the computer in front of you, while the server stays on your dev box. It adds a menu bar item showing how many sessions are working and waiting, a count of the sessions working or waiting for you on the app icon, and ⌘⇧K to open it from anywhere.
 
 ```sh
 ./desktop/install.sh https://your-server.example.com:8444
