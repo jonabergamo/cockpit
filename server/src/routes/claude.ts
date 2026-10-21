@@ -70,5 +70,6 @@ export const claude = new Hono()
   })
   .post("/ask", async (c) => {
     const { cwd, prompt } = await c.req.json<{ cwd?: string; prompt: string }>();
-    return c.json(startJob("claude -p", fill("claude -p {prompt}", { prompt }), cwd ?? process.env.HOME));
+    // the repo by default: Claude asks to trust a folder first, and the home folder usually isn't trusted
+    return c.json(startJob("claude -p", `${fill("claude -p {prompt}", { prompt })} < /dev/null`, cwd ?? (config.repo.path || process.env.HOME)));
   });
