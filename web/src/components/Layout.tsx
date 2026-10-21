@@ -16,6 +16,25 @@ import { notifyStore, useNotifyMode, type NotifyMode } from "../lib/notification
 import { Kbd } from "./ui";
 
 
+// Back and forward inside the desktop app, which has no browser buttons of its own. The app tells us when
+// there's somewhere to go; the same moves are on ⌘[ ⌘] (Alt+arrows on Linux), the mouse and the trackpad.
+function DesktopNav() {
+  const [can, setCan] = useState({ back: false, forward: false });
+  useEffect(() => window.desktop?.onNavState?.(setCan), []);
+  const mac = window.desktop?.platform === "darwin";
+  const btn = "size-7 grid place-items-center rounded text-muted hover:text-ink hover:bg-ground disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted";
+  return (
+    <div className="flex items-center gap-0.5 ml-auto">
+      <button className={btn} disabled={!can.back} onClick={() => window.desktop?.back?.()} title={`Back (${mac ? "⌘[" : "Alt+←"})`} aria-label="Back">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>
+      </button>
+      <button className={btn} disabled={!can.forward} onClick={() => window.desktop?.forward?.()} title={`Forward (${mac ? "⌘]" : "Alt+→"})`} aria-label="Forward">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3.5 10.5 8 6 12.5" /></svg>
+      </button>
+    </div>
+  );
+}
+
 const NOTIFY_NEXT: Record<NotifyMode, NotifyMode> = { background: "always", always: "off", off: "background" };
 const NOTIFY_LABEL: Record<NotifyMode, string> = { background: "Alerts when away", always: "Alerts always", off: "Alerts off" };
 
@@ -80,7 +99,7 @@ export function Layout() {
       >
         <div className="drag traffic flex items-center gap-2 px-4 h-14">
           <Logo />
-          <span className="font-semibold text-[16px] tracking-tight">cockpit</span>
+          {window.desktop?.back ? <DesktopNav /> : <span className="font-semibold text-[16px] tracking-tight">cockpit</span>}
         </div>
         <nav className="flex flex-col gap-px px-2 flex-1 min-h-0 overflow-y-auto">
           {groups.core.map(item)}

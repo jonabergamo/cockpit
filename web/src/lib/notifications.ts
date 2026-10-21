@@ -40,6 +40,9 @@ declare global {
       setColors?: (c: { background: string; foreground: string }) => void;
       notify?: (n: { title: string; body: string; link: string }) => void;
       onNavigate?: (fn: (link: string) => void) => void;
+      back?: () => void;
+      forward?: () => void;
+      onNavState?: (fn: (s: { back: boolean; forward: boolean }) => void) => void;
     };
   }
 }

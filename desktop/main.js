@@ -94,6 +94,11 @@ async function show(route = '') {
       if (process.platform === 'darwin') app.dock.hide()
     })
     win.on('closed', () => (win = null))
+    // three-finger swipe on a Mac trackpad, like a browser
+    win.on('swipe', (_, dir) => go(dir === 'right' ? 'back' : dir === 'left' ? 'forward' : ''))
+    win.webContents.on('did-navigate', navState)
+    win.webContents.on('did-navigate-in-page', navState)
+    win.webContents.on('dom-ready', navState)
     win.loadURL(page('Connecting to cockpit…'))
   }
   if (process.platform === 'darwin') app.dock.show()
@@ -150,14 +155,74 @@ function trayMenu(busy = [], waiting = []) {
     { type: 'separator' },
     ...(waiting.length ? [{ label: 'Waiting for you', enabled: false }, ...waiting.map(item), { type: 'separator' }] : []),
     ...(busy.length ? [{ label: 'Working', enabled: false }, ...busy.map(item), { type: 'separator' }] : []),
-    { label: 'Today', click: () => show('/') },
-    { label: 'Tickets', click: () => show('/tickets') },
-    { label: 'Sprint report', click: () => show('/report') },
+    { label: 'Today', click: () => open('/') },
+    { label: 'Board', click: () => open('/board') },
+    { label: 'Tickets', click: () => open('/tickets') },
+    { label: 'Sprint report', click: () => open('/report') },
     { type: 'separator' },
     { label: 'Change server…', click: () => (base = null, show(), win.loadURL(setupPage(false))) },
     { label: 'Quit cockpit', accelerator: 'CommandOrControl+Q', click: quit },
   ])
 }
+
+// --- navigation -------------------------------------------------------------
+
+// back and forward go through the page's own history, so the router keeps working as it does in a browser
+function go(dir) {
+  const h = win?.webContents.navigationHistory
+  if (!h) return
+  if (dir === 'back' && h.canGoBack()) h.goBack()
+  if (dir === 'forward' && h.canGoForward()) h.goForward()
+}
+
+// a page inside the app, without reloading it when it's already open
+function open(route) {
+  if (win && base && win.webContents.getURL().startsWith(base)) {
+    show()
+    win.webContents.send('navigate', route)
+  } else show(route)
+}
+
+function navState() {
+  const h = win?.webContents.navigationHistory
+  if (h) win.webContents.send('nav-state', { back: h.canGoBack(), forward: h.canGoForward() })
+}
+
+const PAGES = [
+  ['Today', '/'],
+  ['Board', '/board'],
+  ['Sessions', '/sessions'],
+  ['Tickets', '/tickets'],
+  ['Terminals', '/terminals'],
+  ['Code', '/code'],
+  ['Tasks', '/tasks'],
+  ['Usage', '/usage'],
+]
+
+// Back and Forward only show their shortcuts here: the page handles them, so ⌘[ still indents in the editor
+// and Alt+arrows still move by word in a terminal.
+function appMenu() {
+  const mac = process.platform === 'darwin'
+  return Menu.buildFromTemplate([
+    ...(mac ? [{ role: 'appMenu' }] : []),
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    {
+      label: 'Go',
+      submenu: [
+        { label: 'Back', accelerator: mac ? 'Cmd+[' : 'Alt+Left', registerAccelerator: false, click: () => go('back') },
+        { label: 'Forward', accelerator: mac ? 'Cmd+]' : 'Alt+Right', registerAccelerator: false, click: () => go('forward') },
+        { type: 'separator' },
+        ...PAGES.map(([label, route], i) => ({ label, accelerator: `CommandOrControl+${i + 1}`, click: () => open(route) })),
+        { type: 'separator' },
+        { label: 'Settings', accelerator: 'CommandOrControl+,', click: () => open('/settings') },
+      ],
+    },
+    { role: 'windowMenu' },
+  ])
+}
+
+ipcMain.on('nav', (_, dir) => (dir === 'back' || dir === 'forward') && go(dir))
 
 let quitting = false
 function quit() {
@@ -201,6 +266,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     if (process.platform === 'darwin') app.dock.setIcon(icon(512))
+    Menu.setApplicationMenu(appMenu())
     tray = new Tray(trayIcon())
     tray.setToolTip('cockpit')
     tray.setContextMenu(trayMenu())
