@@ -85,7 +85,7 @@ export async function board(): Promise<BoardCard[]> {
 
   const sessionOf = (s?: Session): BoardCard["session"] => s && { id: s.id, status: s.status, waitingFor: s.waitingFor, updatedAt: s.updatedAt, name: s.name, term: s.term, pid: s.pid, title: s.title };
   const prOf = (p?: PullRequest): BoardCard["pr"] =>
-    p && { number: p.number, url: p.url, title: p.title, state: p.state, checks: p.checks, review: p.reviewDecision, mergeable: p.mergeable, mergeState: p.mergeState, isDraft: p.isDraft };
+    p && { number: p.number, url: p.url, title: p.title, state: p.state, checks: p.checks, ignoredFailing: p.ignoredFailing, review: p.reviewDecision, mergeable: p.mergeable, mergeState: p.mergeState, isDraft: p.isDraft };
   const taskOf = (t?: Task): BoardCard["task"] => t && { id: t.id, group: t.group, status: t.status, attempt: t.attempt, title: t.title };
 
   for (const wt of worktrees) {

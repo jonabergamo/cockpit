@@ -30,7 +30,7 @@ export const useBoard = () => {
 };
 
 export const asPr = (c: BoardCard): PullRequest | undefined =>
-  c.pr && { number: c.pr.number, title: c.pr.title, url: c.pr.url, state: c.pr.state, checks: c.pr.checks, reviewDecision: c.pr.review, isDraft: c.pr.isDraft, mergeable: c.pr.mergeable, branch: c.branch ?? "", createdAt: "" };
+  c.pr && { number: c.pr.number, title: c.pr.title, url: c.pr.url, state: c.pr.state, checks: c.pr.checks, ignoredFailing: c.pr.ignoredFailing, reviewDecision: c.pr.review, isDraft: c.pr.isDraft, mergeable: c.pr.mergeable, branch: c.branch ?? "", createdAt: "" };
 
 const tone = (c: BoardCard) => (c.column === "needs" ? "text-amber" : c.column === "working" ? "text-cobalt" : c.column === "ready" ? "text-green" : "text-muted");
 

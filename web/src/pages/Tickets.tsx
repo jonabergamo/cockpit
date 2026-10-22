@@ -19,8 +19,9 @@ export function PrBadge({ pr }: { pr: PullRequest }) {
   const label = pr.state === "MERGED" ? "merged" : pr.state === "CLOSED" ? "closed" : pr.isDraft ? "draft" : pr.checks === "fail" ? "checks failing" : pr.reviewDecision === "APPROVED" ? "approved" : "in review";
   return (
     <a href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="hover:underline">
-      <Tag tone={tone} title={pr.title}>
+      <Tag tone={tone} title={pr.ignoredFailing ? `${pr.title}\nFailing but ignored in Settings: ${pr.ignoredFailing.join(", ")}` : pr.title}>
         #{pr.number} {label}
+        {pr.ignoredFailing && pr.state === "OPEN" && <span className="opacity-60"> · {pr.ignoredFailing.length} ignored</span>}
       </Tag>
     </a>
   );

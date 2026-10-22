@@ -143,6 +143,8 @@ export interface PullRequest {
   isDraft: boolean;
   reviewDecision?: string;
   checks?: "pass" | "fail" | "pending" | "none";
+  // checks failing that the settings say not to count, shown quietly
+  ignoredFailing?: string[];
   createdAt: string;
   mergedAt?: string;
   author?: string;
@@ -279,7 +281,7 @@ export interface BoardCard {
   // why it's in its column, in a few words
   reason: string;
   session?: { id: string; status: SessionStatus; waitingFor?: string; updatedAt: number; name?: string; term?: string; pid?: number; title?: string };
-  pr?: { number: number; url: string; title: string; state: string; checks?: PullRequest["checks"]; review?: string; mergeable?: string; mergeState?: string; isDraft: boolean };
+  pr?: { number: number; url: string; title: string; state: string; checks?: PullRequest["checks"]; ignoredFailing?: string[]; review?: string; mergeable?: string; mergeState?: string; isDraft: boolean };
   verify?: { state: "running" | "pass" | "fail"; at: number; summary?: string; jobId?: string };
   autopilot?: { on: boolean; attempts: number; gaveUp: boolean; note?: string };
   task?: { id: string; group: string; status: TaskStatus; attempt: number; title: string };

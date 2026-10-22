@@ -19,6 +19,12 @@
       "type": "secret",
       "env": "GH_TOKEN",
       "help": "Optional. A personal access token, instead of logging in with gh"
+    },
+    {
+      "key": "ignoredChecks",
+      "label": "Ignored checks",
+      "type": "list",
+      "help": "Check names that never make a PR count as failing, and that Fix checks leaves out, like one that fails on every branch. * matches anything, e.g. dependency-check or security-audit-*"
     }
   ],
   "requires": [

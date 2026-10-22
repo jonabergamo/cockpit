@@ -2,10 +2,21 @@ import type { Cockpit, PrRef, PullRequest } from "@cockpit/shared";
 
 const PR_FIELDS = "number,title,url,headRefName,headRefOid,state,isDraft,reviewDecision,statusCheckRollup,createdAt,mergedAt,author,mergeable,mergeStateStatus";
 
-function checks(rollup: any[] | undefined): PullRequest["checks"] {
+const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED"];
+// a check run has a name, a commit status a context
+const checkName = (r: any): string => r.name || r.context || "";
+
+// "dependency-check", "security-audit-*": names, with * for anything, matched without caring about case
+export function ignoring(patterns: string[] | string | undefined) {
+  const list = Array.isArray(patterns) ? patterns : String(patterns ?? "").split(/[,\n]/);
+  const res = list.map((p) => p.trim()).filter(Boolean).map((p) => new RegExp(`^${p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`, "i"));
+  return (name: string) => res.some((re) => re.test(name));
+}
+
+export function checks(rollup: any[] | undefined): PullRequest["checks"] {
   if (!rollup?.length) return "none";
   const states = rollup.map((r) => r.conclusion || r.state || r.status);
-  if (states.some((s) => ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED"].includes(s))) return "fail";
+  if (states.some((s) => FAILED.includes(s))) return "fail";
   if (states.some((s) => ["PENDING", "IN_PROGRESS", "QUEUED", "EXPECTED", "WAITING", ""].includes(s ?? ""))) return "pending";
   return "pass";
 }
@@ -31,7 +42,12 @@ export default function setup(k: Cockpit) {
   const gh = (args: string[]) => k.run("gh", args);
   const ghJson = async <T = any>(args: string[]) => JSON.parse(await gh(args)) as T;
 
-  const toPr = (p: any): PullRequest => ({
+  const ignored = () => ignoring(k.setting<string[]>("ignoredChecks"));
+  const toPr = (p: any): PullRequest => {
+    const skip = ignored();
+    const rollup: any[] = p.statusCheckRollup ?? [];
+    const off = [...new Set(rollup.filter((r) => skip(checkName(r)) && FAILED.includes(r.conclusion || r.state || r.status)).map(checkName))];
+    return {
     number: p.number,
     title: p.title,
     url: p.url,
@@ -39,7 +55,8 @@ export default function setup(k: Cockpit) {
     state: p.state,
     isDraft: p.isDraft,
     reviewDecision: p.reviewDecision || undefined,
-    checks: checks(p.statusCheckRollup),
+    checks: checks(rollup.filter((r) => !skip(checkName(r)))),
+    ignoredFailing: off.length ? off : undefined,
     createdAt: p.createdAt,
     mergedAt: p.mergedAt || undefined,
     author: p.author?.login,
@@ -47,7 +64,8 @@ export default function setup(k: Cockpit) {
     mergeable: p.mergeable || undefined,
     mergeState: p.mergeStateStatus || undefined,
     headSha: p.headRefOid || undefined,
-  });
+    };
+  };
 
   const me = () => k.cache("me", 24 * 3600_000, async () => (await gh(["api", "user", "--jq", ".login"])).trim());
 
@@ -64,7 +82,8 @@ export default function setup(k: Cockpit) {
       }),
     async failingChecks(n) {
       const all: { name: string; state: string; link: string }[] = await ghJson(["pr", "checks", String(n), "-R", repo(), "--json", "name,state,link"]).catch(() => []);
-      const bad = all.filter((c) => ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"].includes(c.state));
+      const skip = ignored();
+      const bad = all.filter((c) => ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"].includes(c.state) && !skip(c.name));
       return Promise.all(
         bad.slice(0, 3).map(async (c) => {
           const m = c.link.match(/runs\/(\d+)\/job\/(\d+)/);
