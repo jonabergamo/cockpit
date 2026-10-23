@@ -1,7 +1,8 @@
 // cockpit as an app of its own. The server keeps running on the dev box, where Claude, the worktrees
 // and the CLIs live; this is the window onto it, with the live session count in the menu bar and the dock.
 
-const { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, ipcMain, nativeImage, shell } = require('electron')
+const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, globalShortcut, ipcMain, nativeImage, session, shell } = require('electron')
+const { execFile, spawn } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -110,6 +111,15 @@ async function show(route = '') {
   const target = base + route
   if (route || !win.webContents.getURL().startsWith(base)) win.loadURL(target)
   watch()
+  autoConfig()
+}
+
+async function openWindow(route) {
+  if (!base) base = await findServer()
+  if (!base) return show()
+  if (process.platform === 'darwin') app.dock.show()
+  const w = new BrowserWindow({ width: 1200, height: 900, minWidth: 420, minHeight: 500, title: 'cockpit', icon: icon(256), ...FRAME })
+  w.loadURL(base + route)
 }
 
 // --- live session count, from the same socket the page uses ----------------
@@ -135,6 +145,7 @@ function watch() {
 const label = (s) => s.title || s.name || path.basename(s.cwd)
 
 function refresh() {
+  if (!tray) return
   const busy = live.filter((s) => s.status === 'busy')
   const waiting = live.filter((s) => s.status === 'waiting')
   // the icon counts only sessions working or waiting for you; ones that finished their turn don't count
@@ -150,9 +161,19 @@ function refresh() {
 function trayMenu(busy = [], waiting = []) {
   // like the strip at the top of the page, a session opens straight in its terminal
   const item = (s) => ({ label: label(s).slice(0, 60), click: () => show(`/terminals?resume=${s.id}${s.pid ? `&pid=${s.pid}` : ''}`) })
+  const recording = meeting
+    ? [
+        { label: `Recording ${meeting.app ? `the ${meeting.app} meeting` : 'a meeting'}`, enabled: false },
+        { label: 'Stop and write it up', click: () => stopMeeting() },
+        { label: 'Show it', click: () => open(`/p/meetings/meetings${meeting.id ? `?id=${meeting.id}` : ''}`) },
+      ]
+    : auto.mode !== 'unavailable'
+      ? [{ label: 'Record a meeting', click: () => startMeeting('', false) }]
+      : []
   return Menu.buildFromTemplate([
     { label: 'Open cockpit', accelerator: 'CommandOrControl+Shift+K', click: () => show() },
     { type: 'separator' },
+    ...(recording.length ? [...recording, { type: 'separator' }] : []),
     ...(waiting.length ? [{ label: 'Waiting for you', enabled: false }, ...waiting.map(item), { type: 'separator' }] : []),
     ...(busy.length ? [{ label: 'Working', enabled: false }, ...busy.map(item), { type: 'separator' }] : []),
     { label: 'Today', click: () => open('/') },
@@ -227,19 +248,167 @@ ipcMain.on('nav', (_, dir) => (dir === 'back' || dir === 'forward') && go(dir))
 let quitting = false
 function quit() {
   quitting = true
+  micProc?.kill()
   app.exit(0)
 }
 
-// native notifications for the page; a click brings the window up on the right screen
-ipcMain.on('notify', (_, { title, body, link }) => {
+// a native notification; a click brings the window up on the right page
+function note(title, body, link, onClick) {
   if (!Notification.isSupported() || typeof title !== 'string') return
   const n = new Notification({ title, body: String(body ?? ''), silent: false })
   n.on('click', () => {
+    if (onClick) return onClick()
     show()
     if (typeof link === 'string' && link.startsWith('/')) win?.webContents.send('navigate', link)
   })
   n.show()
-})
+}
+ipcMain.on('notify', (_, { title, body, link }) => note(title, body, link))
+
+// --- meetings: notice a meeting app using the mic, and record it ---------------------
+//
+// The Meetings plugin says whether to, and which apps are meeting apps. On a Mac a small Swift helper reports the
+// apps using a microphone (it's compiled once, with the Xcode command line tools); on Linux PulseAudio or PipeWire
+// does. The recording runs in a hidden window, so it goes on whatever the main window is showing.
+
+const MICWATCH = path.join(HOME, 'micwatch')
+let auto = { mode: 'unavailable', apps: [] }
+let meeting = null
+let micProc = null
+// apps already offered while they hold the mic, so one call means one question
+const offered = new Set()
+
+async function autoConfig() {
+  if (!base) return
+  try {
+    const res = await fetch(`${base}/api/plugins/meetings/x/auto`, { signal: AbortSignal.timeout(4000) })
+    auto = res.ok ? await res.json() : { mode: 'unavailable', apps: [] }
+  } catch {
+    auto = { mode: 'unavailable', apps: [] }
+  }
+  refresh()
+}
+
+function micWatch(onChange) {
+  if (process.platform === 'darwin') {
+    const src = path.join(__dirname, 'micwatch.swift')
+    const run = () => {
+      micProc = spawn(MICWATCH, [], { stdio: ['ignore', 'pipe', 'ignore'] })
+      let buf = ''
+      micProc.stdout.on('data', (d) => {
+        buf += d
+        let i
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i)
+          buf = buf.slice(i + 1)
+          try {
+            onChange(JSON.parse(line).map((x) => ({ pid: x.pid, id: String(x.bundle).toLowerCase() })))
+          } catch {}
+        }
+      })
+      micProc.on('exit', () => !quitting && setTimeout(run, 10_000))
+    }
+    const fresh = fs.existsSync(MICWATCH) && (!fs.existsSync(src) || fs.statSync(MICWATCH).mtimeMs >= fs.statSync(src).mtimeMs)
+    if (fresh) return run()
+    if (!fs.existsSync(src)) return
+    fs.mkdirSync(HOME, { recursive: true })
+    execFile('xcrun', ['swiftc', '-O', src, '-o', MICWATCH], (err) => (err ? console.log("can't build micwatch, so meetings won't be noticed:", err.message) : run()))
+  } else if (process.platform === 'linux') {
+    setInterval(
+      () =>
+        execFile('pactl', ['-f', 'json', 'list', 'source-outputs'], (err, out) => {
+          if (err) return
+          try {
+            const p = (o) => o.properties ?? {}
+            onChange(JSON.parse(out).map((o) => ({ pid: Number(p(o)['application.process.id']), id: `${p(o)['application.process.binary'] ?? ''} ${p(o)['application.name'] ?? ''}`.toLowerCase() })))
+          } catch {}
+        }),
+      3000,
+    )
+  }
+}
+
+function onMic(list) {
+  const ours = new Set(app.getAppMetrics().map((m) => m.pid))
+  const using = new Set()
+  for (const p of list) {
+    if (ours.has(p.pid)) continue
+    const known = auto.apps.find((a) => p.id.includes(a.match))
+    if (known) using.add(known.name)
+  }
+  for (const name of offered) if (!using.has(name)) offered.delete(name)
+  if (meeting) {
+    if (!meeting.auto) return
+    // the call is over once its app has let go of the mic for half a minute
+    if (using.has(meeting.app)) clearTimeout(meeting.stopTimer), (meeting.stopTimer = null)
+    else if (!meeting.stopTimer) meeting.stopTimer = setTimeout(() => stopMeeting(), 30_000)
+    return
+  }
+  const name = [...using].find((n) => !offered.has(n))
+  if (!name || auto.mode === 'off' || auto.mode === 'unavailable') return
+  offered.add(name)
+  busyElsewhere().then((busy) => {
+    if (busy || meeting) return
+    if (auto.mode === 'record') return startMeeting(name, true)
+    note(`${name} is using your mic`, 'Click to record this meeting. Claude writes it up when it ends.', null, () => startMeeting(name, true))
+  })
+}
+
+// a recording already going on another page or device
+async function busyElsewhere() {
+  try {
+    const res = await fetch(`${base}/api/plugins/meetings/x/meetings`, { signal: AbortSignal.timeout(4000) })
+    return (await res.json()).meetings.some((m) => m.status === 'recording')
+  } catch {
+    return true
+  }
+}
+
+async function startMeeting(name, byItself) {
+  if (meeting || !base) return
+  const w = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'preload.js'), backgroundThrottling: false } })
+  meeting = { app: name, auto: byItself, win: w, stopTimer: null, id: null }
+  refresh()
+  try {
+    await w.loadURL(`${base}/plugins/meetings/assets/index.html`)
+    for (let i = 0; i < 40 && !(await w.webContents.executeJavaScript('!!window.meetingsAuto')); i++) await new Promise((ok) => setTimeout(ok, 250))
+    // as a user gesture, which sharing the computer's sound needs
+    meeting.id = await w.webContents.executeJavaScript(`meetingsAuto.start(${JSON.stringify({ app: name || undefined })})`, true)
+    note(name ? `Recording the ${name} meeting` : 'Recording a meeting', byItself ? 'It stops by itself when the call ends, and Claude writes it up.' : 'Stop it from the menu bar or the Meetings page.', `/p/meetings/meetings?id=${meeting.id}`)
+    refresh()
+    // stopped from the page: the hidden recorder has nothing left to do
+    meeting.check = setInterval(async () => {
+      const m = meeting
+      if (m?.win !== w) return
+      const still = await w.webContents.executeJavaScript('meetingsAuto.recording()').catch(() => null)
+      if (still) return
+      clearInterval(m.check)
+      clearTimeout(m.stopTimer)
+      w.destroy()
+      meeting = null
+      refresh()
+    }, 10_000)
+  } catch (e) {
+    if (!w.isDestroyed()) w.destroy()
+    meeting = null
+    refresh()
+    note(`Couldn't record ${name ? `the ${name} meeting` : 'the meeting'}`, String(e?.message ?? e), '/p/meetings/meetings')
+  }
+}
+
+async function stopMeeting() {
+  const m = meeting
+  if (!m) return
+  meeting = null
+  clearTimeout(m.stopTimer)
+  clearInterval(m.check)
+  try {
+    await m.win.webContents.executeJavaScript('meetingsAuto.stop()', true)
+  } catch {}
+  if (!m.win.isDestroyed()) m.win.destroy()
+  refresh()
+  note(m.app ? `The ${m.app} meeting ended` : 'The meeting ended', 'Claude is writing it up.', `/p/meetings/meetings${m.id ? `?id=${m.id}` : ''}`)
+}
 
 // the page tells us its theme so the window background and the Linux/Windows title bar match it
 ipcMain.on('set-colors', (_, { background, foreground }) => {
@@ -259,10 +428,19 @@ ipcMain.handle('set-url', async (_, url) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => show())
+  // launching it again with --open=<path> opens that page in a window of its own, next to the main one:
+  // open -n -a cockpit --args --open=/runs
+  app.on('second-instance', (_, argv) => {
+    const route = argv.find((a) => a.startsWith('--open='))?.slice('--open='.length)
+    if (route?.startsWith('/')) openWindow(route)
+    else show()
+  })
   app.on('activate', () => show())
   app.on('window-all-closed', () => {})
   app.on('before-quit', () => (quitting = true))
+
+  // the computer's own sound for screen sharing on macOS, through Core Audio taps
+  if (process.platform === 'darwin') app.commandLine.appendSwitch('enable-features', 'MacCatapLoopbackAudioForScreenShare,MacLoopbackAudioForScreenShare')
 
   app.whenReady().then(() => {
     if (process.platform === 'darwin') app.dock.setIcon(icon(512))
@@ -271,6 +449,19 @@ if (!app.requestSingleInstanceLock()) {
     tray.setToolTip('cockpit')
     tray.setContextMenu(trayMenu())
     globalShortcut.register('CommandOrControl+Shift+K', () => (win?.isFocused() ? win.hide() : show()))
+
+    // The server's pages may use the microphone, and a page that asks to share the screen gets the computer's sound
+    // with it and no picker. That's how a page records both sides of a call taken in another app.
+    const ours = (url) => !!base && typeof url === 'string' && url.startsWith(base)
+    session.defaultSession.setPermissionRequestHandler((_, permission, done, details) => done(permission !== 'media' || ours(details.requestingUrl)))
+    session.defaultSession.setPermissionCheckHandler((_, permission, origin) => permission !== 'media' || ours(origin))
+    session.defaultSession.setDisplayMediaRequestHandler((request, done) => {
+      if (!ours(request.securityOrigin)) return done({})
+      desktopCapturer
+        .getSources({ types: ['screen'] })
+        .then(([screen]) => done(screen ? { video: screen, audio: 'loopback' } : {}))
+        .catch(() => done({}))
+    })
 
     app.on('web-contents-created', (_, contents) => {
       // links to Jira, GitHub and the like open in the real browser
@@ -286,5 +477,7 @@ if (!app.requestSingleInstanceLock()) {
       })
     })
     show()
+    micWatch(onMic)
+    setInterval(autoConfig, 5 * 60_000)
   })
 }

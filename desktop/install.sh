@@ -38,7 +38,12 @@ if [[ $platform == darwin ]]; then
   res="$bundle/Contents/Resources"
   rm -f "$res/default_app.asar"
   mkdir -p "$res/app"
-  cp "$here/"{package.json,main.js,preload.js,icon.png,trayTemplate.png,trayTemplate@2x.png} "$res/app/"
+  cp "$here/"{package.json,main.js,preload.js,micwatch.swift,icon.png,trayTemplate.png,trayTemplate@2x.png} "$res/app/"
+  # tells the app which apps are using the mic, so it can offer to record a meeting; the app builds it itself
+  # later if the Swift compiler isn't here yet
+  if xcrun --find swiftc >/dev/null 2>&1; then
+    xcrun swiftc -O "$here/micwatch.swift" -o "$home/micwatch" 2>/dev/null || true
+  fi
 
   icons="$work/icon.iconset"
   mkdir -p "$icons"
@@ -75,7 +80,7 @@ else
   mv "$dest/electron" "$dest/cockpit"
   rm -f "$dest/resources/default_app.asar"
   mkdir -p "$dest/resources/app"
-  cp "$here/"{package.json,main.js,preload.js,icon.png,trayTemplate.png,trayTemplate@2x.png} "$dest/resources/app/"
+  cp "$here/"{package.json,main.js,preload.js,micwatch.swift,icon.png,trayTemplate.png,trayTemplate@2x.png} "$dest/resources/app/"
   mkdir -p "$HOME/.local/share/applications"
   cat > "$HOME/.local/share/applications/cockpit.desktop" <<DESK
 [Desktop Entry]
