@@ -101,7 +101,7 @@ export function Layout() {
           <Logo />
           {window.desktop?.back ? <DesktopNav /> : <span className="font-semibold text-[16px] tracking-tight">cockpit</span>}
         </div>
-        <nav className="flex flex-col gap-px px-2 flex-1 min-h-0 overflow-y-auto">
+        <nav className="flex flex-col gap-px px-2 flex-1 min-h-0 overflow-y-auto [&>*]:shrink-0">
           {groups.core.map(item)}
           {!!groups.plugins.length && (
             <>
