@@ -1,17 +1,27 @@
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { AutomationSettings } from "../components/AutomationSettings";
 import { FontSection } from "../components/FontSettings";
 import { PluginsSection, ScreensSection } from "../components/PluginSettings";
 import { SetupSection } from "../components/SetupSection";
-import { ErrorNote, Loading, PageHeader, Tabs } from "../components/ui";
+import { TemplateSettings } from "../components/TemplateSettings";
+import { Button, ErrorNote, Loading, PageHeader, Tabs } from "../components/ui";
 import { type CostMode, useCost, useSaveSettings, useSettings } from "../lib/cost";
+import { useNavGroups } from "../lib/nav";
+
+export const SETTINGS_TABS = ["general", "setup", "automation", "screens", "plugins"] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+const TAB_LABEL: Record<SettingsTab, string> = { general: "General", setup: "Setup", automation: "Automation", screens: "Screens", plugins: "Plugins" };
 
 export function SettingsPage() {
+  const { tab = "general" } = useSearch({ from: "/settings" });
+  const navigate = useNavigate();
   const q = useSettings();
   const save = useSaveSettings();
   const cost = useCost();
   const [err, setErr] = useState<unknown>();
   const s = q.data;
+  const pages = useNavGroups().settingsPages;
 
   const choose = (costs: CostMode) => {
     setErr(undefined);
@@ -28,11 +38,17 @@ export function SettingsPage() {
 
   return (
     <div className="max-w-[860px] space-y-5">
-      <PageHeader title="Settings" sub="Saved on the server, so every device shows the same." />
+      <PageHeader title="Settings" sub="Saved on the server, so every device shows the same.">
+        {/* Claude's own settings, memory and skills, out of the sidebar unless Screens turns it on */}
+        <Link to="/memory" search={{ path: undefined }}>
+          <Button>Memory & skills</Button>
+        </Link>
+      </PageHeader>
+      <Tabs<SettingsTab> value={tab} onChange={(t) => navigate({ to: "/settings", search: { tab: t === "general" ? undefined : t }, replace: true })} items={SETTINGS_TABS.map((t) => ({ value: t, label: TAB_LABEL[t] }))} />
       {q.isLoading && <Loading />}
       <ErrorNote error={q.error ?? err} />
-      <SetupSection />
-      {s && (
+      {tab === "setup" && <SetupSection />}
+      {tab === "general" && s && (
         <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
           <div>
             <h2 className="font-semibold">Costs</h2>
@@ -55,10 +71,30 @@ export function SettingsPage() {
           {!cost.hidden && <p className="text-[12px] text-faint">{cost.hint}.</p>}
         </section>
       )}
-      <AutomationSettings />
-      <FontSection />
-      <ScreensSection />
-      <PluginsSection />
+      {tab === "general" && <FontSection />}
+      {tab === "automation" && (
+        <>
+          <AutomationSettings />
+          <TemplateSettings />
+        </>
+      )}
+      {tab === "screens" && <ScreensSection />}
+      {tab === "plugins" && !!pages.length && (
+        <section className="bg-panel border border-line rounded-lg p-4 space-y-2">
+          <div>
+            <h2 className="font-semibold">Plugin settings</h2>
+            <p className="text-[13px] text-muted mt-0.5">Pages of settings that plugins bring, too big for the plugin list below.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {pages.map((p) => (
+              <Link key={`${p.plugin}/${p.id}`} to="/p/$plugin/$screen" params={{ plugin: p.plugin, screen: p.id }}>
+                <Button>{p.title}</Button>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+      {tab === "plugins" && <PluginsSection />}
     </div>
   );
 }

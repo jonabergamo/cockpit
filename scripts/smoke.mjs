@@ -9,7 +9,7 @@ import { chromium } from "playwright";
 const port = Number(process.env.SMOKE_PORT ?? 8799);
 const base = `http://127.0.0.1:${port}`;
 const data = mkdtempSync(join(tmpdir(), "cockpit-smoke-"));
-const pages = ["/", "/board", "/tasks", "/tasks/g-423", "/sessions", "/workflows", "/tickets", "/worktrees", "/code", "/terminals", "/memory", "/reviews", "/report", "/usage", "/settings"];
+const pages = ["/", "/board", "/tasks", "/tasks/g-423", "/sessions", "/workflows", "/tickets", "/worktrees", "/code", "/terminals", "/memory", "/reviews", "/report", "/usage", "/weekly", "/settings", "/runs", "/runs?kind=unit&status=fail"];
 const phone = ["/settings", "/terminals", "/"];
 
 const server = spawn("pnpm", ["--filter", "server", "start"], {
@@ -33,6 +33,20 @@ const problems = [];
 let browser;
 try {
   await up();
+  // the runs API answers, with nothing in it yet (writes are no-ops in the demo)
+  const json = async (path) => {
+    const res = await fetch(base + path);
+    return { status: res.status, body: await res.json().catch(() => undefined) };
+  };
+  for (const [path, ok] of [
+    ["/api/runs", (r) => r.status === 200 && Array.isArray(r.body)],
+    ["/api/runs?kind=unit&status=fail&limit=5", (r) => r.status === 200 && Array.isArray(r.body)],
+    ["/api/runs/missing", (r) => r.status === 404],
+    ["/api/runs/missing/log", (r) => r.status === 404],
+    ["/api/runs/missing/artifacts/x.mp4", (r) => r.status === 404],
+    ["/api/runs/hook", (r) => r.status === 200 && typeof r.body?.installed === "boolean"],
+  ])
+    if (!ok(await json(path))) problems.push(`${path}: unexpected answer`);
   browser = await chromium.launch();
   for (const [viewport, list] of [
     [{ width: 1440, height: 900 }, pages],

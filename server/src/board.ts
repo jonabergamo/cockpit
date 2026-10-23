@@ -5,8 +5,10 @@ import type { BoardCard, BoardColumn, PullRequest, Session, Task, Worktree } fro
 import { listSessions } from "./claude/sessions.ts";
 import { db } from "./db.ts";
 import { broadcast } from "./hub.ts";
-import { myPrs, myTickets } from "./providers.ts";
+import { knownPrs, myPrs, myTickets } from "./providers.ts";
+import { ticketSpend } from "./budget.ts";
 import { readRow, writeRow } from "./settings.ts";
+import { stackRows } from "./stacked.ts";
 import { stuckReason } from "./stuck.ts";
 import { listTasks } from "./tasks.ts";
 import { listWorktrees } from "./worktrees.ts";
@@ -23,12 +25,30 @@ export function matchWorker(wt: Pick<Worktree, "path" | "branch" | "ticket">, pr
 }
 
 export interface ColumnInput {
-  session?: Pick<Session, "status" | "updatedAt" | "waitingFor">;
-  pr?: Pick<PullRequest, "state" | "checks" | "reviewDecision" | "mergeable" | "isDraft">;
+  session?: Pick<Session, "status" | "updatedAt" | "waitingFor" | "background">;
+  pr?: Pick<PullRequest, "state" | "checks" | "reviewDecision" | "mergeable" | "isDraft" | "reviewers">;
   verify?: { state: string };
   autopilot?: { on: boolean; gaveUp: boolean; busy?: boolean };
-  task?: { status: string; error?: string };
+  task?: { status: string; error?: string; overnight?: boolean };
   stuck?: string;
+  // the teammate's PR the work is built on
+  stacked?: { pr: number; state: string };
+}
+
+// "Ana", "Ana and Ben", "Ana, Ben and 2 more"
+export function names(list: string[]) {
+  const u = [...new Set(list)];
+  if (u.length <= 2) return u.join(" and ");
+  return `${u.slice(0, 2).join(", ")} and ${u.length - 2} more`;
+}
+
+// who a PR is waiting on, and who asked for changes, from every place that knows
+export function reviewState(pr?: Pick<PullRequest, "reviewers">) {
+  const r = pr?.reviewers ?? [];
+  return {
+    waiting: names(r.filter((x) => x.state === "REQUESTED" || x.state === "PENDING").map((x) => x.name)),
+    changes: names(r.filter((x) => x.state === "CHANGES_REQUESTED").map((x) => x.name)),
+  };
 }
 
 // Most urgent first: anything that can't move without you, then work in progress, then what's waiting on others.
@@ -37,20 +57,24 @@ export function columnOf(c: ColumnInput): { column: BoardColumn; reason: string 
   const open = pr?.state === "OPEN";
   if (c.stuck) return { column: "needs", reason: c.stuck };
   if (c.task?.status === "running" && !c.session) return c.task.error ? { column: "needs", reason: c.task.error } : { column: "working", reason: "Starting Claude" };
-  if (c.task && (c.task.status === "queued" || c.task.status === "starting") && !c.session) return { column: "queued", reason: c.task.status === "starting" ? "Setting up its worktree" : "Waiting for a free slot" };
+  if (c.task && (c.task.status === "queued" || c.task.status === "starting") && !c.session) return { column: "queued", reason: c.task.status === "starting" ? "Setting up its worktree" : c.task.overnight ? "In the overnight queue" : "Waiting for a free slot" };
   if (c.session?.status === "waiting") return { column: "needs", reason: c.session.waitingFor === "input needed" ? "Claude needs your input" : c.session.waitingFor ? `Claude is waiting: ${c.session.waitingFor}` : "Claude is waiting for you" };
   if (pr?.state === "MERGED") return { column: "ready", reason: "Merged" };
-  if (c.session?.status === "busy") return { column: "working", reason: "Claude is working" };
+  if (c.session?.status === "busy") return { column: "working", reason: c.session.background ? (c.session.background > 1 ? `${c.session.background} shells running in the background` : "Running in the background") : "Claude is working" };
   if (c.verify?.state === "running") return { column: "working", reason: "Running the checks" };
   const autopilot = !!c.autopilot?.on && !c.autopilot.gaveUp;
+  const who = reviewState(pr);
   if (open && pr.checks === "fail") return autopilot ? { column: "working", reason: "Autopilot is fixing the checks" } : { column: "needs", reason: "Checks are failing" };
-  if (open && pr.reviewDecision === "CHANGES_REQUESTED") return autopilot ? { column: "working", reason: "Autopilot is on the review" } : { column: "needs", reason: "Changes requested" };
+  if (open && (pr.reviewDecision === "CHANGES_REQUESTED" || who.changes))
+    return autopilot ? { column: "working", reason: who.changes ? `Autopilot is on ${who.changes}'s review` : "Autopilot is on the review" } : { column: "needs", reason: who.changes ? `${who.changes} asked for changes` : "Changes requested" };
   if (open && pr.mergeable === "CONFLICTING") return { column: "needs", reason: "Merge conflict" };
   if (c.verify?.state === "fail") return { column: "needs", reason: "Its checks failed here" };
+  if (c.stacked?.state === "moved") return { column: "needs", reason: `#${c.stacked.pr}, which it's built on, has new commits` };
+  if (c.stacked?.state === "merged") return { column: "needs", reason: `#${c.stacked.pr}, which it's built on, merged` };
   if (c.autopilot?.gaveUp) return { column: "needs", reason: "Autopilot gave up" };
   if (c.task?.status === "done" && !open) return { column: "needs", reason: "Done, ready for you to look at" };
   if (open && pr.reviewDecision === "APPROVED" && pr.checks !== "pending") return { column: "ready", reason: "Approved" };
-  if (open) return { column: "review", reason: pr.isDraft ? "Draft PR" : pr.checks === "pending" ? "Checks running" : "Waiting for review" };
+  if (open) return { column: "review", reason: pr.isDraft ? "Draft PR" : pr.checks === "pending" ? (who.waiting ? `Checks running, then ${who.waiting}` : "Checks running") : who.waiting ? `Waiting on ${who.waiting}` : "Waiting for review" };
   // a finished turn with nothing else going on isn't a call for you
   if (c.session?.status === "idle") return { column: "quiet", reason: "Claude finished its turn" };
   return { column: "quiet", reason: "Nothing running" };
@@ -72,20 +96,31 @@ export function archive(id: string, on: boolean) {
 
 const QUIET_DAYS = 3;
 
-export async function board(): Promise<BoardCard[]> {
-  const [worktrees, prs, tickets] = await Promise.all([listWorktrees(false), myPrs().catch(() => [] as PullRequest[]), myTickets().catch(() => [])]);
+// offline uses only the PRs already fetched and no ticket titles, so it never waits on the code host or tracker
+export async function board(opts: { offline?: boolean } = {}): Promise<BoardCard[]> {
+  const [worktrees, prs, tickets] = await Promise.all([
+    listWorktrees(false),
+    opts.offline ? (knownPrs() ?? []) : myPrs().catch(() => [] as PullRequest[]),
+    opts.offline ? [] : myTickets().catch(() => []),
+  ]);
   const sessions = listSessions({ limit: 800 });
   const titleOf = new Map(tickets.map((t) => [t.key, t.summary]));
   const verify = verifyRows();
   const autopilot = autopilotRows();
+  const stacks = stackRows();
   const tasks = listTasks().filter((t) => !["cancelled"].includes(t.status));
   const hidden = archived();
+  const costs = ticketSpend();
+  const spendOf = (ticket?: string): BoardCard["spend"] => {
+    const t = ticket ? costs.get(ticket) : undefined;
+    return t && { spent: t.spent, limit: t.limit, unit: t.unit, warnPct: t.warnPct };
+  };
   const cards: BoardCard[] = [];
   const recent = Date.now() - QUIET_DAYS * 24 * 3600_000;
 
-  const sessionOf = (s?: Session): BoardCard["session"] => s && { id: s.id, status: s.status, waitingFor: s.waitingFor, updatedAt: s.updatedAt, name: s.name, term: s.term, pid: s.pid, title: s.title };
+  const sessionOf = (s?: Session): BoardCard["session"] => s && { id: s.id, status: s.status, waitingFor: s.waitingFor, background: s.background, updatedAt: s.updatedAt, name: s.name, term: s.term, pid: s.pid, title: s.title };
   const prOf = (p?: PullRequest): BoardCard["pr"] =>
-    p && { number: p.number, url: p.url, title: p.title, state: p.state, checks: p.checks, ignoredFailing: p.ignoredFailing, review: p.reviewDecision, mergeable: p.mergeable, mergeState: p.mergeState, isDraft: p.isDraft };
+    p && { number: p.number, url: p.url, title: p.title, state: p.state, checks: p.checks, ignoredFailing: p.ignoredFailing, review: p.reviewDecision, mergeable: p.mergeable, mergeState: p.mergeState, isDraft: p.isDraft, reviewers: p.reviewers };
   const taskOf = (t?: Task): BoardCard["task"] => t && { id: t.id, group: t.group, status: t.status, attempt: t.attempt, title: t.title };
 
   for (const wt of worktrees) {
@@ -96,7 +131,8 @@ export async function board(): Promise<BoardCard[]> {
     const a = autopilot.get(wt.path);
     const live = session && session.status !== "ended" ? session : undefined;
     const stuck = live ? stuckReason(live) : undefined;
-    const placed = columnOf({ session: live, pr, verify: v, autopilot: a && { on: !!a.enabled, gaveUp: !!a.gave_up }, task, stuck });
+    const st = stacks.get(wt.path);
+    const placed = columnOf({ session: live, pr, verify: v, autopilot: a && { on: !!a.enabled, gaveUp: !!a.gave_up }, task, stuck, stacked: st });
     const updatedAt = Math.max(session?.updatedAt ?? 0, pr ? Date.parse(pr.mergedAt ?? pr.createdAt) : 0, v?.at ?? 0, task?.createdAt ?? 0);
     // old worktrees nobody touched lately stay off the board unless you ask for them
     if (placed.column === "quiet" && updatedAt < recent) continue;
@@ -117,6 +153,8 @@ export async function board(): Promise<BoardCard[]> {
       autopilot: a && { on: !!a.enabled, attempts: a.attempts, gaveUp: !!a.gave_up, note: a.note ?? undefined },
       task: taskOf(task),
       stuck,
+      stacked: st && { pr: st.pr, url: st.url, title: st.title ?? undefined, author: st.author ?? undefined, branch: st.branch, target: st.target ?? undefined, state: st.state, note: st.note ?? undefined },
+      spend: spendOf(wt.ticket),
       updatedAt,
     });
   }
@@ -139,6 +177,7 @@ export async function board(): Promise<BoardCard[]> {
       ...placed,
       session: sessionOf(s),
       stuck,
+      spend: spendOf(s.ticket),
       updatedAt: s.updatedAt,
     });
   }
@@ -159,7 +198,7 @@ export async function board(): Promise<BoardCard[]> {
       path: t.worktree,
       branch: t.branch,
       column,
-      reason: t.status === "failed" ? (t.error ?? "It failed") : t.status === "done" ? "Done" : t.status === "starting" ? "Setting up its worktree" : t.dependsOn.length ? "Waiting on another task or a free slot" : "Waiting for a free slot",
+      reason: t.status === "failed" ? (t.error ?? "It failed") : t.status === "done" ? "Done" : t.status === "starting" ? "Setting up its worktree" : t.overnight ? "In the overnight queue" : t.dependsOn.length ? "Waiting on another task or a free slot" : "Waiting for a free slot",
       task: taskOf(t),
       updatedAt: t.createdAt,
     });

@@ -6,6 +6,7 @@ A plugin is a folder with a `plugin.json`. It can add screens, themes, API route
 
 - `plugins/` in this repo holds the bundled ones. They start on unless their manifest says `"defaultOn": false`.
 - Your own go in the plugins folder. That's `pluginsDir` in `config.local.toml`, or `data/plugins` if you leave it unset. They start off until you turn them on in Settings → Plugins.
+- Settings → Plugins can also install one from a git link (https, ssh, or `owner/name` for GitHub), with a folder in the repo and a branch or tag when you need them. It clones the repo and shows what the plugin asks for and which parts of the API its code calls before anything runs, then copies it into the plugins folder pinned to that commit, off. Where it came from is kept in `.cockpit-source.json` in its folder, which is how Check for an update and Remove know it.
 - A plugin of yours with the same id as a bundled one replaces it.
 - Folders whose names start with `.` or `_` are skipped.
 
@@ -47,6 +48,7 @@ A plugin with only `plugin.json` and `themes/` runs no code, and Settings says s
 - Setting types are `text`, `secret`, `bool`, `choice` (with `choices`), `number`, `list` (an array of strings, edited one per line) and `json` (any JSON value). Settings → Plugins draws a form from them, and the values are stored in cockpit's database, not in your folder.
 - A `secret` never goes back to the browser in full: the form shows `••••` and the last four characters.
 - `env` passes the setting to every command you start with `k.run`, as that environment variable. This is how a token entered in Settings reaches a CLI.
+- `moved` lists the screens your plugin no longer has, by id, each with the cockpit path that replaced it, for example `"moved": { "old-screen": "/p/other/screen?tab=x" }`. Old links and saved notifications to `/p/<id>/old-screen` then go to that path, and keep their query.
 
 Cockpit reads the manifest without running your code, so a plugin that fails to load still shows in Settings, with its error.
 
@@ -98,12 +100,12 @@ What `k` offers:
 | `k.setting(key)` | A setting's value, or its default. |
 | `k.log(...)` | A line in your log, shown in Settings. The last 200 lines are kept. |
 | `k.store.get(key)` / `k.store.set(key, value)` | Small JSON values kept in cockpit's database. |
-| `k.route(method, path, handler)` | Serves `/api/plugins/<id>/x<path>`. `:name` parts end up in `params`. The handler gets `{ query, body, params }` and returns JSON-able data. To send a 400, throw an `Error` with `status: 400`. |
-| `k.screen({ id, title, page })` | Adds a screen to the sidebar and ⌘K, at `/p/<id>/<screen>`. `page` is a file in your folder. |
+| `k.route(method, path, handler)` | Serves `/api/plugins/<id>/x<path>`. `:name` parts end up in `params`. The handler gets `{ query, body, params, headers }` and returns JSON-able data, or a `Response` for anything else, like audio or a file. To send a 400, throw an `Error` with `status: 400`. |
+| `k.screen({ id, title, page, settings })` | Adds a screen to the sidebar and ⌘K, at `/p/<id>/<screen>`. `page` is a file in your folder. With `settings: true` it's a page of settings instead: it's listed on the Settings page, not in the sidebar, and ⌘K still finds it. |
 | `k.theme(theme)` | Adds a theme from code, for themes you generate. Static ones go in `themes/`. |
-| `k.on(event, fn)` | `session.started`, `session.waiting` (Claude asked you something: a question, a permission prompt, a dialog), `session.idle` (it finished its turn), `session.ended`, `session.stuck`, `worktree.created`, `worktree.removed`, `terminal.opened`, `notify`, `task.started`, `task.done`, `autopilot.acted`, `verify.done`. |
+| `k.on(event, fn)` | `session.started`, `session.waiting` (Claude asked you something: a question, a permission prompt, a dialog), `session.idle` (it finished its turn), `session.ended`, `session.stuck`, `worktree.created`, `worktree.removed`, `terminal.opened`, `terminal.exited` (`{ id, code, run }`), `notify`, `task.started`, `task.done`, `autopilot.acted`, `verify.done`, `run.started` and `run.done` (each with the run). |
 | `k.run(cmd, args, { cwd, input })` | Runs a command and resolves with its output, with your `env` settings set. |
-| `k.terminal({ cwd, title, command, args })` | Opens a cockpit terminal. |
+| `k.terminal({ cwd, title, command, args, run })` | Opens a cockpit terminal. With `run: { kind, name, ticket }`, its command is recorded as a run with its output and exit code, and the result has the run's id as `runId`. |
 | `k.claude({ cwd, prompt, title })` | Starts Claude in a terminal. |
 | `k.notify({ title, body, link, urgent })` | Shows a cockpit notification. `urgent` marks the second nudge for a session left waiting, and autopilot giving up. |
 | `k.sendToSession(sessionId, text)` | Types a message into a running Claude session and presses Enter. Resolves to `false` when the session isn't in a cockpit terminal. |
@@ -111,7 +113,12 @@ What `k` offers:
 | `k.job(label, command, cwd)` | Runs a shell command as a cockpit job, so its output shows in the job log. Resolves with the exit code and output. |
 | `k.sessions({ liveOnly, limit })`, `k.terminals()` | The Claude sessions and terminals cockpit knows about. |
 | `k.cache(key, maxAge, fn, force)` | Runs `fn` and keeps its result for `maxAge` ms in cockpit's cache. `force` runs it again. |
+| `k.runs` | Records runs on the Runs screen and reads them back. See [Runs](#runs). |
+| `k.runPanel({ kinds, page, steps })` | Adds a panel of yours to the page of each run of these kinds. See [Runs](#runs). |
+| `k.runOptions({ list, start })` | Adds to what "Run something" on the Runs screen offers for a worktree. See [Run something](#run-something). |
+| `k.badge(screenId, badge)` | Shows a badge next to one of your screens in the sidebar. See [Sidebar badges](#sidebar-badges). |
 | `k.ticketOf(...strings)` | Finds a ticket key in branch names or titles, using the active tracker's pattern. |
+| `k.productionBranch()` | The branch that is production, as set on the Sprint report. It's empty when nobody has set it. |
 | `k.tracker(provider)`, `k.codeHost(provider)` | Plugs a work tracker or a code host into cockpit. See below. |
 | `k.reviewSource(provider)` | Adds PRs to the PR reviews queue without replacing the code host. See below. |
 | `k.access(provider)` | Decides which requests from other machines get in. See below. |
@@ -138,7 +145,8 @@ k.tracker({
   - `sprints`, `activeSprint` and `sprintTickets` give you the Sprint report and its snapshots.
   - `worktreeEpics` and `epicInfo` give you epics.
   - `search` and `assignToMe` let other plugins build queues.
-- A code host needs `myPrs`. Add `reviewThreads` so autopilot and the lead session can quote unresolved review comments. Add `reviewQueue`, `failingChecks`, `parsePr`, `prInfo`, `pendingReview` and `deletePending` for PR reviews and for fixing failed checks with Claude.
+  - `pointsOf` reads story points for tickets your searches return without them. Leave out a key whose points couldn't be read, so a screen can show them as unknown instead of missing.
+- A code host needs `myPrs`. Add `reviewThreads` so autopilot and the lead session can quote unresolved review comments. Add `reviewQueue`, `failingChecks`, `parsePr`, `prInfo`, `pendingReview` and `deletePending` for PR reviews and for fixing failed checks with Claude. Fill `reviewers` on each PR and add `requestReview` so the Board can say who a PR waits on, and autopilot can ask for another review once its fix is pushed. Add `lastReview` (your last submitted review of a PR, the commit it was on, what changed since and your comments) for "Review what changed" on PR reviews. A task can start on top of someone's open PR when `prInfo` gives `headRefName`, `headRefOid` and `baseRefName`.
 - The shapes are in `shared/src/plugin.ts` (`Tracker`, `CodeHost`). Tickets and PRs use the same `Ticket` and `PullRequest` types the screens already read.
 - Only one of each is in use at a time. If two plugins offer one, Settings lets you pick. With none, the screens that need it leave the sidebar.
 
@@ -160,6 +168,8 @@ k.reviewSource({
 - `fresh` is true when you press Refresh. Cache the rest of the time: this is called whenever the screen loads.
 - The rows are ordinary `PullRequest` values, so `url` has to be a real PR the code host can open, or Claude
   has nothing to review.
+- Add `reviewersOf(fresh)` to say who it put on your own PRs, as `{ url, reviewers }` rows. They join the code
+  host's reviewers, so the Board can say "Waiting on Ana" even when the code host was never asked.
 
 ## Access from other machines
 
@@ -177,6 +187,66 @@ k.access({
 - `req.local` is true when the connection comes from this machine, which is where a proxy like `tailscale serve`, Caddy or nginx would be. Only trust identity headers from a local proxy: anyone can send a header from outside.
 - Requests from another site's pages are refused before any plugin is asked.
 - The bundled `tailscale` plugin is the example. For a reverse proxy with its own sign-in, check the header it sets, the same way.
+
+## Runs
+
+The Runs screen lists every test, lint, typecheck, audit, E2E, proof, verify and CI run, whatever started it. A run has a `kind` (`unit`, `lint`, `typecheck`, `audit`, `e2e`, `proof`, `verify`, `ci` or `other`), a `status` (`running`, `pass`, `fail` or `cancelled`), its output, and files such as a video. When a run has no kind, cockpit works one out from its command, using the patterns in Settings → Board and automation. Runs are linked to the ticket and worktree they belong to, and a run that fails sends a notification. Runs older than 90 days, or past the newest 3000, are removed, except those of a ticket in the current sprint.
+
+| | |
+|---|---|
+| `k.runs.start({ name, kind, ticket, worktree, branch, cwd, command, meta })` | Starts a run and returns it. `branch` finds its worktree and ticket when there's no `cwd`. |
+| `k.runs.event(id, event)` | Adds to a run while it goes. The event is the same one scripts send (see below). |
+| `k.runs.record({ ..., status, exitCode, output, summary, endedAt, quiet })` | Records a run that's already over, in one call. The GitHub plugin uses this for each CI check of your open PRs. With `quiet: true` a failure sends no notification, which suits runs you copy in or catch up on later. |
+| `k.runs.list({ ticket, worktree, kind, status, since, limit })`, `k.runs.get(id)` | Runs, newest first. |
+| `k.runs.steps({ kinds, parse })` | Turns the raw step lines of these kinds of runs (or their output, when no steps were sent) into a list of steps for the run's page. `parse(lines)` returns `{ text, state, depth }[]`, where `state` is `running`, `ok`, `failed`, `skipped` or `section`. |
+| `k.runs.onStart(fn)` | `fn(run, body)` returns extra fields for whoever started the run over `POST /api/runs`, for example where a script should save its video. |
+| `k.runPanel({ kinds, page, steps })` | Shows `page` from your folder in a frame on a run's page, with `?run=<id>`. Leave out `kinds` to show it for every run. Set `steps: true` when your page shows the run's steps itself, and the run page leaves out its own list. |
+
+Scripts use the HTTP API the same way:
+
+- `POST /api/runs` with `{ name, kind, command, cwd, ticket }` starts a run. Fields it doesn't know go into the run's `meta`. The answer has the run's `id`, `link` (`/runs/<id>`) and `videoDir`, a folder for the run's files. With `finished: true` and `exitCode` (and optionally `output`), it records a run that's already over.
+- `POST /api/runs/<id>/event` adds to it. The body can have `lines` (output lines), `steps` (raw step lines), `progress` (0 to 1), `phase`, `error`, `summary` (`{ passed, failed, skipped, failing }`), `artifacts` (`[{ path }]`, copied in from the run's folder or the temp folder), `meta`, and `result` (`{ status, file }`, where `status` is the exit code and `file` is a file the script saved in `videoDir`). A `phase` of `done`, `failed` or `cancelled` ends the run. Without a status, it passed if its exit code was 0.
+- `GET /api/runs`, `GET /api/runs/<id>` (with the end of its output and its steps), `GET /api/runs/<id>/log`, `GET /api/runs/<id>/artifacts/<name>` (supports range requests, so videos can seek), `DELETE /api/runs/<id>` and `POST /api/runs/<id>/rerun`.
+- A script that reports its own runs can send `rerun` in its first `POST /api/runs`, with the shell command that starts it again. Rerun then runs that command in a terminal and lets the script record the new run, so a recording script records and shows live just as it did the first time.
+
+From a shell, `bin/cockpit run [--kind k] [--name n] [--ticket T] [--artifact <path>]... -- <command>` runs a command, streams its output into a run and exits with the command's exit code. If cockpit isn't running, the command still runs as normal. It suits skills and git hooks. Set `COCKPIT_URL` when cockpit isn't on `127.0.0.1:8770`.
+
+### Run something
+
+The Runs screen and ⌘K have a "Run something" picker. You pick a worktree or the main checkout, then something to run in it, and it starts as a run. Cockpit offers the verify command (`repo.verifyCommand`) and every `package.json` script up to four folders deep, run with the package manager that the nearest lockfile or `packageManager` field names. Plugins add their own options with `k.runOptions`:
+
+```ts
+k.runOptions({
+  // wt is { path, name, branch, ticket, main }
+  async list(wt) {
+    return [{ id: "smoke", kind: "e2e", label: "Run the smoke flows", detail: "pnpm run e2e smoke/", group: "My plugin" }];
+  },
+  async start(id, wt) {
+    const t = k.terminal({ cwd: wt.path, command: "pnpm", args: ["run", "e2e", "smoke/"], run: { kind: "e2e", name: "smoke flows", ticket: wt.ticket } });
+    return { runId: t.runId, term: t.id };
+  },
+});
+```
+
+| | |
+|---|---|
+| `list(wt)` | Returns what you can run there, as `{ id, kind, label, detail, group }[]`. `id` only has to be unique among your own options. `group` is the heading it goes under, and your plugin's name is used when you leave it out. Return `[]` when nothing applies, for example when there is no open PR. Cockpit asks each time the picker opens and keeps the answer for 30 seconds. A list that throws or takes longer than 20 seconds is shown in the picker as an error, and the other options still appear. |
+| `start(id, wt)` | Starts the option. It is only called with an id your `list` returned for that worktree. Return `runId` and the picker opens that run, or `term` and it opens that terminal. If neither is ready yet, return a `note` to show, with an optional `link` to a cockpit page where the user can follow it. Throw an `Error` with `status: 400` to show a message instead. |
+
+The HTTP API is `GET /api/runs/options?worktree=<path>` (add `force=1` to skip the 30 seconds) and `POST /api/runs/options/start` with `{ worktree, id }`. Both refuse a path that isn't one of cockpit's worktrees, and start refuses an id that isn't in that worktree's list. Plugin ids come back as `plugin:<plugin id>:<your id>`. Scripts open in a terminal beside the worktree's Claude terminal, and verify runs the way it does from the Board.
+
+## Sidebar badges
+
+Each sidebar entry can show a badge next to its name. A pulsing dot means something is running, an amber number means something needs you, a red number counts failures, and a grey number is a plain total. Cockpit sets the badges for its own screens. A plugin sets the badge for its screens with `k.badge(screenId, badge)`:
+
+```ts
+k.badge("main", { live: 1, failed: 2, title: "1 flow running · 2 tickets failing" });
+k.badge("main", null); // clears it
+```
+
+A badge has `live`, `attention`, `failed` and `count`, all optional counts, and a `title` that says what they mean. The title is shown in the tooltip and read out by screen readers. A count of 0 is left out, and a badge with nothing left clears itself. The most urgent part is shown: failed or attention over live, and live over count. With `untilSeen: true`, the badge goes away the next time the screen is opened, which suits news like "3 new results".
+
+Badges are kept in memory. They're dropped when the plugin turns off or reloads, so set yours again in `setup`. Change it when something happens, from `k.on` or a timer you already have, and keep the work cheap: don't call an outside service just to update a badge. Badges only show for screens that are in the sidebar.
 
 ## Screens
 
@@ -200,6 +270,21 @@ A screen is a page from your folder, shown in a frame on the same origin as cock
 | `cockpit.terminalUrl(id)` | The address of a bare terminal, to put in an `<iframe>`. When that terminal's process ends, your page gets a `cockpit:terminal-exit` message. |
 | `cockpit.typeInto(id, text)` | Types into a terminal and presses Enter. Several lines go in as one paste. |
 | `cockpit.openSession(id)` | Opens a Claude session in a terminal, resuming it if needed. |
+
+### Errors, loading and tabs
+
+A few helpers keep plugin screens consistent with each other. Use them rather than writing your own:
+
+| | |
+|---|---|
+| `cockpit.esc(text)` | Escapes text so it's safe to put in `innerHTML`. |
+| `cockpit.fail(el, err)` | Replaces what `el` holds with the error in a red `.error` box. `el` is an element or a selector. |
+| `cockpit.loading(el, text)` | Puts a loading line in `el` until you draw into it. `text` defaults to "Loading…". |
+| `cockpit.refreshButton(btn, fn)` | Runs `fn` when the button is clicked. The button is disabled while `fn` runs, and if it throws, the error shows next to the button until the next try. Returns the run, so you can call it yourself with the same handling. |
+
+For tabs, use `<nav class="tabbar">` with a `<button>` per tab, and mark the selected one with `class="on"` or `aria-selected="true"`.
+
+When a call fails, say so on the screen. Catch an error silently with `.catch(() => [])` only when the data really is optional, and add a comment saying why.
 
 Your page also works opened directly, outside cockpit, with the default colours. `server.ts` and `plugin.json` are never served. Everything else in the folder is, to anyone signed in to cockpit.
 
@@ -247,3 +332,4 @@ A plugin with code runs inside the cockpit server, as your user, with the same a
 - `plugins/jira`: a tracker, through Atlassian's `acli`.
 - `plugins/push`: listens to `notify` and posts to ntfy or Pushover, with secret settings and a test route.
 - `plugins/github`: a code host, through `gh`, with a token setting passed as `GH_TOKEN`.
+- `plugins/meetings`: a screen that records audio in pieces, a long-running helper process, a route that returns a `Response` (the recording, with ranges for seeking) and `claude -p` run as a job.

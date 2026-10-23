@@ -1,14 +1,16 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { BoardCard, BoardColumn, PullRequest } from "@cockpit/shared";
 import { BoardCardDetail } from "../components/BoardCardDetail";
 import { newTask } from "../components/NewTask";
-import { Button, Drawer, Empty, ErrorNote, Loading, PageHeader, Tag } from "../components/ui";
+import { Button, Drawer, Empty, ErrorNote, Loading, PageHeader, Tabs, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago } from "../lib/format";
 import { useLive, useLiveSessions } from "../lib/live";
+import { SpendTag } from "../components/Budget";
 import { statusLook } from "../lib/status";
+import { TasksList } from "./Tasks";
 
 const COLUMNS: { id: BoardColumn; title: string; hint: string }[] = [
   { id: "queued", title: "Queued", hint: "Tasks waiting for a free slot" },
@@ -50,7 +52,7 @@ function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
     <button onClick={onOpen} className="w-full text-left rounded-md border border-line bg-raised hover:border-faint px-3 py-2 space-y-1.5">
       <div className="flex items-start gap-2">
         <span className="flex-1 min-w-0 text-[13px] font-medium leading-snug line-clamp-2">{c.title}</span>
-        {s && s.status !== "ended" && <span className={`mt-1 size-2 rounded-full shrink-0 ${statusLook(s.status, s.waitingFor).dot} ${s.status === "busy" ? "animate-pulse" : ""}`} title={statusLook(s.status, s.waitingFor).hint} />}
+        {s && s.status !== "ended" && <span className={`mt-1 size-2 rounded-full shrink-0 ${statusLook(s.status, s.waitingFor, s.background).dot} ${s.status === "busy" ? "animate-pulse" : ""}`} title={statusLook(s.status, s.waitingFor, s.background).hint} />}
       </div>
       <div className="flex items-center gap-1.5 text-[12px] text-muted min-w-0">
         {c.ticket && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{c.ticket}</span>}
@@ -66,6 +68,7 @@ function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
         {c.verify && <Tag tone={c.verify.state === "pass" ? "green" : c.verify.state === "fail" ? "red" : "cobalt"}>{c.verify.state === "running" ? "checking" : c.verify.state === "pass" ? "checks pass" : "checks fail"}</Tag>}
         {c.autopilot?.on && <Tag tone={c.autopilot.gaveUp ? "amber" : "cobalt"}>{c.autopilot.gaveUp ? "autopilot gave up" : `autopilot${c.autopilot.attempts ? ` ${c.autopilot.attempts}×` : ""}`}</Tag>}
         {c.task && c.task.attempt > 1 && <Tag>attempt {c.task.attempt}</Tag>}
+        <SpendTag spend={c.spend} />
         <span className="ml-auto text-[11px] text-faint">{ago(c.updatedAt)}</span>
       </div>
     </button>
@@ -73,42 +76,51 @@ function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
 }
 
 export function BoardPage() {
-  const { card: openId } = useSearch({ from: "/board" });
+  const { card: openId, filter } = useSearch({ from: "/board" });
   const navigate = useNavigate();
   const q = useBoard();
   const [quiet, setQuiet] = useState(false);
   const cards = q.data ?? [];
   const open = cards.find((c) => c.id === openId);
-  const setOpen = (id?: string) => navigate({ to: "/board", search: { card: id }, replace: true });
+  const setOpen = (id?: string) => navigate({ to: "/board", search: { card: id, filter }, replace: true });
   const columns = quiet ? [...COLUMNS, { id: "quiet" as const, title: "Quiet", hint: "Worktrees with nothing going on lately" }] : COLUMNS;
   const quietCount = cards.filter((c) => c.column === "quiet").length;
   const qc = useQueryClient();
-  const openLead = async () => {
-    const t = await api.post<{ id: string }>("/claude/lead");
-    await qc.invalidateQueries({ queryKey: ["terms"] });
-    navigate({ to: "/terminals", search: { id: t.id } });
-  };
+  const lead = useMutation({
+    mutationFn: () => api.post<{ id: string }>("/claude/lead"),
+    onSuccess: async (t) => {
+      await qc.invalidateQueries({ queryKey: ["terms"] });
+      navigate({ to: "/terminals", search: { id: t.id } });
+    },
+  });
 
   return (
     <div className="space-y-4 h-full flex flex-col">
-      <PageHeader title="Board" sub="Everything in flight, by what it needs next.">
-        {quietCount > 0 && (
+      <PageHeader title="Work" sub={filter === "tasks" ? "Tasks cockpit runs in its own worktrees. Tasks that wait on others line up in waves." : "Everything in flight, by what it needs next."}>
+        <Tabs<"board" | "tasks">
+          value={filter ?? "board"}
+          onChange={(v) => navigate({ to: "/board", search: { card: openId, filter: v === "tasks" ? "tasks" : undefined } })}
+          items={[
+            { value: "board", label: "Board" },
+            { value: "tasks", label: "Queued and attempts" },
+          ]}
+        />
+        {filter !== "tasks" && quietCount > 0 && (
           <Button variant="ghost" onClick={() => setQuiet((v) => !v)}>
             {quiet ? "Hide quiet" : `Show quiet (${quietCount})`}
           </Button>
         )}
-        <Link to="/tasks">
-          <Button variant="ghost">Tasks</Button>
-        </Link>
-        <Button onClick={openLead} title="A Claude session that plans with you and runs the work through these workers (needs Cockpit tools for Claude, in Settings → Setup)">
-          Lead
+        <Button onClick={() => lead.mutate()} disabled={lead.isPending} title="A Claude session that plans with you and runs the work through these workers (needs Cockpit tools for Claude, in Settings → Setup)">
+          {lead.isPending ? "Opening" : "Lead"}
         </Button>
         <Button variant="primary" onClick={() => newTask.open()}>
           New task
         </Button>
       </PageHeader>
-      <ErrorNote error={q.error} />
-      {q.isLoading ? (
+      <ErrorNote error={filter === "tasks" ? lead.error : (q.error ?? lead.error)} />
+      {filter === "tasks" ? (
+        <TasksList />
+      ) : q.isLoading ? (
         <Loading what="Gathering sessions, worktrees and PRs" />
       ) : !cards.length ? (
         <Empty>Nothing in flight. Start Claude in a worktree, or queue a task.</Empty>

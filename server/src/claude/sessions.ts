@@ -7,6 +7,7 @@ import { db } from "../db.ts";
 import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
 import { day, ticketOf } from "../util.ts";
+import { backgroundShells } from "./background.ts";
 import { readFrom } from "./transcript.ts";
 
 export const projectsDir = join(config.claude.dir, "projects");
@@ -16,6 +17,7 @@ interface Live {
   pid: number;
   status: SessionStatus;
   waitingFor?: string;
+  background?: number;
   name?: string;
   cwd: string;
   startedAt: number;
@@ -38,7 +40,9 @@ async function readRegistry() {
       next.set(r.sessionId, {
         pid: r.pid,
         // Claude Code writes "waiting" with a waitingFor when a question or dialog needs you
-        status: r.status === "busy" ? "busy" : r.status === "waiting" ? "waiting" : "idle",
+        // "shell" is Claude Code's own word for a turn that ended with background shells still running
+        status: r.status === "busy" || r.status === "shell" ? "busy" : r.status === "waiting" ? "waiting" : "idle",
+        background: r.status === "shell" ? 1 : undefined,
         waitingFor: r.status === "waiting" && typeof r.waitingFor === "string" ? r.waitingFor : undefined,
         name: r.name,
         cwd: r.cwd,
@@ -49,6 +53,13 @@ async function readRegistry() {
     } catch {
       // registry files get rewritten while we read them, next poll catches up
     }
+  }
+  // how many shells each one has left running, and the same check for Claude versions that don't say "shell"
+  const ended = [...next.values()].filter((l) => l.status === "idle" || l.background);
+  const shells = await backgroundShells(new Set(ended.map((l) => l.pid)));
+  for (const l of ended) {
+    const n = shells.get(l.pid);
+    if (n) Object.assign(l, { status: "busy", background: n });
   }
   return next;
 }
@@ -209,6 +220,7 @@ function toSession(r: Row): Session {
     name: l?.name,
     status: l ? l.status : "ended",
     waitingFor: l?.waitingFor,
+    background: l?.background,
     pid: l?.pid,
     startedAt: l?.startedAt ?? (r.first_ts ? Date.parse(r.first_ts) : 0),
     updatedAt: Math.max(l?.updatedAt ?? 0, r.last_ts ? Date.parse(r.last_ts) : 0),
@@ -327,7 +339,7 @@ async function poll() {
   }
   await refreshBranches();
   const sessions = listSessions({ liveOnly: true });
-  const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.waitingFor, s.title, s.costUSD, s.updatedAt, s.branch]));
+  const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.waitingFor, s.background, s.title, s.costUSD, s.updatedAt, s.branch]));
   if (snap !== lastSnapshot) {
     lastSnapshot = snap;
     broadcast({ type: "sessions", sessions });

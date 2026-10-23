@@ -18,7 +18,12 @@ export interface SettingsRes {
     verify: { auto: boolean };
     alerts: { stuckMinutes: number; escalateMinutes: number };
     away: { minutes: number };
+    budget: { perTicketUSD: number; perTicketMTokens: number; warnPct: number };
+    weekly: { on: boolean; day: number; hour: number };
+    templates: { id: string; name: string; match: string; vars: Record<string, string>; model: string; prompt: string; autopilot: "default" | "on" | "off" }[];
     notes: { prompt: string; maxChars: number; liveBranch: string };
+    ci: { local: string[] };
+    overnight: { capUSD: number; capMTokens: number; fromHour: number; toHour: number };
   };
   billing: Billing;
 }

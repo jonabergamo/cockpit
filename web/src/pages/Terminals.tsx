@@ -44,8 +44,13 @@ export function TerminalsPage() {
   const terms = useTerms();
   // split shells belong to the terminal they were opened from and only show next to it, not as tabs
   const all = terms.data ?? [];
-  const tabs = all.filter((t) => !t.parent || !all.some((p) => p.id === t.parent));
-  const active = id ?? tabs[0]?.id;
+  // Claude's terminals first, the rest after them, each in the order they were opened
+  const claude = (t: TermInfo) => !!t.session || /^claude\b/.test(t.command);
+  const tabs = all.filter((t) => !t.parent || !all.some((p) => p.id === t.parent)).sort((a, b) => Number(claude(b)) - Number(claude(a)));
+  // a link to a split (a run, a server) opens the terminal it sits beside, with the split showing
+  const picked = all.find((t) => t.id === id);
+  const inSplit = !!picked?.parent && all.some((p) => p.id === picked.parent);
+  const active = inSplit ? picked!.parent : (id ?? tabs[0]?.id);
   const [showChanges, setShowChanges] = useState(() => {
     try {
       return localStorage.getItem(SIDE) !== "0";
@@ -68,8 +73,10 @@ export function TerminalsPage() {
       localStorage.setItem(SPLIT, on ? "1" : "0");
     } catch {}
   };
-  const shown = all.filter((t) => t.parent === active).slice(0, 2);
-  const split = showSplit && shown.length > 0;
+  // the newest three, so a run started beside two servers is the one that shows
+  const beside = all.filter((t) => t.parent === active).sort((a, b) => b.createdAt - a.createdAt);
+  const shown = beside.slice(0, 3);
+  const split = (showSplit || inSplit) && shown.length > 0;
   const [splitErr, setSplitErr] = useState<unknown>();
   // a new shell in the active terminal's folder, under it
   const addPane = async () => {
@@ -103,8 +110,15 @@ export function TerminalsPage() {
     await qc.invalidateQueries({ queryKey: ["terms"] });
   };
 
+  const [closeErr, setCloseErr] = useState<unknown>();
   const close = async (tid: string) => {
-    await api.del(`/code/terms/${tid}`);
+    setCloseErr(undefined);
+    try {
+      await api.del(`/code/terms/${tid}`);
+    } catch (e) {
+      setCloseErr(e);
+      return;
+    }
     await qc.invalidateQueries({ queryKey: ["terms"] });
     if (tid === active) navigate({ to: "/terminals", search: { id: undefined } });
   };
@@ -134,7 +148,7 @@ export function TerminalsPage() {
               // what Claude is doing in it: working, waiting for you, or done with its turn
               const s = sessionOf(t);
               const st = s?.status;
-              const look = statusLook(st, s?.waitingFor);
+              const look = statusLook(st, s?.waitingFor, s?.background);
               return (
                 <span
                   className={`size-1.5 rounded-full ${st === "busy" ? "bg-cobalt animate-pulse" : st === "waiting" || st === "idle" ? look.dot : t.exited === undefined ? "bg-green" : "bg-line"}`}
@@ -144,6 +158,11 @@ export function TerminalsPage() {
             })()}
             <span className="text-[13px] max-w-[220px] truncate">{t.title}</span>
             <span className="text-[12px] text-faint max-w-[140px] truncate">{shortPath(t.cwd).split("/").slice(-2).join("/")}</span>
+            {(() => {
+              // runs and servers beside it, which show in its split
+              const n = all.filter((x) => x.parent === t.id).length;
+              return n ? <span className="text-[11px] text-faint" title={`${n} beside it in the split`}>+{n}</span> : null;
+            })()}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -159,7 +178,7 @@ export function TerminalsPage() {
         </div>
         <div className="hidden md:flex items-center gap-1 px-2 h-full border-l border-line shrink-0">
           <Button size="sm" variant={split ? "default" : "ghost"} onClick={() => (split ? setShowSplit(false) : shown.length ? setShowSplit(true) : addPane())} title={split ? "Hide the shells, they keep running" : "A shell in the same folder, side by side"}>
-            Split
+            Split{beside.length ? ` · ${beside.length}` : ""}
           </Button>
           <Button size="sm" variant={copyOnSelect ? "default" : "ghost"} onClick={() => termPrefs.setCopyOnSelect(!copyOnSelect)} title="Copy text as soon as you select it">
             Copy on select
@@ -168,6 +187,7 @@ export function TerminalsPage() {
       </div>
       <ErrorNote error={resumeErr} />
       <ErrorNote error={splitErr} />
+      <ErrorNote error={closeErr} />
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0">{active ? <Terminal key={active} id={active} onExit={() => ended(active)} /> : <Empty>No terminals open. Start one with + above, in a worktree or from a session.</Empty>}</div>
         {split && active && window.innerWidth >= 768 && (

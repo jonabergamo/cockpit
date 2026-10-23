@@ -6,7 +6,7 @@ describe("ignored checks", () => {
     const skip = ignoring(["dependency-check", "security-audit-*"]);
     expect(skip("dependency-check")).toBe(true);
     expect(skip("Dependency-Check")).toBe(true);
-    expect(skip("security-audit-pro-app")).toBe(true);
+    expect(skip("security-audit-web-app")).toBe(true);
     expect(skip("dependency-check-extra")).toBe(false);
     expect(skip("tests")).toBe(false);
   });

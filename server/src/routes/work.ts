@@ -3,14 +3,20 @@ import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { fixPlan } from "../fix.ts";
-import { activeSprint, deploys, epicInfo, myPrs, myTickets, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
+import { activeSprint, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
 import { ticketOf } from "../util.ts";
 import { getJob, listJobs } from "../jobs.ts";
-import { getReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
+import { getReview, lastReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
 import { toolReport, usageReport } from "../usage.ts";
 import { cleanupPlan } from "../cleaner.ts";
-import { archive, board } from "../board.ts";
+import { archive, board, boardChanged } from "../board.ts";
+import { badges, seen } from "../badges.ts";
 import { setAutopilot } from "../autopilot.ts";
+import { catchUp } from "../stacked.ts";
+import { getCompare, sendCompare, startCompare } from "../cicompare.ts";
+import { budgets, setBudget, ticketSpend } from "../budget.ts";
+import { templateFor } from "../templates.ts";
+import { weekly, weekStart } from "../weekly.ts";
 import { runVerify, sendFailure } from "../verify.ts";
 import { previewOf, startPreview, stopPreview } from "../preview.ts";
 import { createWorktree, deleteWorktree, deleteWorktrees, leftoverFolders, link, listWorktrees, openInEditor, refreshSizes, unlink } from "../worktrees.ts";
@@ -28,11 +34,58 @@ function lastSessions() {
 
 export const work = new Hono()
   .get("/board", async (c) => c.json(await board()))
+  .get("/badges", async (c) => c.json(await badges()))
+  // the screen was opened: its "since you last looked" count starts again
+  .post("/badges/seen", async (c) => {
+    const { id } = await c.req.json<{ id: string }>();
+    if (typeof id !== "string" || !/^(\/[\w/-]*|plugin:[\w-]+\/[\w-]+)$/.test(id)) return c.json({ error: "a sidebar entry's id" }, 400);
+    return c.json(await seen(id));
+  })
+  // the work built on a teammate's PR catches up with it, through the worktree's Claude
+  .post("/stacked/catch-up", async (c) => c.json(await catchUp((await c.req.json<{ worktree: string }>()).worktree)))
+  // a failing CI check run here, side by side with CI's result
+  .get("/ci/compare", (c) => c.json(getCompare(c.req.query("worktree") ?? "")))
+  .post("/ci/compare", async (c) => {
+    const { worktree, check } = await c.req.json<{ worktree: string; check?: string }>();
+    return c.json(await startCompare(worktree, check));
+  })
+  .post("/ci/compare/send", async (c) => c.json(await sendCompare((await c.req.json<{ worktree: string }>()).worktree)))
   .post("/autopilot", async (c) => {
     const { worktree, on } = await c.req.json<{ worktree: string; on: boolean }>();
     if (!(await listWorktrees(false)).some((w) => w.path === worktree && !w.main)) return c.json({ error: "not a worktree" }, 400);
     setAutopilot(worktree, on);
     return c.json({ ok: true });
+  })
+  // ask these code host logins to review one of your PRs again
+  .post("/prs/:n/rerequest", async (c) => {
+    const n = Number(c.req.param("n"));
+    const { logins } = await c.req.json<{ logins: string[] }>();
+    if (!Number.isInteger(n) || !Array.isArray(logins) || !logins.length || !logins.every((l) => /^[\w.-]+(\/[\w.-]+)?$/.test(l))) return c.json({ error: "a PR number and reviewer logins" }, 400);
+    try {
+      await requestReview(n, logins);
+      await myPrs(true);
+      boardChanged();
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 500) as 400);
+    }
+  })
+  // the week holding this date, this week by default
+  .get("/weekly", async (c) => {
+    const at = c.req.query("week");
+    const d = at && /^\d{4}-\d{2}-\d{2}$/.test(at) ? new Date(`${at}T12:00:00`) : new Date();
+    return c.json(await weekly(weekStart(d)));
+  })
+  .get("/budgets", (c) => c.json(budgets()))
+  // in the unit that's showing, dollars or tokens; null goes back to the default budget, 0 is none for this ticket
+  .put("/budgets/:ticket", async (c) => {
+    const ticket = c.req.param("ticket");
+    const { amount } = await c.req.json<{ amount: number | null }>();
+    if (!/^[A-Z][A-Z0-9]+-\d+$/.test(ticket)) return c.json({ error: "not a ticket key" }, 400);
+    if (amount !== null && !(typeof amount === "number" && Number.isFinite(amount) && amount >= 0)) return c.json({ error: "amount must be a number, or null for the default" }, 400);
+    setBudget(ticket, amount);
+    return c.json(budgets());
   })
   .post("/verify", async (c) => {
     const { worktree } = await c.req.json<{ worktree: string }>();
@@ -78,11 +131,16 @@ export const work = new Hono()
     const wtKeys = (await listWorktrees(false)).filter((w) => !w.main && w.ticket).map((w) => w.ticket!);
     const [sprint, tickets, epics] = await Promise.all([activeSprint(), myTickets(fresh), worktreeEpics(wtKeys, fresh)]);
     const last = lastSessions();
+    const costs = ticketSpend();
+    const spend = (key: string) => {
+      const t = costs.get(key);
+      return t && { spent: t.spent, limit: t.limit, unit: t.unit, warnPct: t.warnPct };
+    };
     const epicOf = new Map(epics.flatMap((e) => e.children.map((k) => [k, e.key] as const)));
     return c.json({
       sprint,
-      tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key) })),
-      epics: epics.map((e) => ({ ...e, lastSession: last.get(e.key) ?? null })),
+      tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key), spend: spend(t.key), kind: templateFor(t)?.name })),
+      epics: epics.map((e) => ({ ...e, lastSession: last.get(e.key) ?? null, spend: spend(e.key) })),
     });
   })
   // Sets up the one worktree an epic's stacked tickets are worked in
@@ -97,7 +155,11 @@ export const work = new Hono()
       link(key, existing.path);
       return c.json({ existing: existing.path });
     }
-    return c.json(createWorktree(key, info.summary));
+    try {
+      return c.json(createWorktree(key, info.summary, { template: templateFor({ summary: info.summary, type: "Epic" }) }));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
   })
   .get("/sprints", async (c) => c.json(await sprints()))
   .get("/prs", async (c) => {
@@ -112,8 +174,12 @@ export const work = new Hono()
     return c.json(await listWorktrees());
   })
   .post("/worktrees", async (c) => {
-    const { key, summary } = await c.req.json<{ key: string; summary: string }>();
-    return c.json(createWorktree(key, summary ?? ""));
+    const { key, summary, type, template } = await c.req.json<{ key: string; summary: string; type?: string; template?: string }>();
+    try {
+      return c.json(createWorktree(key, summary ?? "", { template: templateFor({ summary, type }, template) }));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
   })
   .post("/worktrees/open", async (c) => c.json(openInEditor((await c.req.json<{ path: string }>()).path)))
   .get("/worktrees/clean", async (c) => c.json(await cleanupPlan(c.req.query("fresh") === "1")))
@@ -145,6 +211,12 @@ export const work = new Hono()
     if (!pr) return c.json({ error: "paste a pull request link or number" }, 400);
     const [info, pending] = await Promise.all([prInfo(pr), pendingReview(pr)]);
     return c.json({ ...info, repo: pr.repo, number: pr.n, pending: pending ?? null });
+  })
+  // your last review of a PR and what changed since, null when there's none
+  .get("/reviews/last", async (c) => {
+    const pr = parsePr(c.req.query("pr") ?? "");
+    if (!pr) return c.json({ error: "a pull request link or number" }, 400);
+    return c.json((await lastReview(pr)) ?? null);
   })
   .post("/reviews", async (c) => c.json(await startReview(await c.req.json())))
   .post("/reviews/:id/reopen", async (c) => c.json(await reopenReview(Number(c.req.param("id")))))

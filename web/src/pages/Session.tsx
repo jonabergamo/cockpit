@@ -1,15 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Entry, Session, Subagent } from "@cockpit/shared";
 import { ReplyPanel } from "../components/ReplyPanel";
 import { Timeline } from "../components/Timeline";
+import { Scrubber } from "../components/Scrubber";
 import { Button, copy, ErrorNote, Loading, Tag } from "../components/ui";
 import { api, qs } from "../lib/api";
 import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { keep, send, useLive, useLiveSessions } from "../lib/live";
+import { place, placeLabel } from "../lib/nav";
 import { useOpenSession } from "../lib/openSession";
+import { useAppConfig } from "../lib/queries";
 import { statusLook } from "../lib/status";
 import { useTerms } from "./Terminals";
 
@@ -64,6 +67,14 @@ export function SessionPage() {
   const agents = useQuery({ queryKey: ["agents", id], queryFn: () => api.get<Subagent[]>(`/sessions/${id}/agents`), refetchInterval: live ? 5000 : false });
   const t = useTranscript(id, agent);
   const [err, setErr] = useState<unknown>();
+  const router = useRouter();
+  const screens = useAppConfig().data?.screens;
+  // back to wherever the session was opened from, kept as it was then; Sessions when there's nowhere
+  const [back] = useState(() => {
+    const p = place.get();
+    if (!p || p.href === "/sessions") return undefined;
+    return { href: p.href, label: placeLabel(p.path, p.href.split("?")[1] ?? "", screens) };
+  });
 
   const scroller = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
@@ -96,9 +107,22 @@ export function SessionPage() {
         <div className="flex flex-wrap items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 text-[13px] text-muted mb-1">
-              <Link to="/sessions" className="hover:text-ink">
-                Sessions
-              </Link>
+              {back ? (
+                <a
+                  href={back.href}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.history.push(back.href);
+                  }}
+                  className="hover:text-ink"
+                >
+                  {back.label}
+                </a>
+              ) : (
+                <Link to="/sessions" className="hover:text-ink">
+                  Sessions
+                </Link>
+              )}
               {agent && (
                 <>
                   <span>/</span>
@@ -110,7 +134,7 @@ export function SessionPage() {
             </div>
             <h1 className="text-[22px] font-semibold tracking-tight leading-tight">{agent ? (currentAgent?.description ?? `Agent ${agent}`) : (s?.title ?? s?.name ?? id)}</h1>
             <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[13px] text-muted">
-              {status && <Tag tone={status === "busy" ? "cobalt" : status === "waiting" ? "amber" : "faint"}>{statusLook(status, s?.waitingFor).label}</Tag>}
+              {status && <Tag tone={status === "busy" ? "cobalt" : status === "waiting" ? "amber" : "faint"}>{statusLook(status, s?.waitingFor, s?.background).label}</Tag>}
               {s?.ticket && (
                 <Link to="/tickets" search={{ key: s.ticket }} className="text-cobalt hover:underline">
                   {s.ticket}
@@ -138,6 +162,7 @@ export function SessionPage() {
           )}
         </div>
         <ErrorNote error={err} />
+        <Scrubber entries={t.entries} scroller={scroller} />
 
         <div
           ref={scroller}
@@ -145,7 +170,7 @@ export function SessionPage() {
             const el = e.currentTarget;
             follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
-          className={`${status && status !== "ended" ? "h-[calc(100vh-330px)]" : "h-[calc(100vh-230px)]"} overflow-y-auto pr-2`}
+          className={`${status && status !== "ended" ? "h-[calc(100vh-385px)]" : "h-[calc(100vh-285px)]"} overflow-y-auto pr-2`}
         >
           {t.truncated && (
             <div className="text-center mb-3">

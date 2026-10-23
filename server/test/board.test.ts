@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Entry } from "@cockpit/shared";
-import { columnOf } from "../src/board.ts";
+import { columnOf, names } from "../src/board.ts";
 import { alertKey, looksStuck } from "../src/stuck.ts";
 
 const pr = (over: object = {}) => ({ state: "OPEN", checks: "pass" as const, isDraft: false, reviewDecision: undefined as string | undefined, mergeable: "MERGEABLE", ...over });
@@ -67,7 +67,7 @@ describe("looksStuck", () => {
   });
 });
 
-import { decide, signatureOf } from "../src/autopilot.ts";
+import { decide, rerequestNow, signatureOf } from "../src/autopilot.ts";
 
 describe("autopilot", () => {
   const red = { state: "OPEN", checks: "fail" as const, reviewDecision: undefined, headSha: "abc" };
@@ -88,4 +88,36 @@ describe("autopilot", () => {
     expect(decide(green, { attempts: 1, signature: "x" }, signatureOf(green, 0), 3).act).toBe("green");
     expect(decide(green, { attempts: 0, signature: null }, signatureOf(green, 0), 3).act).toBe("none");
   });
+  it("doesn't answer the same review again once the fix is pushed", () => {
+    const before = { state: "OPEN", checks: "pass" as const, reviewDecision: "CHANGES_REQUESTED", headSha: "a", reviewers: [{ name: "ana", login: "ana", state: "CHANGES_REQUESTED" as const, at: "2026-10-01T10:00:00Z" }] };
+    const sig = signatureOf(before, 2);
+    const pushed = { ...before, headSha: "b", checks: "pending" as const };
+    expect(decide(pushed, { attempts: 1, signature: sig }, signatureOf(pushed, 2), 3).act).toBe("none");
+    // a new review is new work
+    const again = { ...pushed, reviewers: [{ ...before.reviewers[0], at: "2026-10-02T10:00:00Z" }] };
+    expect(decide(again, { attempts: 1, signature: sig }, signatureOf(again, 2), 3).act).toBe("fix");
+  });
+});
+
+describe("re-requesting a review", () => {
+  const pr = { state: "OPEN", checks: "pass" as const, headSha: "b", reviewers: [{ name: "Ana", login: "ana", state: "CHANGES_REQUESTED" as const }, { name: "Ben", state: "CHANGES_REQUESTED" as const, source: "rota" }, { name: "cy", login: "cy", state: "APPROVED" as const }] };
+  it("asks the code host's reviewers who wanted changes, after the push", () => expect(rerequestNow(pr, { from: "a" }, false)).toEqual(["ana"]));
+  it("waits for the push, the checks and Claude", () => {
+    expect(rerequestNow(pr, { from: "b" }, false)).toEqual([]);
+    expect(rerequestNow({ ...pr, checks: "pending" }, { from: "a" }, false)).toEqual([]);
+    expect(rerequestNow(pr, { from: "a" }, true)).toEqual([]);
+  });
+  it("asks once per push", () => expect(rerequestNow(pr, { from: "a", asked: "b" }, false)).toEqual([]));
+  it("does nothing without an answered review", () => expect(rerequestNow(pr, undefined, false)).toEqual([]));
+});
+
+describe("who a PR waits on", () => {
+  const open = { state: "OPEN", checks: "pass" as const, isDraft: false };
+  it("names the reviewers it's waiting on", () => {
+    expect(columnOf({ pr: { ...open, reviewers: [{ name: "Ana", state: "PENDING" }, { name: "Ben", state: "REQUESTED" }, { name: "Cy", state: "APPROVED" }] } }).reason).toBe("Waiting on Ana and Ben");
+  });
+  it("says who asked for changes, wherever they asked", () => {
+    expect(columnOf({ pr: { ...open, reviewers: [{ name: "Ana", state: "CHANGES_REQUESTED" }] } })).toEqual({ column: "needs", reason: "Ana asked for changes" });
+  });
+  it("shortens a long list", () => expect(names(["a", "b", "c", "d"])).toBe("a, b and 2 more"));
 });

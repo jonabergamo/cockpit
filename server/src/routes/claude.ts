@@ -2,13 +2,16 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { backups, createMemory, doctor, listFiles, memories, readBackup, readConfig, writeConfig } from "../claude/memory.ts";
-import { getSession, listSessions, projectsDir } from "../claude/sessions.ts";
-import { readRow, writeRow } from "../settings.ts";
+import { getSession, projectsDir } from "../claude/sessions.ts";
 import { getRun, listRuns } from "../claude/workflows.ts";
 import { config } from "../config.ts";
 import { allowedRoot, gitRoot, insideSaved } from "../files.ts";
 import { startJob } from "../jobs.ts";
-import { listTerms, spawnTerm } from "../pty.ts";
+import { type EpicRef, openLead } from "../lead.ts";
+import { spawnTerm } from "../pty.ts";
+import { claudeArgs, promptFor, templateFor, templateOf } from "../templates.ts";
+import { statusesOf } from "../providers.ts";
+import { ask } from "../ask.ts";
 import { fill } from "../util.ts";
 
 export const claude = new Hono()
@@ -34,7 +37,7 @@ export const claude = new Hono()
   // Starts an interactive claude in a terminal, optionally resuming a session or with a first prompt
   // Starts an interactive claude in a terminal: resuming a given session, the resume picker, or a fresh one
   .post("/launch", async (c) => {
-    const { cwd, resume, picker, prompt, title } = await c.req.json<{ cwd?: string; resume?: string; picker?: boolean; prompt?: string; title?: string }>();
+    const { cwd, resume, picker, prompt, title, ticket } = await c.req.json<{ cwd?: string; resume?: string; picker?: boolean; prompt?: string; title?: string; ticket?: string }>();
 
     if (resume) {
       // claude only finds a session from the folder it ran in, so use the one we indexed
@@ -47,26 +50,35 @@ export const claude = new Hono()
 
     const ok = cwd && ((await allowedRoot(cwd)) || cwd === config.repo.path || insideSaved(cwd) || (await allowedRoot((await gitRoot(cwd)) ?? cwd)));
     if (!ok) return c.json({ error: "cwd not allowed" }, 403);
+    if (ticket && !picker) {
+      // starting on a ticket: the kind of work its worktree was made as, or the one the ticket matches
+      const t = (await statusesOf([ticket]).catch(() => []))[0];
+      const tpl = templateOf(cwd) ?? templateFor({ summary: t?.summary, type: t?.type });
+      const args = claudeArgs(tpl, promptFor(tpl, { key: ticket, url: t?.url, summary: t?.summary }) ?? prompt);
+      return c.json(spawnTerm({ cwd, command: "claude", args, title: title ?? ticket }));
+    }
     const args = picker ? ["--resume"] : prompt ? [prompt] : [];
     return c.json(spawnTerm({ cwd, command: "claude", args, title: title ?? (picker ? "claude --resume" : "claude") }));
   })
   // The lead: one long-running Claude per repo that plans with you and runs the work through cockpit's tools.
   // Opens its terminal when it's running, resumes it when it isn't, or starts one.
-  .post("/lead", (c) => {
-    if (!config.repo.path || !existsSync(config.repo.path)) return c.json({ error: "Set repo.path in config.local.toml first" }, 400);
-    const key = `lead:${config.repo.path}`;
-    const saved = readRow<{ term?: string; session?: string }>(key) ?? {};
-    const terms = listTerms();
-    const term = saved.term && terms.find((t) => t.id === saved.term && t.exited === undefined);
-    // the session that started in its terminal, remembered for next time
-    const live = term && listSessions({ liveOnly: true }).find((s) => s.term === term.id || (!!term.pid && s.pid === term.pid));
-    if (live && live.id !== saved.session) writeRow(key, { ...saved, session: live.id });
-    if (term) return c.json(term);
-    const system = "You are the lead for this repository in cockpit. Use the cockpit-lead skill and the cockpit MCP tools (list_workers, start_task, read_screen, send_message, answer_prompt, pr_status) to plan with the user and run the work through workers. Start by asking what we're working on, unless they already said.";
-    const resume = saved.session && getSession(saved.session) ? ["--resume", saved.session] : [];
-    const t = spawnTerm({ cwd: config.repo.path, command: "claude", args: [...resume, "--append-system-prompt", system], title: `lead · ${config.repo.name}`, session: resume.length ? saved.session : undefined });
-    writeRow(key, { ...saved, term: t.id });
-    return c.json(t);
+  // With an epic, the lead for that epic: its own session that starts from the epic and its tickets.
+  .post("/lead", async (c) => {
+    const body = await c.req.json<{ epic?: EpicRef }>().catch(() => ({}) as { epic?: EpicRef });
+    const e = body.epic;
+    if (e && !/^[A-Z][A-Z0-9]+-\d+$/.test(e.key ?? "")) return c.json({ error: "not a ticket key" }, 400);
+    try {
+      return c.json(openLead(e && { key: e.key, summary: e.summary?.slice(0, 200), url: /^https:\/\//.test(e.url ?? "") ? e.url : undefined }));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 500) as 400);
+    }
+  })
+  // a question about your work, answered from cockpit's index; the job's output is the answer
+  .post("/question", async (c) => {
+    const { question } = await c.req.json<{ question?: string }>();
+    if (!question?.trim() || question.length > 1000) return c.json({ error: "ask a question, up to 1000 characters" }, 400);
+    return c.json(await ask(question.trim()));
   })
   .post("/ask", async (c) => {
     const { cwd, prompt } = await c.req.json<{ cwd?: string; prompt: string }>();

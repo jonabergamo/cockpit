@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import type { Epic, PullRequest, ScreenInfo, Sprint, Theme, Ticket, Worktree } from "@cockpit/shared";
-import { api } from "./api";
+import type { Epic, PullRequest, Run, RunDetail, RunKind, RunStatus, ScreenInfo, Sprint, Theme, Ticket, Worktree } from "@cockpit/shared";
+import { api, qs } from "./api";
 
 export interface AppConfig {
   statusOrder: string[];
@@ -11,12 +11,16 @@ export interface AppConfig {
   demo: boolean;
   hidden: string[];
   screens: ScreenInfo[];
+  moved?: { plugin: string; id: string; to: string }[];
   themes: Theme[];
   // the plugins in use for these, null when none is on
   tracker: { plugin: string; name: string } | null;
   codeHost: { plugin: string; name: string } | null;
   verify: boolean;
   preview: boolean;
+  openCommand?: string;
+  reviewBackend?: boolean;
+  createVars: string[];
 }
 
 export interface TicketsRes {
@@ -51,3 +55,15 @@ export const useWorktrees = () => useQuery({ queryKey: ["worktrees"], queryFn: (
 
 // Job output streams over the socket and is patched in once, in main.tsx, however many views show it.
 export const useJobs = () => useQuery({ queryKey: ["jobs"], queryFn: () => api.get<Job[]>("/jobs") });
+
+// Runs come back fresh whenever one changes: main.tsx refetches them on the socket's "run" event.
+export interface RunsFilter {
+  kind?: RunKind;
+  status?: RunStatus;
+  ticket?: string;
+  worktree?: string;
+  limit?: number;
+}
+export const useRuns = (f: RunsFilter = {}) => useQuery({ queryKey: ["runs", f], queryFn: () => api.get<Run[]>(`/runs${qs({ ...f })}`) });
+export const useRun = (id: string) =>
+  useQuery({ queryKey: ["run", id], queryFn: () => api.get<RunDetail>(`/runs/${encodeURIComponent(id)}?lines=400`), refetchInterval: (q) => (q.state.data?.status === "running" ? 3000 : false) });

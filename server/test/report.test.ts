@@ -31,6 +31,21 @@ describe("sprint maths", () => {
     expect(out[0].scope).toBe(5);
   });
 
+  it("trusts the tracker's answer for a day and leaves late tickets out", () => {
+    const tickets = [
+      { key: "A-1", points: 2 },
+      { key: "A-2", points: 3 },
+      { key: "A-3", points: 1 },
+    ];
+    // cockpit's own history only saw A-1 finish on the 15th; the tracker knows it was done on the 14th
+    const history = new Map([["A-1", h("A-1", ["Done", "2026-10-15T10:00:00Z"])]]);
+    const days = ["2026-10-14", "2026-10-15", "2026-10-16"];
+    const on = new Map([["2026-10-14", new Set(["A-1"])]]);
+    const out = burnup(tickets, history, days, "2026-10-15", new Set(["Done"]), on, new Set(["A-3"]));
+    expect(out.map((p) => p.released)).toEqual([2, 2, NaN]);
+    expect(out[0].scope).toBe(5);
+  });
+
   it("builds status spans, open ended only while not released", () => {
     const out = spans("A-1", h("A-1", ["Review", "2026-10-15T10:00:00Z"], ["Done", "2026-10-16T10:00:00Z"]), "NOW");
     expect(out).toEqual([

@@ -26,7 +26,7 @@ interface SprintReport {
   scope: "me" | "team";
   people: Person[];
   elapsedShare: number;
-  totals: { scope: number; done: number; released: number; projected: number; daysLeft: number; daysTotal: number; byStatus: Record<string, number> };
+  totals: { scope: number; done: number; released: number; projected: number; daysLeft: number; daysTotal: number; lateScope?: number; byStatus: Record<string, number> };
   releasedStatuses: string[];
   statusOrder: string[];
 }
@@ -424,60 +424,6 @@ function AdditionalNotes({ sprintId }: { sprintId: number }) {
   );
 }
 
-function DailyText() {
-  const daily = useQuery({ queryKey: ["daily"], queryFn: () => api.get<string>("/report/daily") });
-  const [text, setText] = useState("");
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (daily.data) setText(daily.data);
-  }, [daily.data]);
-
-  const refine = useMutation({
-    mutationFn: async () => {
-      const job = await api.post<{ id: string }>("/claude/ask", {
-        prompt: `Rewrite this daily standup update so it reads naturally, short and first person, plain text with the same four headings. Don't invent anything:\n\n${text}`,
-      });
-      for (let i = 0; i < 120; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const j = await api.get<{ output: string; code?: number }>(`/jobs/${job.id}`);
-        if (j.code !== undefined) {
-          if (j.code !== 0) throw new Error(j.output.slice(-400));
-          return j.output.trim();
-        }
-      }
-      throw new Error("Claude took too long");
-    },
-    onSuccess: setText,
-  });
-
-  return (
-    <section className="bg-panel border border-line rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <h2 className="font-semibold flex-1">My daily</h2>
-        <Button size="sm" variant="ghost" onClick={() => daily.refetch()}>
-          Rebuild
-        </Button>
-        <Button size="sm" onClick={() => refine.mutate()} disabled={refine.isPending || !text}>
-          {refine.isPending ? "Claude is rewriting" : "Polish with Claude"}
-        </Button>
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={() => {
-            copy(text);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-      {daily.isLoading ? <Loading what="Putting it together" /> : <textarea value={text} onChange={(e) => setText(e.target.value)} rows={14} className={`${inputClass} h-auto w-full py-2 font-sans leading-relaxed`} />}
-      <ErrorNote error={daily.error ?? refine.error} />
-    </section>
-  );
-}
-
 function Activity({ days }: { days: DayActivity[] }) {
   const cost = useCost();
   return (
@@ -562,7 +508,7 @@ export function ReportPage() {
   // a sync refetches the sprint from Jira once; everything built from it reloads after
   const snapshot = useMutation({
     mutationFn: () => api.post("/report/snapshot"),
-    onSuccess: () => Promise.all(["report", "saydo", "activity", "daily", "weekly", "sprints"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+    onSuccess: () => Promise.all(["report", "saydo", "activity", "daily", "brag-week", "sprints"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
   });
 
   const r = report.data;
@@ -609,7 +555,10 @@ export function ReportPage() {
 
           <section className="bg-panel border border-line rounded-lg p-4">
             <h2 className="font-semibold">Sprint burndown</h2>
-            <p className="text-[13px] text-muted">{scope === "me" ? "Your" : "The team's"} points left to finish each day, against the even pace that ends at zero on the last day.</p>
+            <p className="text-[13px] text-muted">
+              {scope === "me" ? "Your" : "The team's"} points left to finish each day from what was committed at the start, against the even pace that ends at zero on the last day.
+              {r.totals.lateScope ? ` ${r.totals.lateScope} pt added after the start ${r.totals.lateScope === 1 ? "isn't" : "aren't"} counted here.` : ""}
+            </p>
             <Burndown data={r.burndown} />
           </section>
 
@@ -639,48 +588,16 @@ export function ReportPage() {
         </>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_420px] gap-5 items-start">
-        <section className="bg-panel border border-line rounded-lg p-4">
-          <h2 className="font-semibold">Day by day</h2>
-          {activity.isLoading && <Loading />}
-          {activity.data && (
-            <>
-              {!cost.hidden && <CostChart days={activity.data} />}
-              <Activity days={activity.data} />
-            </>
-          )}
-        </section>
-        <div className="space-y-5">
-          <DailyText />
-          <Weekly />
-        </div>
-      </div>
+      <section className="bg-panel border border-line rounded-lg p-4">
+        <h2 className="font-semibold">Day by day</h2>
+        {activity.isLoading && <Loading />}
+        {activity.data && (
+          <>
+            {!cost.hidden && <CostChart days={activity.data} />}
+            <Activity days={activity.data} />
+          </>
+        )}
+      </section>
     </div>
-  );
-}
-
-function Weekly() {
-  const w = useQuery({
-    queryKey: ["weekly"],
-    queryFn: () => api.get<{ from: string; to: string; released: Ticket[]; prsMerged: { number: number; title: string }[]; commits: number; costUSD: number; sessions: number }>("/report/weekly"),
-  });
-  if (!w.data) return null;
-  const d = w.data;
-  const text = [
-    `Week of ${shortDate(d.from)} to ${shortDate(d.to)}`,
-    ...d.released.map((t) => `- Released ${t.key} ${t.summary}`),
-    ...d.prsMerged.map((p) => `- Merged #${p.number} ${p.title}`),
-    `- ${d.commits} commits, ${d.sessions} Claude sessions`,
-  ].join("\n");
-  return (
-    <section className="bg-panel border border-line rounded-lg p-4">
-      <div className="flex items-center mb-2">
-        <h2 className="font-semibold flex-1">This week, for the brag doc</h2>
-        <Button size="sm" onClick={() => copy(text)}>
-          Copy
-        </Button>
-      </div>
-      <pre className="whitespace-pre-wrap text-[13px] font-sans">{text}</pre>
-    </section>
   );
 }

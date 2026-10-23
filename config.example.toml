@@ -17,6 +17,7 @@ name = "app"
 worktreesDir = "~/.claude/worktrees"
 keyPattern = "[A-Z][A-Z0-9]+-\\d+"
 # Placeholders: {repo} {worktreesDir} {key} {slug} {branch} {path} {name}
+# Any other {placeholder} in createCommand, like {apps}, is filled by the kind of work in Settings → Kinds of work.
 branchTemplate = "feat/{key}/{slug}"
 createCommand = "git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/main"
 deleteCommand = "git -C {repo} worktree remove {path}"
@@ -55,6 +56,7 @@ snapshotMinutes = 60
 [reviews]
 # First prompt of the Claude session the PR review screen starts. {url} is the PR link.
 command = "Review the pull request {url} and leave your comments as a pending review on GitHub, without submitting it."
-backendNote = " Include the backend too."
+# Optional. Added to the prompt when "Include the backend" is ticked; the checkbox only shows when this is set.
+backendNote = ""
 # Defaults to repo.path
 cwd = ""

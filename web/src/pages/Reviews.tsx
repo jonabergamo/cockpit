@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import type { LastReview } from "@cockpit/shared";
 import { useEffect, useState } from "react";
+import { newTask } from "../components/NewTask";
 import { RefreshButton } from "../components/RefreshButton";
 import { Terminal } from "../components/Terminal";
-import { Button, Empty, ErrorNote, inputClass, PageHeader, Tag } from "../components/ui";
+import { Button, Empty, ErrorNote, inputClass, Loading, PageHeader, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago } from "../lib/format";
-import { usePrs } from "../lib/queries";
+import { useAppConfig, usePrs } from "../lib/queries";
 import { useTerms } from "./Terminals";
 
 interface Review {
@@ -60,10 +62,11 @@ export function ReviewsPage() {
   const prs = usePrs();
   const [input, setInput] = useState("");
   const [backend, setBackend] = useState(false);
-  const [check, setCheck] = useState<Check>();
+  const cfg = useAppConfig();
+  const [check, setCheck] = useState<Check & { again?: boolean }>();
 
   const start = useMutation({
-    mutationFn: (b: { input: string; existing?: "add" | "replace" }) => api.post<{ id: number }>("/reviews", { ...b, backend }),
+    mutationFn: (b: { input: string; existing?: "add" | "replace"; again?: boolean }) => api.post<{ id: number }>("/reviews", { ...b, backend }),
     onSuccess: (r) => {
       setCheck(undefined);
       setInput("");
@@ -75,14 +78,15 @@ export function ReviewsPage() {
 
   // look first: an existing draft review of mine changes what the skill should do with it
   const look = useMutation({
-    mutationFn: (value: string) => api.post<Check>("/reviews/check", { input: value }),
-    onSuccess: (c, value) => (c.pending ? setCheck(c) : start.mutate({ input: value })),
+    mutationFn: (v: { value: string; again?: boolean }) => api.post<Check>("/reviews/check", { input: v.value }).then((c) => ({ ...c, again: v.again })),
+    onSuccess: (c, v) => (c.pending ? setCheck(c) : start.mutate({ input: v.value, again: v.again })),
   });
 
-  const go = (value: string) => {
+  // again: a second look at only what changed since your last review
+  const go = (value: string, again?: boolean) => {
     if (!value.trim()) return;
     setCheck(undefined);
-    look.mutate(value.trim());
+    look.mutate({ value: value.trim(), again });
   };
 
   // /reviews?pr=<link> comes from the Today page's review requests
@@ -94,8 +98,8 @@ export function ReviewsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pr]);
 
-  const reviewed = new Set(reviews.data?.map((r) => r.url));
-  const queue = (prs.data?.review ?? []).filter((p) => !reviewed.has(p.url));
+  // a PR you already reviewed comes back when it's asked for again, with a second look offered
+  const queue = prs.data?.review ?? [];
   const selected = reviews.data?.find((r) => r.id === id) ?? (id ? undefined : reviews.data?.[0]);
   const busy = look.isPending || start.isPending;
 
@@ -128,10 +132,15 @@ export function ReviewsPage() {
             className={`${inputClass} w-full`}
           />
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-[13px] text-muted flex-1">
-              <input type="checkbox" checked={backend} onChange={(e) => setBackend(e.target.checked)} />
-              Include the backend
-            </label>
+            {/* only when the review command says what to add for it, in config's reviews.backendNote */}
+            {cfg.data?.reviewBackend ? (
+              <label className="flex items-center gap-1.5 text-[13px] text-muted flex-1">
+                <input type="checkbox" checked={backend} onChange={(e) => setBackend(e.target.checked)} />
+                Include the backend
+              </label>
+            ) : (
+              <span className="flex-1" />
+            )}
             <Button variant="primary" disabled={!input.trim() || busy}>
               {look.isPending ? "Checking" : start.isPending ? "Starting" : "Review"}
             </Button>
@@ -144,10 +153,10 @@ export function ReviewsPage() {
                 You already have a draft review on #{check.number} with {check.pending.comments} comments.
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <Button size="sm" onClick={() => start.mutate({ input: check.url, existing: "add" })}>
+                <Button size="sm" onClick={() => start.mutate({ input: check.url, existing: "add", again: check.again })}>
                   Add to it
                 </Button>
-                <Button size="sm" variant="danger" onClick={() => start.mutate({ input: check.url, existing: "replace" })}>
+                <Button size="sm" variant="danger" onClick={() => start.mutate({ input: check.url, existing: "replace", again: check.again })}>
                   Replace it
                 </Button>
                 <a href={check.pending.url} target="_blank" rel="noreferrer">
@@ -162,6 +171,12 @@ export function ReviewsPage() {
 
         <section className="bg-panel border border-line rounded-lg">
           <h2 className="font-semibold px-3 pt-2.5 pb-1.5">Waiting for your review</h2>
+          {prs.isLoading && <Loading what="Asking for review requests" />}
+          {prs.error && (
+            <div className="px-3 pb-2">
+              <ErrorNote error={prs.error} />
+            </div>
+          )}
           <div className="divide-y divide-line">
             {queue.map((p) => (
               <div key={p.number} className="flex items-center gap-2 px-3 py-2">
@@ -172,18 +187,28 @@ export function ReviewsPage() {
                   <div className="text-[12px] text-muted">
                     {p.author} · {ago(p.createdAt)}
                   </div>
+                  <SinceYourReview url={p.url} busy={busy} onAgain={() => go(p.url, true)} />
                 </div>
+                <Button size="sm" variant="ghost" title="Start a task whose work is built on this PR's branch" onClick={() => newTask.open({ onPr: p.url })}>
+                  Build on it
+                </Button>
                 <Button size="sm" disabled={busy} onClick={() => go(p.url)}>
                   Review
                 </Button>
               </div>
             ))}
-            {!queue.length && <div className="px-3 py-2.5 text-[13px] text-muted">Nobody is waiting on you.</div>}
+            {prs.data && !queue.length && <div className="px-3 py-2.5 text-[13px] text-muted">Nobody is waiting on you.</div>}
           </div>
         </section>
 
         <section className="bg-panel border border-line rounded-lg">
           <h2 className="font-semibold px-3 pt-2.5 pb-1.5">Reviews</h2>
+          {reviews.isLoading && <Loading />}
+          {reviews.error && (
+            <div className="px-3 pb-2">
+              <ErrorNote error={reviews.error} />
+            </div>
+          )}
           <div className="divide-y divide-line">
             {reviews.data?.map((r) => (
               <div key={r.id} className={`flex items-center gap-2 px-3 py-2 ${selected?.id === r.id ? "bg-cobalt-soft/60" : "hover:bg-ground"}`}>
@@ -201,12 +226,35 @@ export function ReviewsPage() {
                 <ReopenButton review={r} />
               </div>
             ))}
-            {!reviews.data?.length && <div className="px-3 py-2.5 text-[13px] text-muted">No reviews yet.</div>}
+            {reviews.data && !reviews.data.length && <div className="px-3 py-2.5 text-[13px] text-muted">No reviews yet.</div>}
           </div>
         </section>
       </div>
 
       <div className="min-w-0">{selected ? <ReviewDetail review={selected} /> : <Empty>Paste a PR to start a review.</Empty>}</div>
+    </div>
+  );
+}
+
+function useLastReview(url: string) {
+  return useQuery({ queryKey: ["last-review", url], queryFn: () => api.get<LastReview | null>(`/reviews/last?${new URLSearchParams({ pr: url })}`), staleTime: 60_000, retry: false });
+}
+
+// what changed since your last submitted review of a PR, with the second look that covers only that
+function SinceYourReview({ url, busy, onAgain }: { url: string; busy: boolean; onAgain: () => void }) {
+  const last = useLastReview(url).data;
+  if (!last) return null;
+  const changed = last.rewritten ? "rewritten since" : last.commits ? `${last.commits} new commit${last.commits === 1 ? "" : "s"}, ${last.files} file${last.files === 1 ? "" : "s"}` : "nothing new";
+  return (
+    <div className="flex items-center gap-2 mt-1 text-[12px]">
+      <a href={last.url} target="_blank" rel="noreferrer" className="text-muted hover:text-cobalt" title={`Your review of ${last.commit.slice(0, 7)}, ${last.comments.length} comments`}>
+        You reviewed it {ago(last.at)} · {changed}
+      </a>
+      {(last.commits > 0 || last.rewritten) && (
+        <Button size="sm" variant="primary" disabled={busy} onClick={onAgain} title="Review only what changed since, and check each of your earlier comments">
+          Review what changed
+        </Button>
+      )}
     </div>
   );
 }
@@ -230,12 +278,12 @@ function ReopenButton({ review: r, label }: { review: Review; label?: string }) 
         size="sm"
         variant={label ? "primary" : "ghost"}
         disabled={reopen.isPending}
-        title={reopen.error ? String((reopen.error as Error).message) : open ? "Show its terminal" : "Resume its Claude session in a new terminal"}
+        title={open ? "Show its terminal" : "Resume its Claude session in a new terminal"}
         onClick={() => (open ? navigate({ to: "/reviews", search: { id: r.id } }) : reopen.mutate())}
       >
         {reopen.isPending ? "Opening" : (label ?? (open ? "Terminal" : "Reopen"))}
       </Button>
-      {label && <ErrorNote error={reopen.error} />}
+      {label ? <ErrorNote error={reopen.error} /> : reopen.error ? <span className="block max-w-[200px] text-right text-[12px] text-red">{(reopen.error as Error).message}</span> : null}
     </span>
   );
 }
@@ -243,7 +291,16 @@ function ReopenButton({ review: r, label }: { review: Review; label?: string }) 
 function ReviewDetail({ review: r }: { review: Review }) {
   const terms = useTerms();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const term = terms.data?.find((t) => t.id === r.term_id);
+  const again = useMutation({
+    mutationFn: () => api.post<{ id: number }>("/reviews", { input: r.url, again: true }),
+    onSuccess: (n) => {
+      qc.invalidateQueries({ queryKey: ["reviews"] });
+      qc.invalidateQueries({ queryKey: ["terms"] });
+      navigate({ to: "/reviews", search: { id: n.id } });
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -275,6 +332,8 @@ function ReviewDetail({ review: r }: { review: Review }) {
           </p>
         )}
         {r.status === "waiting" && <p className="text-[13px] text-amber mt-3">Claude stopped and is waiting for you in the terminal below.</p>}
+        {(r.status === "done" || r.status === "stopped") && <SinceYourReview url={r.url} busy={again.isPending} onAgain={() => again.mutate()} />}
+        <ErrorNote error={again.error} />
       </div>
 
       {term ? (

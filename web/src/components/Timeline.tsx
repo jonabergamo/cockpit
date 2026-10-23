@@ -63,38 +63,50 @@ export function Timeline({ entries, agents = [], sessionId }: { entries: Entry[]
 
   return (
     <div className="space-y-2.5">
-      {entries.map((e) => {
-        switch (e.kind) {
-          case "user":
-            return (
-              <div key={e.id} className="border-l-[3px] border-cobalt bg-cobalt-soft/50 rounded-r-md px-3 py-2">
-                <div className="text-[11px] text-muted mb-0.5">You · {time(e.ts)}</div>
-                <div className="whitespace-pre-wrap break-words">{e.text}</div>
-              </div>
-            );
-          case "assistant":
-            return (
-              <div key={e.id} className="px-1">
-                <Markdown>{e.text}</Markdown>
-              </div>
-            );
-          case "thinking":
-            return (
-              <details key={e.id} className="px-1 text-muted">
-                <summary className="cursor-pointer text-[13px]">Thinking</summary>
-                <div className="whitespace-pre-wrap text-[13px] mt-1">{e.text}</div>
-              </details>
-            );
-          case "tool":
-            return <ToolRow key={e.id} tool={e} result={results.get(e.toolUseId)} agent={byTool.get(e.toolUseId)} sessionId={sessionId} />;
-          case "system":
-            if (e.subtype === "turn") return <div key={e.id} className="text-[12px] text-faint text-center">turn took {e.text}</div>;
-            if (e.subtype === "away") return <div key={e.id} className="text-[13px] text-muted border border-dashed border-line rounded-md px-3 py-2">{e.text}</div>;
-            return null;
-          default:
-            return null;
-        }
+      {entries.map((e, i) => {
+        const node = entryNode(e);
+        // the index lets the scrubber find an entry on screen
+        return (
+          node && (
+            <div key={e.id} data-i={i}>
+              {node}
+            </div>
+          )
+        );
       })}
     </div>
   );
+
+  function entryNode(e: Entry) {
+    switch (e.kind) {
+      case "user":
+        return (
+          <div key={e.id} className="border-l-[3px] border-cobalt bg-cobalt-soft/50 rounded-r-md px-3 py-2">
+            <div className="text-[11px] text-muted mb-0.5">You · {time(e.ts)}</div>
+            <div className="whitespace-pre-wrap break-words">{e.text}</div>
+          </div>
+        );
+      case "assistant":
+        return (
+          <div key={e.id} className="px-1">
+            <Markdown>{e.text}</Markdown>
+          </div>
+        );
+      case "thinking":
+        return (
+          <details key={e.id} className="px-1 text-muted">
+            <summary className="cursor-pointer text-[13px]">Thinking</summary>
+            <div className="whitespace-pre-wrap text-[13px] mt-1">{e.text}</div>
+          </details>
+        );
+      case "tool":
+        return <ToolRow key={e.id} tool={e} result={results.get(e.toolUseId)} agent={byTool.get(e.toolUseId)} sessionId={sessionId} />;
+      case "system":
+        if (e.subtype === "turn") return <div key={e.id} className="text-[12px] text-faint text-center">turn took {e.text}</div>;
+        if (e.subtype === "away") return <div key={e.id} className="text-[13px] text-muted border border-dashed border-line rounded-md px-3 py-2">{e.text}</div>;
+        return null;
+      default:
+        return null;
+    }
+  }
 }

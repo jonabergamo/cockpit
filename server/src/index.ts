@@ -7,14 +7,21 @@ import { auth } from "./auth.ts";
 import { startSessions } from "./claude/sessions.ts";
 import { config, demo, paths } from "./config.ts";
 import { mountDemo } from "./demo.ts";
-import { activeCodeHost, activeTracker, callRoute, listPlugins, pluginFile, pluginLog, pluginScreens, pluginThemes, startPlugins, updatePlugin } from "./plugins.ts";
+import { activeCodeHost, activeTracker, callRoute, listPlugins, movedScreens, pluginFile, pluginLog, pluginScreens, pluginThemes, startPlugins, updatePlugin } from "./plugins.ts";
 import { restoreTerms } from "./pty.ts";
 import { migrateLegacy, statusConfig } from "./providers.ts";
 import { startSnapshots } from "./report.ts";
 import { install, installSkill, login, setupStatus } from "./requirements.ts";
 import { detectBilling, getSettings, putSettings } from "./settings.ts";
+import { startLeadWatch } from "./lead.ts";
 import { startStuckWatch } from "./stuck.ts";
+import { startBudgetWatch } from "./budget.ts";
+import { startWeekly } from "./weekly.ts";
 import { startAutopilot } from "./autopilot.ts";
+import { startOvernight } from "./overnight.ts";
+import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
+import { startStacked } from "./stacked.ts";
+import { startBadges } from "./badges.ts";
 import { startVerify } from "./verify.ts";
 import { startTasks } from "./tasks.ts";
 import { tasks } from "./routes/tasks.ts";
@@ -23,6 +30,8 @@ import { startSearch } from "./claude/search.ts";
 import { claude } from "./routes/claude.ts";
 import { code } from "./routes/code.ts";
 import { report } from "./routes/report.ts";
+import { runs } from "./routes/runs.ts";
+import { startRuns } from "./runs.ts";
 import { sessions } from "./routes/sessions.ts";
 import { work } from "./routes/work.ts";
 import { canUpgrade, wss } from "./ws.ts";
@@ -46,14 +55,51 @@ export const appConfig = () => ({
   demo,
   hidden: getSettings().hidden,
   screens: pluginScreens(),
+  // screens plugins took away, and where their links go now
+  moved: movedScreens(),
   themes: pluginThemes(),
   // which of the repo's own commands are set, so the Board only offers what will work
   verify: !!config.repo.verifyCommand,
   preview: !!config.repo.devCommand,
+  // so the open buttons can say which editor they open
+  openCommand: config.repo.openCommand,
+  // the PR review screen offers "Include the backend" only when the review command takes it
+  reviewBackend: !!config.reviews.backendNote,
+  // placeholders in repo.createCommand beyond the built-in ones, which kinds of work have to fill
+  createVars: [...new Set([...config.repo.createCommand.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].filter((v) => !["repo", "worktreesDir", "key", "slug", "branch", "name"].includes(v)),
 });
 
 const plugins = new Hono()
   .get("/", (c) => c.json(listPlugins()))
+  // from a git link: look first (nothing runs), then install what was looked at
+  .post("/install/preview", async (c) => {
+    try {
+      return c.json(await installPreview(await c.req.json()));
+    } catch (e) {
+      return fail(e);
+    }
+  })
+  .post("/install", async (c) => {
+    try {
+      return c.json(await installPlugin((await c.req.json<{ token: string }>()).token));
+    } catch (e) {
+      return fail(e);
+    }
+  })
+  .post("/:id/update/preview", async (c) => {
+    try {
+      return c.json(await updatePreview(c.req.param("id")));
+    } catch (e) {
+      return fail(e);
+    }
+  })
+  .delete("/:id", async (c) => {
+    try {
+      return c.json(await uninstall(c.req.param("id")));
+    } catch (e) {
+      return fail(e);
+    }
+  })
   .put("/:id", async (c) => {
     try {
       return c.json(await updatePlugin(c.req.param("id"), await c.req.json()));
@@ -67,7 +113,8 @@ const plugins = new Hono()
     const rest = c.req.path.slice(c.req.path.indexOf(`/${id}/x`) + id.length + 3);
     const body = ["POST", "PUT", "DELETE"].includes(c.req.method) ? await c.req.json().catch(() => undefined) : undefined;
     try {
-      const out = await callRoute(id, c.req.method, rest, c.req.query(), body);
+      const out = await callRoute(id, c.req.method, rest, c.req.query(), body, c.req.header());
+      if (out instanceof Response) return out;
       return c.json(out ?? { ok: true });
     } catch (e) {
       return fail(e);
@@ -113,6 +160,7 @@ const api = new Hono()
   .route("/code", code)
   .route("/tasks", tasks)
   .route("/report", report)
+  .route("/runs", runs)
   .route("/", work);
 
 app.route("/api", api);
@@ -164,11 +212,18 @@ if (!demo) {
   startUsage();
   startSearch();
   startStuckWatch();
+  startBudgetWatch();
+  startWeekly();
+  startLeadWatch();
+  startRuns();
   startVerify();
   startAutopilot();
+  startStacked();
+  startOvernight();
   startTasks();
   const restored = restoreTerms();
   if (restored) console.log(`reattached ${restored} terminals`);
+  startBadges();
 }
 
 export type Api = typeof api;

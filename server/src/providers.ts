@@ -1,4 +1,4 @@
-import type { PrRef, PullRequest, StatusConfig, Ticket, TrackerSprint, TrackerTicket } from "@cockpit/shared";
+import type { PrRef, PullRequest, Reviewer, StatusConfig, Ticket, TrackerSprint, TrackerTicket } from "@cockpit/shared";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { activeCodeHost, activeTracker, reviewSources } from "./plugins.ts";
@@ -51,12 +51,50 @@ export async function sprints(): Promise<TrackerSprint[]> {
 }
 export const activeSprint = async () => (await tracker()?.activeSprint?.()) ?? (await sprints()).find((s) => s.state === "active");
 
+export const inStatusOn = (sprintId: number, statuses: string[], day: string) => tracker()?.inStatusOn?.(sprintId, statuses, day);
+
 export async function sprintTickets(sprintId?: number, force = false, maxAge?: number, scope: Scope = "me"): Promise<TrackerTicket[]> {
   const all = (await tracker()?.sprintTickets?.(sprintId, force, maxAge)) ?? [];
   return scope === "team" ? all : all.filter(isMine);
 }
 
-export const myPrs = async (fresh = false): Promise<PullRequest[]> => (await codeHost()?.myPrs(fresh)) ?? [];
+// The last answers anyone got for these, so the sidebar badges can use them without asking the code host again.
+// Undefined until something has asked since cockpit started.
+const last: { prs?: PullRequest[]; queue?: PullRequest[] } = {};
+export const knownPrs = () => last.prs;
+export const knownQueue = () => last.queue;
+let onKnown = () => {};
+export const whenKnownChanges = (fn: () => void) => void (onKnown = fn);
+const remember = <K extends keyof typeof last>(key: K, v: PullRequest[]) => {
+  if (JSON.stringify(last[key]) !== JSON.stringify(v)) (last[key] = v), onKnown();
+  return v;
+};
+
+// the code host's PRs, with whoever a review source put on them added to their reviewers
+export const myPrs = async (fresh = false): Promise<PullRequest[]> => remember("prs", await prsWithReviewers(fresh));
+async function prsWithReviewers(fresh: boolean): Promise<PullRequest[]> {
+  const prs = (await codeHost()?.myPrs(fresh)) ?? [];
+  const sources = reviewSources().filter((s) => s.reviewersOf);
+  if (!sources.length || !prs.length) return prs;
+  const extra = new Map<string, Reviewer[]>();
+  await Promise.all(
+    sources.map(async (s) => {
+      const list = await s.reviewersOf!(fresh).catch(() => []);
+      for (const { url, reviewers } of list) extra.set(url, [...(extra.get(url) ?? []), ...reviewers.map((r) => ({ ...r, source: r.source ?? s.name }))]);
+    }),
+  );
+  return prs.map((p) => {
+    const more = extra.get(p.url);
+    if (!more) return p;
+    const have = new Set((p.reviewers ?? []).map((r) => r.name.toLowerCase()));
+    return { ...p, reviewers: [...(p.reviewers ?? []), ...more.filter((r) => !have.has(r.name.toLowerCase()))] };
+  });
+}
+export const requestReview = async (n: number, logins: string[]) => {
+  const h = codeHost();
+  if (!h?.requestReview) throw Object.assign(new Error("the code host can't request reviews"), { status: 400 });
+  return h.requestReview(n, logins);
+};
 /**
  * A PR can be waiting on you in more than one place at once, asked for on the
  * code host and tracked by a plugin as well, so the first mention of a url
@@ -84,7 +122,7 @@ export async function reviewQueue(fresh = false): Promise<PullRequest[]> {
       }
     }),
   ]);
-  return mergeQueues(lists);
+  return remember("queue", mergeQueues(lists));
 }
 export const deploys = async (since: string) => (await codeHost()?.deploys?.(since)) ?? [];
 export const failingChecks = async (n: number) => (await codeHost()?.failingChecks?.(n)) ?? [];
@@ -100,6 +138,8 @@ function reviewHost() {
 export const prInfo = (ref: PrRef) => reviewHost().prInfo(ref);
 export const pendingReview = (ref: PrRef) => reviewHost().pendingReview(ref);
 export const deletePending = (ref: PrRef, id: number) => reviewHost().deletePending(ref, id);
+// undefined when the code host can't say, or you haven't reviewed it before
+export const lastReview = async (ref: PrRef) => (await codeHost()?.lastReview?.(ref)) ?? undefined;
 
 // Setups from before plugins kept Jira and GitHub in config.toml. The first time, carry those over into the
 // plugins' settings and turn them on, so nothing changes for them.

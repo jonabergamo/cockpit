@@ -70,6 +70,7 @@ const pr = (n: number, ticket: string, title: string, state: string, extra: Part
   title,
   url: `https://github.com/acme/shop/pull/${n}`,
   branch: `feat/${ticket}/x`,
+  base: "main",
   state,
   isDraft: false,
   checks: "pass",
@@ -404,6 +405,17 @@ export function mountDemo(app: Hono) {
     "/api/worktrees": ok(worktrees),
     "/api/jobs": ok([]),
     "/api/board": () => Response.json(demoBoard()),
+    "/api/badges": () => {
+      const cards = demoBoard();
+      const needs = cards.filter((c) => c.column === "needs").length;
+      const working = cards.filter((c) => c.column === "working").length;
+      return Response.json({
+        "/board": { attention: needs, live: working, title: `${needs} need you · ${working} working` },
+        "/runs": { live: 1, failed: 1, title: "1 run going · 1 failed since you last looked" },
+        "/terminals": { count: 3, live: 1, title: "3 terminals open · Claude working in 1" },
+        "/reviews": { attention: prs.review.length, title: `${prs.review.length} PR${prs.review.length === 1 ? "" : "s"} waiting for your review` },
+      });
+    },
     "/api/tasks": ok(demoTasks),
     "/api/digest": ok(demoDigest),
     "/api/usage/tools": ok(demoTools),

@@ -42,9 +42,10 @@ async function check() {
     const g = grew.get(s.id);
     if (!g || g.size !== s.size) grew.set(s.id, { size: s.size, at: now });
     let reason: string | undefined;
-    if (s.status === "busy" && g && g.size === s.size && now - g.at >= minutes * 60_000) reason = `No progress for ${Math.round((now - g.at) / 60_000)} minutes`;
+    // a long background job writes nothing to the transcript, and that's fine
+    if (s.status === "busy" && !s.background && g && g.size === s.size && now - g.at >= minutes * 60_000) reason = `No progress for ${Math.round((now - g.at) / 60_000)} minutes`;
     const file = sessionFile(s.id);
-    if (!reason && file && s.status === "busy") {
+    if (!reason && file && s.status === "busy" && !s.background) {
       const tail = await readTail(file, 192 * 1024).catch(() => undefined);
       if (tail) reason = looksStuck(tail.lines.flatMap((l) => parseLine(l)));
     }

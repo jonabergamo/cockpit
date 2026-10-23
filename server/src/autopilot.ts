@@ -8,9 +8,9 @@ import { db } from "./db.ts";
 import { emit, onEvent } from "./events.ts";
 import { fixPrompt } from "./fix.ts";
 import { notify } from "./notify.ts";
-import { myPrs, reviewThreads } from "./providers.ts";
+import { myPrs, requestReview, reviewThreads } from "./providers.ts";
 import { spawnTerm } from "./pty.ts";
-import { getSettings } from "./settings.ts";
+import { getSettings, readRow, writeRow } from "./settings.ts";
 import { listWorktrees } from "./worktrees.ts";
 
 interface Row {
@@ -31,8 +31,26 @@ export function setAutopilot(worktree: string, on: boolean) {
   if (on) setTimeout(() => tick().catch((e) => console.error("autopilot", e)), 1000);
 }
 
-// What the PR looks like now; autopilot only acts when this changes, so it never repeats itself on the same failure
-export const signatureOf = (pr: Pick<PullRequest, "headSha" | "checks" | "reviewDecision">, threads: number) => `${pr.headSha ?? ""}|${pr.checks ?? ""}|${pr.reviewDecision ?? ""}|${threads}`;
+// What the PR looks like now; autopilot only acts when this changes, so it never repeats itself on the same failure.
+// Failing checks are new on every push. Requested changes stay requested after the fix is pushed, until the
+// reviewer looks again, so only a new review or a new thread makes them new.
+export function signatureOf(pr: Pick<PullRequest, "headSha" | "checks" | "reviewDecision" | "reviewers">, threads: number) {
+  if (pr.checks === "fail") return `checks|${pr.headSha ?? ""}`;
+  if (pr.reviewDecision === "CHANGES_REQUESTED") return `review|${threads}|${(pr.reviewers ?? []).map((r) => r.at ?? "").sort().at(-1) ?? ""}`;
+  return `ok|${pr.checks ?? ""}|${pr.reviewDecision ?? ""}`;
+}
+
+// After autopilot answered a review: once Claude has pushed and the checks pass, ask whoever wanted changes to
+// look again, once per push. Only the code host's own reviewers can be asked.
+export interface Rerequest {
+  from: string;
+  asked?: string;
+}
+export function rerequestNow(pr: Pick<PullRequest, "state" | "headSha" | "checks" | "reviewers">, pending: Rerequest | undefined, busy: boolean): string[] {
+  if (!pending || busy || pr.state !== "OPEN" || !pr.headSha || pr.headSha === pending.from || pr.headSha === pending.asked) return [];
+  if (pr.checks === "fail" || pr.checks === "pending") return [];
+  return [...new Set((pr.reviewers ?? []).filter((r) => r.state === "CHANGES_REQUESTED" && r.login).map((r) => r.login!))];
+}
 
 export function decide(pr: Pick<PullRequest, "state" | "checks" | "reviewDecision">, row: Pick<Row, "attempts" | "signature">, signature: string, max: number) {
   if (pr.state !== "OPEN") return { act: "none" as const };
@@ -58,6 +76,19 @@ async function tick() {
       if (!wt) continue;
       const { pr, session } = matchWorker(wt, prs, sessions);
       if (!pr) continue;
+      const pending = readRow<Record<string, Rerequest>>("autopilot-rerequest") ?? {};
+      const ask = rerequestNow(pr, pending[r.worktree], session?.status === "busy");
+      if (ask.length) {
+        try {
+          await requestReview(pr.number, ask);
+          writeRow("autopilot-rerequest", { ...pending, [r.worktree]: { ...pending[r.worktree], asked: pr.headSha } });
+          db.prepare("update autopilot set note = ? where worktree = ?").run(`Asked ${ask.join(", ")} to review again`, r.worktree);
+          notify({ title: `Asked for another review on #${pr.number}`, body: `The fix is pushed and the checks pass, so ${ask.join(", ")} ${ask.length === 1 ? "was" : "were"} asked to look again.`, link: pr.url, kind: "autopilot" });
+          boardChanged();
+        } catch (e) {
+          console.error("autopilot re-request", e);
+        }
+      }
       const threads = pr.reviewDecision === "CHANGES_REQUESTED" ? (await reviewThreads(pr.number).catch(() => [])).length : 0;
       const sig = signatureOf(pr, threads);
       const d = decide(pr, r, sig, max);
@@ -90,6 +121,8 @@ async function tick() {
         how = session ? "resumed its session" : "started Claude";
       }
       save({ attempts: r.attempts + 1, signature: sig, last_at: Date.now(), note: `${d.kind === "checks" ? "Fixing the checks" : "Answering the review"}: ${how}` });
+      // the review gets asked for again once this answer is pushed
+      if (d.kind === "comments" && pr.headSha) writeRow("autopilot-rerequest", { ...(readRow<Record<string, Rerequest>>("autopilot-rerequest") ?? {}), [r.worktree]: { from: pr.headSha } });
       notify({ title: `Autopilot is on #${pr.number}`, body: `${d.kind === "checks" ? "Checks failed" : "Changes requested"}, so it ${how}.`, link: `/board?card=${encodeURIComponent(r.worktree)}`, kind: "autopilot" });
       emit("autopilot.acted", { worktree: r.worktree, pr: pr.number, kind: d.kind, attempt: r.attempts + 1 });
       boardChanged();
@@ -102,6 +135,9 @@ async function tick() {
 export function startAutopilot() {
   setInterval(() => tick().catch((e) => console.error("autopilot", e)), 120_000);
   onEvent((event, data) => {
-    if (event === "worktree.created" && getSettings().autopilot.onByDefault) setAutopilot((data as { path: string }).path, true);
+    if (event !== "worktree.created") return;
+    // the kind of work can say on or off; otherwise the setting decides
+    const d = data as { path: string; autopilot?: "default" | "on" | "off" };
+    if (d.autopilot === "on" || (d.autopilot !== "off" && getSettings().autopilot.onByDefault)) setAutopilot(d.path, true);
   });
 }

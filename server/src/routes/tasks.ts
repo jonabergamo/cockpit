@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { getSession } from "../claude/sessions.ts";
 import { inside } from "../files.ts";
 import { captureTarget, termTarget, trustDialog } from "../agents.ts";
+import { endNight, startNight, summary } from "../overnight.ts";
 import { baseOf, cancelTask, createTasks, getTask, groupTasks, keepAttempt, listTasks, markDone, type NewTask, trustTask } from "../tasks.ts";
 import { run } from "../util.ts";
 
@@ -35,6 +36,14 @@ const fail = (e: unknown) => ({ error: (e as Error).message });
 
 export const tasks = new Hono()
   .get("/", (c) => c.json(listTasks()))
+  // the overnight queue: how tonight (or last night) is going, and starting or ending it
+  .get("/overnight", (c) => c.json(summary()))
+  .post("/overnight", async (c) => {
+    const { on } = await c.req.json<{ on: boolean }>();
+    if (on) startNight("you");
+    else endNight("You're back", false);
+    return c.json(summary());
+  })
   .post("/", async (c) => {
     try {
       return c.json(await createTasks(await c.req.json<NewTask>()));

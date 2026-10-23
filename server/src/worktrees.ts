@@ -5,6 +5,7 @@ import { config } from "./config.ts";
 import { cached, db } from "./db.ts";
 import { startJob } from "./jobs.ts";
 import { emit } from "./events.ts";
+import { rememberTemplate, type WorkTemplate } from "./templates.ts";
 import { fill, run, slugify, ticketOf } from "./util.ts";
 
 const repo = config.repo;
@@ -98,10 +99,12 @@ export function unlink(ticket: string, worktree: string) {
 }
 
 // `ticket` is what the worktree belongs to when the folder key isn't the ticket itself, like a second attempt
-export function createWorktree(key: string, summary: string, opts: { ticket?: string; onDone?: (ok: boolean, path: string, branch: string, output: string) => void } = {}) {
+export function createWorktree(key: string, summary: string, opts: { ticket?: string; template?: WorkTemplate; onDone?: (ok: boolean, path: string, branch: string, output: string) => void } = {}) {
   const slug = slugify(summary) || "work";
   const branch = fill(repo.branchTemplate, { key, slug });
+  const tpl = opts.template;
   const command = fill(repo.createCommand, {
+    ...tpl?.vars,
     repo: repo.path,
     worktreesDir: repo.worktreesDir,
     key,
@@ -109,12 +112,16 @@ export function createWorktree(key: string, summary: string, opts: { ticket?: st
     branch,
     name: repo.name,
   });
+  // a placeholder nothing filled would reach the shell as text
+  const unfilled = command.match(/\{(\w+)\}/)?.[1];
+  if (unfilled) throw Object.assign(new Error(`repo.createCommand uses {${unfilled}}, which ${tpl ? `the "${tpl.name}" kind of work doesn't set` : "no kind of work matched to set"}. Set it in Settings → Kinds of work.`), { status: 400 });
   const path = join(repo.worktreesDir, key, repo.name);
   return startJob(`create ${key}`, command, repo.path, (job) => {
     opts.onDone?.(job.code === 0, path, branch, job.output);
     if (job.code !== 0) return;
     if (opts.ticket !== "") link(opts.ticket ?? key, path);
-    emit("worktree.created", { key, path, branch });
+    if (tpl) rememberTemplate(path, tpl.id);
+    emit("worktree.created", { key, path, branch, template: tpl?.id, autopilot: tpl?.autopilot });
   });
 }
 

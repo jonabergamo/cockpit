@@ -1,6 +1,9 @@
-import type { Cockpit, PrRef, PullRequest } from "@cockpit/shared";
+import type { Cockpit, CodeHost, LastReview, PrRef, PullRequest, Reviewer } from "@cockpit/shared";
 
-const PR_FIELDS = "number,title,url,headRefName,headRefOid,state,isDraft,reviewDecision,statusCheckRollup,createdAt,mergedAt,author,mergeable,mergeStateStatus";
+const PR_FIELDS = "number,title,url,headRefName,baseRefName,headRefOid,state,isDraft,reviewDecision,statusCheckRollup,createdAt,mergedAt,author,mergeable,mergeStateStatus,reviewRequests,latestReviews";
+// a closed PR's checks and reviews no longer change anything, and asking for them on dozens of PRs makes a response
+// big enough that GitHub sometimes cuts it off ("unexpected end of JSON input")
+const CLOSED_FIELDS = "number,title,url,headRefName,baseRefName,headRefOid,state,isDraft,reviewDecision,createdAt,mergedAt,author";
 
 const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED"];
 // a check run has a name, a commit status a context
@@ -33,13 +36,33 @@ export function errorTail(log: string, lines = 120) {
   return all.slice(Math.max(0, end - lines + 1), end + 1).join("\n").trim();
 }
 
+// asked and not answered yet, then each reviewer's latest word; a team request has a slug instead of a login
+export function reviewersOf(p: { reviewRequests?: any[]; latestReviews?: any[] }): Reviewer[] {
+  const out: Reviewer[] = [];
+  for (const r of p.reviewRequests ?? []) {
+    const login = r.login ?? r.slug;
+    if (login) out.push({ name: r.name || login, login: r.login, state: "REQUESTED", source: "GitHub" });
+  }
+  for (const r of p.latestReviews ?? []) {
+    const login = r.author?.login;
+    if (!login || out.some((x) => x.login === login)) continue;
+    out.push({ name: login, login, state: r.state, source: "GitHub", at: r.submittedAt || undefined });
+  }
+  return out;
+}
+
 export default function setup(k: Cockpit) {
   const repo = () => {
     const r = k.setting<string>("repo");
     if (!r) throw Object.assign(new Error("set the repository in Settings → Plugins → GitHub"), { status: 400 });
     return r;
   };
-  const gh = (args: string[]) => k.run("gh", args);
+  // GitHub's API now and then drops a big response or times out; one more try usually gets it
+  const gh = (args: string[]) => k.run("gh", args).catch(async (e: Error) => {
+    if (!/unexpected end of JSON|timeout|timed out|502|503|504|EOF|connection reset/i.test(e.message)) throw e;
+    await new Promise((r) => setTimeout(r, 1500));
+    return k.run("gh", args);
+  });
   const ghJson = async <T = any>(args: string[]) => JSON.parse(await gh(args)) as T;
 
   const ignored = () => ignoring(k.setting<string[]>("ignoredChecks"));
@@ -52,6 +75,7 @@ export default function setup(k: Cockpit) {
     title: p.title,
     url: p.url,
     branch: p.headRefName,
+    base: p.baseRefName,
     state: p.state,
     isDraft: p.isDraft,
     reviewDecision: p.reviewDecision || undefined,
@@ -64,15 +88,65 @@ export default function setup(k: Cockpit) {
     mergeable: p.mergeable || undefined,
     mergeState: p.mergeStateStatus || undefined,
     headSha: p.headRefOid || undefined,
+    reviewers: reviewersOf(p),
     };
+  };
+
+  // Each check of your open PRs that finished becomes a ci run on the Runs screen, once per check per commit
+  const recordChecks = (prs: any[]) => {
+    const before = k.store.get<string[]>("ciSeen");
+    const seen = new Set(before ?? []);
+    const added: string[] = [];
+    for (const p of prs.filter((x) => x.state === "OPEN")) {
+      for (const c of (p.statusCheckRollup ?? []) as any[]) {
+        const state = c.conclusion || c.state || "";
+        const status = ["SUCCESS"].includes(state) ? "pass" : FAILED.includes(state) || state === "STARTUP_FAILURE" ? "fail" : state === "CANCELLED" ? "cancelled" : undefined;
+        // still going, skipped or neutral: nothing to record
+        if (!status || !checkName(c)) continue;
+        const key = `${p.number}:${p.headRefOid}:${checkName(c)}:${c.completedAt || c.startedAt || ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        added.push(key);
+        const started = Date.parse(c.startedAt || "") || undefined;
+        k.runs.record({
+          kind: "ci",
+          name: checkName(c),
+          branch: p.headRefName,
+          ticket: k.ticketOf(p.headRefName, p.title),
+          status,
+          startedAt: started,
+          endedAt: Date.parse(c.completedAt || "") || started,
+          // the first time, every check already done on your PRs comes in at once; those failures aren't news
+          quiet: !before || ignored()(checkName(c)),
+          meta: { url: c.detailsUrl || c.targetUrl || undefined, pr: p.number, prUrl: p.url, sha: p.headRefOid, workflow: c.workflowName || undefined, ignored: ignored()(checkName(c)) || undefined },
+        });
+      }
+    }
+    if (added.length) k.store.set("ciSeen", [...seen].slice(-3000));
   };
 
   const me = () => k.cache("me", 24 * 3600_000, async () => (await gh(["api", "user", "--jq", ".login"])).trim());
 
-  k.codeHost({
+  const host: CodeHost = {
     name: "GitHub",
     // PR state moves faster than tickets, but it still only refreshes when asked or after half an hour
-    myPrs: (fresh) => k.cache("mine", 30 * 60_000, async () => (await ghJson<any[]>(["pr", "list", "-R", repo(), "--author", "@me", "--state", "all", "--limit", "60", "--json", PR_FIELDS])).map(toPr), fresh),
+    myPrs: (fresh) =>
+      k.cache(
+        "mine",
+        30 * 60_000,
+        async () => {
+          const list = (state: string, limit: number, fields: string) => ghJson<any[]>(["pr", "list", "-R", repo(), "--author", "@me", "--state", state, "--limit", String(limit), "--json", fields]);
+          // "closed" includes the merged ones
+          const [open, closed] = await Promise.all([list("open", 60, PR_FIELDS), list("closed", 60, CLOSED_FIELDS)]);
+          try {
+            recordChecks(open);
+          } catch (e) {
+            k.log("recording checks as runs failed:", e);
+          }
+          return [...open, ...closed].sort((a, b) => b.number - a.number).slice(0, 60).map(toPr);
+        },
+        fresh,
+      ),
     reviewQueue: (fresh) =>
       k.cache("review", 30 * 60_000, async () => (await ghJson<any[]>(["pr", "list", "-R", repo(), "--search", "review-requested:@me", "--state", "open", "--limit", "40", "--json", PR_FIELDS])).map(toPr), fresh),
     deploys: (since) =>
@@ -110,7 +184,7 @@ export default function setup(k: Cockpit) {
       if (n && r) return { repo: r, n: Number(n[1]) };
     },
     async prInfo({ repo, n }: PrRef) {
-      const p = await ghJson(["pr", "view", String(n), "-R", repo, "--json", "title,author,additions,deletions,changedFiles,headRefOid,headRefName,url,state,isDraft"]);
+      const p = await ghJson(["pr", "view", String(n), "-R", repo, "--json", "title,author,additions,deletions,changedFiles,headRefOid,headRefName,baseRefName,url,state,isDraft"]);
       return { ...p, author: p.author?.login as string };
     },
     async pendingReview({ repo, n }: PrRef) {
@@ -121,5 +195,74 @@ export default function setup(k: Cockpit) {
       return { id: r.id as number, url: r.html_url as string, comments: comments.length };
     },
     deletePending: ({ repo, n }: PrRef, id: number) => gh(["api", "-X", "DELETE", `repos/${repo}/pulls/${n}/reviews/${id}`]),
+    // the queue asks for each PR in it, so it's kept for a few minutes
+    lastReview: ({ repo, n }: PrRef) =>
+      k.cache(`last:${repo}:${n}`, 5 * 60_000, async (): Promise<LastReview | null> => {
+        const [login, reviews, pr] = await Promise.all([me(), ghJson<any[]>(["api", `repos/${repo}/pulls/${n}/reviews`, "--paginate"]), ghJson<any>(["pr", "view", String(n), "-R", repo, "--json", "headRefOid"])]);
+        const mine = reviews.filter((x) => x.user?.login === login && x.state !== "PENDING" && x.commit_id);
+        const last = mine.at(-1);
+        // null rather than undefined, which the cache can't keep
+        if (!last) return null;
+        const head: string = pr.headRefOid;
+        // a reviewed commit that a force-push dropped can't be compared; behind means the branch no longer holds it
+        const cmp = head === last.commit_id ? { status: "identical", ahead: 0, behind: 0, files: 0 } : await ghJson<any>(["api", `repos/${repo}/compare/${last.commit_id}...${head}`, "--jq", "{status, ahead: .ahead_by, behind: .behind_by, files: (.files | length)}"]).catch(() => undefined);
+        // every comment you started, from any of your reviews; replies are part of a thread someone else opened
+        const comments = await ghJson<any[]>(["api", `repos/${repo}/pulls/${n}/comments`, "--paginate"]).catch(() => []);
+        const bodies = mine.filter((r) => r.body?.trim()).map((r) => ({ author: login, body: r.body as string }));
+        return {
+          commit: last.commit_id as string,
+          head,
+          at: last.submitted_at as string,
+          state: last.state as string,
+          url: last.html_url as string,
+          commits: cmp?.ahead ?? 0,
+          files: cmp?.files ?? 0,
+          rewritten: !cmp || cmp.behind > 0,
+          comments: [...bodies, ...comments.filter((c) => c.user?.login === login && !c.in_reply_to_id).map((c) => ({ path: c.path, line: c.line ?? c.original_line ?? undefined, author: login, body: c.body as string }))],
+        };
+      }).then((r) => r ?? undefined),
+    // asking someone who already reviewed is how GitHub re-requests a review
+    requestReview: (n, logins) => gh(["pr", "edit", String(n), "-R", repo(), "--add-reviewer", logins.join(",")]),
+  };
+  k.codeHost(host);
+
+  // "Run something": re-running the failed CI of the worktree's open PR, offered only once some check failed
+  const openPr = async (branch?: string) => {
+    if (!branch || !k.setting<string>("repo")) return;
+    return (await host.myPrs(false)).find((p) => p.state === "OPEN" && p.branch === branch);
+  };
+  // the workflow runs of the PR's latest commit that ended badly; gh only re-runs ones that finished
+  const failedRuns = async (branch: string, sha?: string) => {
+    const runs = await ghJson<any[]>(["run", "list", "-R", repo(), "--branch", branch, "--limit", "50", "--json", "databaseId,conclusion,status,headSha,workflowName"]);
+    const latest = sha ?? runs[0]?.headSha;
+    return runs.filter((r) => r.headSha === latest && r.status === "completed" && ["failure", "timed_out", "cancelled", "startup_failure"].includes(r.conclusion));
+  };
+  // a cockpit from before "Run something" has no k.runOptions
+  k.runOptions?.({
+    async list(wt) {
+      const pr = await openPr(wt.branch);
+      if (!pr || pr.checks !== "fail") return [];
+      return [{ id: `rerun:${pr.number}`, kind: "ci", label: `Re-run failed CI checks on #${pr.number}`, detail: `gh run rerun --failed, for ${pr.branch}`, group: "GitHub" }];
+    },
+    // with k.run rather than in a terminal, so a token set here works as well as a gh login
+    async start(id, wt) {
+      const pr = await openPr(wt.branch);
+      if (!pr || id !== `rerun:${pr.number}`) throw Object.assign(new Error("that PR is no longer open"), { status: 400 });
+      const runs = await failedRuns(pr.branch, pr.headSha);
+      if (!runs.length) throw Object.assign(new Error(`nothing failed on #${pr.number}'s latest commit that GitHub can re-run`), { status: 400 });
+      const r = k.runs.start({ kind: "ci", name: `Re-run failed checks on #${pr.number}`, branch: pr.branch, worktree: wt.path, ticket: wt.ticket ?? pr.ticket, command: `gh run rerun --failed (${runs.length} workflow runs)`, meta: { url: pr.url, pr: pr.number } });
+      void (async () => {
+        let failed = 0;
+        for (const w of runs) {
+          const out = await gh(["run", "rerun", String(w.databaseId), "--failed", "-R", repo()]).then(
+            (o) => `${w.workflowName}: re-running its failed jobs${o.trim() ? `\n${o.trim()}` : ""}`,
+            (e: Error) => (failed++, `${w.workflowName}: ${e.message}`),
+          );
+          k.runs.event(r.id, { lines: out.split("\n") });
+        }
+        k.runs.event(r.id, { lines: [failed ? `${failed} of ${runs.length} didn't start` : "The checks show up on the PR as they run."], result: { status: failed ? 1 : 0 }, phase: "done" });
+      })().catch((e: Error) => k.runs.event(r.id, { error: e.message, phase: "failed" }));
+      return { runId: r.id };
+    },
   });
 }

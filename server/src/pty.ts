@@ -1,6 +1,8 @@
 import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import * as pty from "node-pty";
 import type { WebSocket } from "ws";
 import { demo, paths } from "./config.ts";
@@ -15,6 +17,8 @@ interface Meta {
   createdAt: number;
   session?: string;
   parent?: string;
+  // the run its command is recorded as
+  run?: string;
 }
 
 interface Term extends Meta {
@@ -67,10 +71,23 @@ function startTmux() {
     ].join("\n"),
   );
   // only works when our tmux server is already up, which is the case after a cockpit restart
-  if (spawnSync("tmux", ["-L", SOCKET, "source-file", tmuxConf]).status === 0) return;
+  if (spawnSync("tmux", ["-L", SOCKET, "source-file", tmuxConf]).status === 0) return syncEnv();
   // a scope of its own keeps the tmux server out of the service's cgroup, so a restart doesn't take it down
   const scoped = spawnSync("systemd-run", ["--user", "--scope", "--quiet", "--collect", "tmux", "-L", SOCKET, "-f", tmuxConf, "start-server"]);
   if (scoped.status !== 0) tmux("start-server");
+}
+
+// A tmux server that outlived a restart keeps the environment it started with, so what changed in cockpit's
+// (its env file, say) is copied over for the terminals opened from now on. The service's own variables stay out.
+const SERVICE_ENV = /^(TMUX.*|INVOCATION_ID|JOURNAL_STREAM|MANAGERPID|SYSTEMD_EXEC_PID|NOTIFY_SOCKET|MEMORY_PRESSURE_.*|PWD|OLDPWD|SHLVL|_)$/;
+function syncEnv() {
+  const had = new Map(
+    tmux("show-environment", "-g")
+      .split("\n")
+      .filter((l) => l.includes("="))
+      .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)] as const),
+  );
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !SERVICE_ENV.test(k) && had.get(k) !== v) spawnSync("tmux", ["-L", SOCKET, "set-environment", "-g", k, v]);
 }
 
 if (hasTmux) startTmux();
@@ -93,8 +110,13 @@ function connect(meta: Meta, proc: pty.IPty, pid?: number) {
       again.sockets = t.sockets;
       return;
     }
-    t.exited = exitCode;
-    for (const ws of t.sockets) send(ws, { type: "pty.exit", id: t.id, code: exitCode });
+    // through tmux the exit code is the client's, so a run's command leaves its own in a file; no file means it
+    // was closed before its command ended
+    const own = t.run ? runExit(t.run) : undefined;
+    const code = own ?? exitCode;
+    t.exited = code;
+    for (const ws of t.sockets) send(ws, { type: "pty.exit", id: t.id, code });
+    emit("terminal.exited", { id: t.id, code, run: t.run, killed: !!t.run && own === undefined, output: t.run ? t.scrollback : undefined });
     // an ended terminal has nothing left to show, so it closes itself
     if (terms.get(t.id) === t) {
       terms.delete(t.id);
@@ -115,20 +137,58 @@ const ptyOpts = (cwd: string) => ({
 
 const attachClient = (meta: Meta) => pty.spawn("tmux", ["-L", SOCKET, "-f", tmuxConf, "attach-session", "-t", name(meta.id)], ptyOpts(meta.cwd));
 
-export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string }) {
-  const file = opts.command ?? (process.env.SHELL || "bash");
-  const command = [file, ...(opts.args ?? [])].join(" ");
-  const meta: Meta = { id: randomUUID(), title: opts.title ?? command, cwd: opts.cwd, command, createdAt: Date.now(), session: opts.session, parent: opts.parent };
+// tmux refuses a command over about 16KB ("command too long"), like claude with a long prompt, so a long one runs
+// from a script that removes itself before it starts the command
+const shq = (a: string) => `'${a.replace(/'/g, `'\\''`)}'`;
+function launcher(id: string, file: string, args: string[]) {
+  if ([file, ...args].reduce((n, a) => n + Buffer.byteLength(a) + 1, 0) < 8000) return [file, ...args];
+  const script = join(tmpdir(), `cockpit-term-${id}.sh`);
+  writeFileSync(script, `rm -f "$0"\nexec ${[file, ...args].map(shq).join(" ")}\n`, { mode: 0o600 });
+  return ["bash", script];
+}
+
+const exitFile = (run: string) => join(paths.data, "runs", `${run}.exit`);
+function runExit(run: string) {
+  const f = exitFile(run);
+  if (!existsSync(f)) return;
+  const code = Number(readFileSync(f, "utf8").trim());
+  rmSync(f, { force: true });
+  return Number.isFinite(code) ? code : undefined;
+}
+
+// The Claude terminal a tool's terminal goes beside: the open one whose folder holds the new one's (the deepest, then
+// the newest), so a ticket's runs and servers sit next to its session as splits instead of piling up as tabs
+export function claudeTermFor(cwd: string) {
+  const home = homedir();
+  return [...terms.values()]
+    .filter((t) => !t.parent && t.exited === undefined && (!!t.session || /^claude\b/.test(t.command)) && t.cwd !== home && t.cwd !== "/" && (cwd === t.cwd || cwd.startsWith(`${t.cwd}/`)))
+    .sort((a, b) => b.cwd.length - a.cwd.length || b.createdAt - a.createdAt)[0]?.id;
+}
+
+export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string; run?: string; beside?: boolean }) {
+  if (opts.beside && !opts.parent) opts = { ...opts, parent: claudeTermFor(opts.cwd) };
+  const shell = opts.command ?? (process.env.SHELL || "bash");
+  let file = shell;
+  let argv = opts.args ?? [];
+  if (opts.run) {
+    mkdirSync(join(paths.data, "runs"), { recursive: true });
+    argv = ["-c", 'f=$1; shift; "$@"; c=$?; echo $c > "$f"; exit $c', "cockpit-run", exitFile(opts.run), shell, ...argv];
+    file = "bash";
+  }
+  // kept with the tmux session (same 16KB limit) and only shown as a tooltip, so a long prompt is cut short
+  const full = [shell, ...(opts.args ?? [])].join(" ");
+  const command = full.length > 500 ? `${full.slice(0, 500)}…` : full;
+  const meta: Meta = { id: randomUUID(), title: opts.title ?? command, cwd: opts.cwd, command, createdAt: Date.now(), session: opts.session, parent: opts.parent, run: opts.run };
 
   if (!hasTmux) {
-    const proc = pty.spawn(file, opts.args ?? [], ptyOpts(opts.cwd));
+    const proc = pty.spawn(file, argv, ptyOpts(opts.cwd));
     const t = connect(meta, proc, proc.pid);
     announce();
     emit("terminal.opened", info(t));
     return info(t);
   }
 
-  tmux("new-session", "-d", "-s", name(meta.id), "-x", "120", "-y", "32", "-c", opts.cwd, "-e", "COLORTERM=truecolor", "--", file, ...(opts.args ?? []));
+  tmux("new-session", "-d", "-s", name(meta.id), "-x", "120", "-y", "32", "-c", opts.cwd, "-e", "COLORTERM=truecolor", "--", ...launcher(meta.id, file, argv));
   tmux("set-option", "-t", name(meta.id), "@cockpit", Buffer.from(JSON.stringify(meta)).toString("base64"));
   const t = connect(meta, attachClient(meta), panePid(meta.id));
   announce();

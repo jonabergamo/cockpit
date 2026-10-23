@@ -8,11 +8,15 @@ import { api } from "../lib/api";
 import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { newTask } from "./NewTask";
+import { runSomething } from "./RunSomething";
 import { useAppConfig } from "../lib/queries";
+import { askCockpit } from "./AskPanel";
 import { themeStore, useThemes } from "../lib/theme";
 
 interface NavItem {
+  id: string;
   to: string;
+  search?: Record<string, string>;
   label: string;
   key: string;
 }
@@ -24,7 +28,9 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const deferred = useDeferredValue(search);
-  const said = useSaid(open && deferred.length >= 3 ? deferred : "");
+  // a group only shows, and only asks for its data, when the screen it opens is in the sidebar
+  const visible = (to: string) => nav.some((n) => n.to === to);
+  const said = useSaid(open && visible("/sessions") && deferred.length >= 3 ? deferred : "");
   const navigate = useNavigate();
   const themes = useThemes();
 
@@ -44,7 +50,7 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
       }
       if (Date.now() - pendingG < 800) {
         const n = nav.find((x) => x.key === e.key);
-        if (n) navigate({ to: n.to });
+        if (n) navigate({ to: n.to, search: n.search as never });
         pendingG = 0;
       }
     };
@@ -53,10 +59,11 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
   }, [nav, navigate]);
 
   const cfg = useAppConfig();
-  const tickets = useQuery({ queryKey: ["tickets"], queryFn: () => api.get<{ tickets: Ticket[] }>("/tickets"), enabled: open && !!cfg.data?.tracker });
-  const worktrees = useQuery({ queryKey: ["worktrees"], queryFn: () => api.get<Worktree[]>("/worktrees"), enabled: open });
-  const sessions = useQuery({ queryKey: ["sessions", "recent"], queryFn: () => api.get<Session[]>("/sessions?limit=60"), enabled: open });
-  const files = useQuery({ queryKey: ["claude-files"], queryFn: () => api.get<ConfigFile[]>("/claude/files"), enabled: open });
+  const tickets = useQuery({ queryKey: ["tickets"], queryFn: () => api.get<{ tickets: Ticket[] }>("/tickets"), enabled: open && !!cfg.data?.tracker && visible("/tickets") });
+  // worktrees open in Code, which is out of the sidebar by default, so they go with Tickets, where their tab is
+  const worktrees = useQuery({ queryKey: ["worktrees"], queryFn: () => api.get<Worktree[]>("/worktrees"), enabled: open && (visible("/tickets") || visible("/code")) });
+  const sessions = useQuery({ queryKey: ["sessions", "recent"], queryFn: () => api.get<Session[]>("/sessions?limit=60"), enabled: open && visible("/sessions") });
+  const files = useQuery({ queryKey: ["claude-files"], queryFn: () => api.get<ConfigFile[]>("/claude/files"), enabled: open && visible("/memory") });
 
   const go = (fn: () => void) => {
     setOpen(false);
@@ -74,9 +81,18 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
         className="relative w-full max-w-xl bg-panel border border-line rounded-lg shadow-xl overflow-hidden"
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
       >
-        <Command.Input value={search} onValueChange={setSearch} autoFocus placeholder="Ticket, worktree, session, memory or page" className="w-full h-12 px-4 bg-transparent border-b border-line outline-none" />
+        <Command.Input value={search} onValueChange={setSearch} autoFocus placeholder="Ticket, worktree, session or page, or ask a question" className="w-full h-12 px-4 bg-transparent border-b border-line outline-none" />
         <Command.List className="max-h-[55vh] overflow-y-auto p-1.5">
           <Command.Empty className="px-3 py-6 text-muted text-center">Nothing matches.</Command.Empty>
+          {search.trim().split(/\s+/).length >= 3 && (
+            <Command.Group heading="Ask" className={group}>
+              {/* the search text is in the value so cmdk's own filter keeps it */}
+              <Command.Item value={`${search} ask cockpit`} className={item} onSelect={() => go(() => askCockpit.open(search.trim()))}>
+                <span className="shrink-0 text-cobalt">Ask cockpit:</span>
+                <span className="truncate">{search.trim()}</span>
+              </Command.Item>
+            </Command.Group>
+          )}
           <Command.Group heading="Terminals" className={group}>
             <Command.Item value="new terminal shell claude launch" className={item} onSelect={() => go(launcher.open)}>
               New terminal…
@@ -84,14 +100,18 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
             <Command.Item value="new task queue worktree claude attempts" className={item} onSelect={() => go(() => newTask.open())}>
               New task…
             </Command.Item>
+            <Command.Item value="run something test lint typecheck audit e2e ci verify script" className={item} onSelect={() => go(() => runSomething.open())}>
+              Run something…
+            </Command.Item>
           </Command.Group>
           <Command.Group heading="Pages" className={group}>
             {nav.map((n) => (
-              <Command.Item key={n.to} className={item} onSelect={() => go(() => navigate({ to: n.to }))}>
+              <Command.Item key={n.id} className={item} onSelect={() => go(() => navigate({ to: n.to, search: n.search as never }))}>
                 {n.label}
               </Command.Item>
             ))}
           </Command.Group>
+          {visible("/tickets") && (
           <Command.Group heading="Tickets" className={group}>
             {tickets.data?.tickets.map((t) => (
               <Command.Item key={t.key} value={`${t.key} ${t.summary}`} className={item} onSelect={() => go(() => navigate({ to: "/tickets", search: { key: t.key } }))}>
@@ -100,6 +120,8 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
               </Command.Item>
             ))}
           </Command.Group>
+          )}
+          {(visible("/tickets") || visible("/code")) && (
           <Command.Group heading="Worktrees" className={group}>
             {worktrees.data?.map((w) => (
               <Command.Item key={w.path} value={`worktree ${w.name} ${w.branch ?? ""}`} className={item} onSelect={() => go(() => navigate({ to: "/code", search: { root: w.path } }))}>
@@ -108,6 +130,8 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
               </Command.Item>
             ))}
           </Command.Group>
+          )}
+          {visible("/sessions") && (
           <Command.Group heading="Sessions" className={group}>
             {sessions.data?.map((s) => (
               <Command.Item key={s.id} value={`session ${s.title ?? ""} ${s.ticket ?? ""} ${s.id}`} className={item} onSelect={() => go(() => navigate({ to: "/sessions/$id", params: { id: s.id } }))}>
@@ -116,6 +140,8 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
               </Command.Item>
             ))}
           </Command.Group>
+          )}
+          {visible("/memory") && (
           <Command.Group heading="Memory, skills and config" className={group}>
             {files.data?.map((f) => (
               <Command.Item key={f.path} value={`${f.group} ${f.label} ${f.project ?? ""}`} className={item} onSelect={() => go(() => navigate({ to: "/memory", search: { path: f.path } }))}>
@@ -124,6 +150,7 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
               </Command.Item>
             ))}
           </Command.Group>
+          )}
           {!!said.data?.length && (
             <Command.Group heading="Said in sessions" className={group}>
               {said.data.slice(0, 6).map((s) => (

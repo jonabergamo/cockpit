@@ -2,7 +2,7 @@ import type { BurnPoint, DayActivity, StatusSpan, Ticket } from "@cockpit/shared
 import { costByDay, listSessions } from "./claude/sessions.ts";
 import { config } from "./config.ts";
 import { cached, db } from "./db.ts";
-import { activeSprint, doneSet, isMine, myPrs, releasedSet, type Scope, sprints, sprintTickets, statusConfig, tracker } from "./providers.ts";
+import { activeSprint, doneSet, inStatusOn, isMine, myPrs, releasedSet, type Scope, sprints, sprintTickets, statusConfig, tracker } from "./providers.ts";
 import { day, run, ticketOf } from "./util.ts";
 
 type JiraTicket = Awaited<ReturnType<typeof sprintTickets>>[number];
@@ -131,11 +131,24 @@ export function statusAt(history: Transition[], at: string) {
   return s;
 }
 
-export function burnup(tickets: { key: string; points?: number }[], history: Map<string, Transition[]>, days: string[], today = day(new Date()), finished = releasedSet()): BurnPoint[] {
-  const scope = tickets.reduce((n, t) => n + (t.points ?? 0), 0);
+// Counts down from what was committed when the sprint started; tickets added later stay out of it. A day the
+// tracker can answer for (`on`, keys finished by then) uses that; the rest come from the history cockpit kept.
+export function burnup(
+  tickets: { key: string; points?: number }[],
+  history: Map<string, Transition[]>,
+  days: string[],
+  today = day(new Date()),
+  finished = releasedSet(),
+  on = new Map<string, Set<string>>(),
+  late = new Set<string>(),
+): BurnPoint[] {
+  const committed = tickets.filter((t) => !late.has(t.key));
+  const scope = committed.reduce((n, t) => n + (t.points ?? 0), 0);
   return days.map((d, i) => {
     const end = `${d}T23:59:59.999Z`;
-    const done = d > today ? NaN : tickets.reduce((n, t) => n + (finished.has(statusAt(history.get(t.key) ?? [], end) ?? "") ? (t.points ?? 0) : 0), 0);
+    const was = on.get(d);
+    const isDone = (t: { key: string }) => (was ? was.has(t.key) : finished.has(statusAt(history.get(t.key) ?? [], end) ?? ""));
+    const done = d > today ? NaN : committed.reduce((n, t) => n + (isDone(t) ? (t.points ?? 0) : 0), 0);
     return { date: d, released: done, scope, ideal: days.length > 1 ? +((scope * i) / (days.length - 1)).toFixed(2) : scope };
   });
 }
@@ -195,15 +208,6 @@ export async function sprintReport(sprintId?: number, scope: Scope = "team") {
   const start = new Date(sprint.start ?? Date.now());
   const end = new Date(sprint.end ?? Date.now());
   const days = workdays(start, end);
-  const points = burnup(tickets, history, days);
-  const devDone = burnup(tickets, history, days, undefined, doneSet());
-
-  const today = day(new Date());
-  const elapsed = Math.max(1, days.filter((d) => d <= today).length);
-  const doneNow = tickets.filter((t) => releasedSet().has(t.status)).reduce((n, t) => n + (t.points ?? 0), 0);
-  const finishedNow = tickets.filter((t) => doneSet().has(t.status)).reduce((n, t) => n + (t.points ?? 0), 0);
-  const scopePoints = tickets.reduce((n, t) => n + (t.points ?? 0), 0);
-  const velocity = finishedNow / elapsed;
 
   // A ticket counts as added late when it showed up after the first snapshot of the sprint.
   // My tickets and the rest of the team started being tracked at different times, so each side has its own baseline.
@@ -230,6 +234,31 @@ export async function sprintReport(sprintId?: number, scope: Scope = "team") {
     return cut && first && first > cut;
   }).map((t) => t.key);
 
+  // past days from the tracker's own history: cockpit only knows a ticket's moves since it started watching
+  const today = day(new Date());
+  const finishedOn = async (statuses: Set<string>) => {
+    const out = new Map<string, Set<string>>();
+    await Promise.all(
+      days
+        .filter((d) => d < today)
+        .map(async (d) => {
+          const keys = await inStatusOn(sprint.id, [...statuses], d)?.catch(() => undefined);
+          if (keys) out.set(d, new Set(keys));
+        }),
+    );
+    return out;
+  };
+  const late = new Set(addedLate);
+  const [releasedOn, doneOn] = await Promise.all([finishedOn(releasedSet()), finishedOn(doneSet())]);
+  const points = burnup(tickets, history, days, today, releasedSet(), releasedOn, late);
+  const devDone = burnup(tickets, history, days, today, doneSet(), doneOn, late);
+
+  const elapsed = Math.max(1, days.filter((d) => d <= today).length);
+  const doneNow = tickets.filter((t) => releasedSet().has(t.status)).reduce((n, t) => n + (t.points ?? 0), 0);
+  const finishedNow = tickets.filter((t) => doneSet().has(t.status)).reduce((n, t) => n + (t.points ?? 0), 0);
+  const scopePoints = tickets.reduce((n, t) => n + (t.points ?? 0), 0);
+  const velocity = finishedNow / elapsed;
+
   const sessions = listSessions({ limit: 5000 });
   const costs = new Map<string, number>();
   for (const s of sessions) if (s.ticket && s.costUSD) costs.set(s.ticket, (costs.get(s.ticket) ?? 0) + s.costUSD);
@@ -255,6 +284,8 @@ export async function sprintReport(sprintId?: number, scope: Scope = "team") {
       projected: +(velocity * days.length).toFixed(1),
       daysLeft: days.filter((d) => d > today).length,
       daysTotal: days.length,
+      // points added after the start, which the burndown leaves out
+      lateScope: tickets.filter((t) => late.has(t.key)).reduce((n, t) => n + (t.points ?? 0), 0),
       byStatus: Object.fromEntries(statusConfig().statusOrder.map((s) => [s, tickets.filter((t) => t.status === s).reduce((n, t) => n + (t.points ?? 0), 0)])),
     },
     releasedStatuses: statusConfig().releasedStatuses,

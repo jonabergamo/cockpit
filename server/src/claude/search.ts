@@ -62,9 +62,10 @@ export function startSearch() {
 }
 
 // Every word must appear; the last one may be the start of a word, so results show up while typing.
-export function toMatch(q: string) {
+// every word by default; any of them for a question, where the best matches still rank first
+export function toMatch(q: string, any = false) {
   const words = q.match(/[\p{L}\p{N}_]+/gu) ?? [];
-  return words.map((w, i) => `"${w}"${i === words.length - 1 ? "*" : ""}`).join(" ");
+  return words.map((w, i) => `"${w}"${i === words.length - 1 ? "*" : ""}`).join(any ? " OR " : " ");
 }
 
 const find = db.prepare<[string, number], { session_id: string; entry_id: string; ts: string; role: string; snip: string }>(`
@@ -74,8 +75,8 @@ const find = db.prepare<[string, number], { session_id: string; entry_id: string
 const meta = db.prepare<[string], { title: string | null; cwd: string | null; last_ts: string | null }>("select title, cwd, last_ts from sessions where id = ?");
 
 // Best matches grouped by session, a few snippets each.
-export function searchSessions(q: string, limit = 20) {
-  const match = toMatch(q);
+export function searchSessions(q: string, limit = 20, any = false) {
+  const match = toMatch(q, any);
   if (!match) return [];
   const by = new Map<string, { id: string; title: string | null; cwd: string | null; lastTs: string | null; hits: { entryId: string; ts: string; role: string; snippet: string }[] }>();
   for (const r of find.all(match, 200)) {

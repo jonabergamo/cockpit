@@ -102,6 +102,26 @@ export default function setup(k: Cockpit) {
     return items.map((i) => toTicket(i, url, inSprint));
   }
 
+  // Search can't return the parent field, so each ticket's epic comes from its own view, kept a day per ticket
+  // since a ticket rarely changes epics, even on a forced refresh. The epic's status can be a day old here.
+  async function withParents(list: TrackerTicket[]): Promise<TrackerTicket[]> {
+    const queue = list.filter((t) => !t.parent).map((t) => t.key);
+    const found = new Map<string, any>();
+    await Promise.all(
+      Array.from({ length: 6 }, async () => {
+        for (let key = queue.shift(); key; key = queue.shift()) {
+          const k2 = key;
+          const parent = await k.cache(`parent:${k2}`, DAY, async () => (await acli(["workitem", "view", k2, "--fields", "parent"])).fields?.parent ?? null).catch(() => null);
+          if (parent) found.set(k2, parent);
+        }
+      }),
+    );
+    return list.map((t) => {
+      const p = found.get(t.key);
+      return p ? { ...t, parent: p.key, parentSummary: p.fields?.summary, parentStatus: p.fields?.status?.name, parentType: p.fields?.issuetype?.name } : t;
+    });
+  }
+
   const myTickets = (force = false) =>
     k.cache(
       "mine",
@@ -111,7 +131,7 @@ export default function setup(k: Cockpit) {
           search("assignee = currentUser() AND sprint in openSprints() ORDER BY updated DESC", true),
           search("assignee = currentUser() AND statusCategory != Done AND status != Archived AND (sprint is EMPTY OR sprint not in openSprints()) ORDER BY updated DESC", false),
         ]);
-        return [...sprint, ...other];
+        return withParents([...sprint, ...other]);
       },
       force,
     );
@@ -135,12 +155,42 @@ export default function setup(k: Cockpit) {
     statusesOf: (keys, force) => k.cache(`statuses:${keysKey(keys)}`, LONG, () => search(`key in (${keysKey(keys)})`, false), force),
     // any JQL; the support queue uses this
     search: (jql, force) => k.cache(`search:${jql}`, LONG, () => search(jql, false, ",priority"), force),
+    // searches can't return custom fields, so each ticket is viewed for its points, kept a few hours
+    async pointsOf(keys, force = false) {
+      const out: Record<string, number | null> = {};
+      const queue = [...new Set(keys)];
+      await Promise.all(
+        Array.from({ length: 6 }, async () => {
+          for (let key = queue.shift(); key; key = queue.shift()) {
+            const k2 = key;
+            try {
+              const v = await k.cache(`points:${k2}:${points()}`, 6 * 3600_000, async () => (await acli(["workitem", "view", k2, "--fields", points()])).fields?.[points()] ?? null, force);
+              out[k2] = typeof v === "number" ? v : null;
+            } catch (e) {
+              // left out, so the screen can say it couldn't read them rather than that there are none
+              k.log(`points of ${k2}`, (e as Error).message);
+            }
+          }
+        }),
+      );
+      return out;
+    },
     async assignToMe(key) {
       await k.run("acli", ["jira", "workitem", "assign", "--key", key, "--assignee", "@me"]);
       await myTickets(true);
     },
     sprints,
     activeSprint,
+    // JQL keeps every status change, so a past day's answer never changes; today's can
+    async inStatusOn(sprintId, statuses, day) {
+      const list = statuses.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(", ");
+      const past = day < new Date().toISOString().slice(0, 10);
+      return k.cache(`was:${sprintId}:${day}:${statuses.join("|")}`, past ? 30 * 24 * 3600_000 : 10 * 60_000, async () => {
+        const res = await acli(["workitem", "search", "--jql", `sprint = ${sprintId} AND status WAS IN (${list}) ON "${day} 23:59"`, "--fields", "summary", "--limit", "500"]);
+        const items: any[] = Array.isArray(res) ? res : (res.issues ?? []);
+        return items.map((i) => i.key as string);
+      });
+    },
     async sprintTickets(sprintId, force = false, maxAge = LONG) {
       const id = sprintId ?? (await activeSprint())?.id;
       if (!id) return [];

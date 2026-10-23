@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { PluginInfo, SettingSpec, SettingValue } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { useSaveSettings, useSettings } from "../lib/cost";
-import { coreNav, fixedNav, screenNav } from "../lib/nav";
+import { coreNav, fixedNav, screenNav, screenTabs, type NavItem } from "../lib/nav";
 import { useAppConfig } from "../lib/queries";
 import { shortPath } from "../lib/format";
 import { Button, ErrorNote, inputClass, Tag } from "./ui";
@@ -12,6 +12,198 @@ interface PluginsRes {
   plugins: PluginInfo[];
   broken: { dir: string; error: string }[];
   dirs: { bundled: string; user: string };
+}
+
+interface Preview {
+  token: string;
+  manifest: PluginInfo["manifest"];
+  commit: string;
+  hasCode: boolean;
+  uses: string[];
+  asks: { settings: string[]; secrets: string[]; commands: string[]; skills: string[] };
+  replaces?: { bundled: boolean; version: string; commit?: string; on: boolean };
+  upToDate: boolean;
+  commits?: string[];
+  changes?: string[];
+}
+
+// What a plugin from a link would be and ask for, before anything of it runs
+function PreviewCard({ v, onDone, onCancel }: { v: Preview; onDone: () => void; onCancel: () => void }) {
+  const qc = useQueryClient();
+  const [err, setErr] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    setErr(undefined);
+    try {
+      await api.post("/plugins/install", { token: v.token });
+      await Promise.all([qc.invalidateQueries({ queryKey: ["plugins"] }), qc.invalidateQueries({ queryKey: ["config"] })]);
+      onDone();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const update = !!v.replaces?.commit;
+  const row = (label: string, list: string[]) =>
+    list.length > 0 && (
+      <div>
+        <span className="text-muted">{label}:</span> {list.join(", ")}
+      </div>
+    );
+  return (
+    <div className="border border-amber/50 bg-amber-soft/30 rounded-lg p-3 space-y-2 text-[13px]">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-medium">{v.manifest.name}</span>
+        <span className="text-[12px] text-faint">
+          {v.manifest.version} · {v.commit.slice(0, 7)}
+          {v.manifest.author ? ` · by ${v.manifest.author}` : ""}
+        </span>
+        {v.replaces?.bundled && <Tag tone="amber">replaces the bundled one</Tag>}
+        {update && <Tag tone="cobalt">update from {v.replaces!.commit!.slice(0, 7)}</Tag>}
+      </div>
+      {v.manifest.description && <p className="text-muted">{v.manifest.description}</p>}
+      {v.upToDate ? (
+        <p>It's already on the latest commit.</p>
+      ) : (
+        <>
+          <p className={v.hasCode ? "text-amber" : "text-muted"}>
+            {v.hasCode ? "It runs code on this machine with your user's access once it's on, so only install it if you trust where it comes from." : "Data only (themes and the like), it runs no code."}
+          </p>
+          <div className="space-y-0.5">
+            {row("Its code", v.uses)}
+            {row("Settings", v.asks.settings)}
+            {row("Secrets", v.asks.secrets)}
+            {row("Needs installed", v.asks.commands)}
+            {row("Skills", v.asks.skills)}
+            {update && row("What changed in what it asks", v.changes ?? [])}
+          </div>
+          {update && !!v.commits?.length && (
+            <pre className="max-h-32 overflow-auto rounded-md bg-ground px-3 py-2 font-mono text-[11.5px] whitespace-pre-wrap">{v.commits.join("\n")}</pre>
+          )}
+          <p className="text-[12px] text-faint">{update ? (v.replaces!.on ? "It's turned off while the files change, then back on." : "It stays off.") : "It's installed off and pinned to this commit. Turn it on once you've set it up."}</p>
+        </>
+      )}
+      <ErrorNote error={err} />
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          {v.upToDate ? "Close" : "Cancel"}
+        </Button>
+        {!v.upToDate && (
+          <Button size="sm" variant="primary" disabled={busy} onClick={go}>
+            {busy ? "Installing" : update ? "Update it" : "Install it"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InstallFromLink() {
+  const [url, setUrl] = useState("");
+  const [path, setPath] = useState("");
+  const [ref, setRef] = useState("");
+  const [more, setMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>();
+  const [v, setV] = useState<Preview>();
+  const look = async () => {
+    setBusy(true);
+    setErr(undefined);
+    setV(undefined);
+    try {
+      setV(await api.post<Preview>("/plugins/install/preview", { url, path: path || undefined, ref: ref || undefined }));
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (url.trim()) look();
+        }}
+      >
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Install from a git link, or owner/name on GitHub" className={`${inputClass} flex-1 min-w-[240px]`} />
+        <Button disabled={busy || !url.trim()}>{busy ? "Looking" : "Look at it"}</Button>
+        <button type="button" onClick={() => setMore((m) => !m)} className="text-[12px] text-muted hover:text-ink">
+          {more ? "Fewer options" : "Folder or branch"}
+        </button>
+        {more && (
+          <div className="flex flex-wrap gap-2 w-full">
+            <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="Folder in the repo, e.g. plugins/linear" className={`${inputClass} flex-1 min-w-[200px]`} />
+            <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Branch or tag (default branch if empty)" className={`${inputClass} flex-1 min-w-[200px]`} />
+          </div>
+        )}
+      </form>
+      <ErrorNote error={err} />
+      {v && (
+        <PreviewCard
+          v={v}
+          onCancel={() => setV(undefined)}
+          onDone={() => {
+            setV(undefined);
+            setUrl("");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// an installed plugin's link: look for an update, or take it out
+function SourceRow({ p }: { p: PluginInfo }) {
+  const qc = useQueryClient();
+  const [v, setV] = useState<Preview>();
+  const [err, setErr] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const src = p.source!;
+  const act = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setErr(undefined);
+    try {
+      await fn();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-[12px] text-faint">
+        <span className="flex-1 min-w-0 truncate" title={src.url}>
+          From {src.url.replace(/^https:\/\/github\.com\/|\.git$/g, "")}
+          {src.path ? ` · ${src.path}` : ""}
+          {src.ref ? ` · ${src.ref}` : ""} · {src.commit.slice(0, 7)}
+        </span>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => act(async () => setV(await api.post<Preview>(`/plugins/${p.manifest.id}/update/preview`)))}>
+          {busy && !v ? "Looking" : "Check for an update"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() =>
+            confirm(`Remove ${p.manifest.name}? Its folder is deleted; its settings stay in case you install it again.`) &&
+            act(async () => {
+              await api.del(`/plugins/${p.manifest.id}`);
+              await qc.invalidateQueries({ queryKey: ["plugins"] });
+            })
+          }
+        >
+          Remove
+        </Button>
+      </div>
+      <ErrorNote error={err} />
+      {v && <PreviewCard v={v} onCancel={() => setV(undefined)} onDone={() => setV(undefined)} />}
+    </div>
+  );
 }
 
 export const usePlugins = () => useQuery({ queryKey: ["plugins"], queryFn: () => api.get<PluginsRes>("/plugins") });
@@ -39,7 +231,9 @@ export function ScreensSection() {
   const qc = useQueryClient();
   const [err, setErr] = useState<unknown>();
   const hidden = new Set(s.data?.settings.hidden ?? []);
-  const items = [...coreNav, ...(cfg.data?.screens ?? []).map(screenNav)];
+  // each screen followed by the tabs that can go on their own
+  const tabs = (n: NavItem): NavItem[] => (screenTabs[n.id] ?? []).filter((t) => t.id).map((t) => ({ id: t.id!, to: t.to, label: `${t.label}, a tab in ${n.label}`, key: "", needs: t.needs }));
+  const items = [...coreNav.flatMap((n) => [n, ...tabs(n)]), ...(cfg.data?.screens ?? []).filter((s) => !s.settings).map(screenNav)];
 
   const toggle = async (id: string, show: boolean) => {
     setErr(undefined);
@@ -56,7 +250,7 @@ export function ScreensSection() {
     <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
       <div>
         <h2 className="font-semibold">Screens</h2>
-        <p className="text-[13px] text-muted mt-0.5">Hide what you don't use. A hidden screen still opens from a link, it just leaves the sidebar and ⌘K.</p>
+        <p className="text-[13px] text-muted mt-0.5">Hide what you don't use. A hidden screen still opens from a link, it just leaves the sidebar and ⌘K. A hidden tab leaves its screen, and goes when its screen does.</p>
       </div>
       <ErrorNote error={err} />
       <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
@@ -155,6 +349,7 @@ function PluginCard({ p }: { p: PluginInfo }) {
           {showLog ? "Hide log" : "Log"}
         </button>
       </div>
+      {p.source && <SourceRow p={p} />}
       {p.error && <pre className="text-[12px] text-red bg-red-soft rounded-md px-3 py-2 whitespace-pre-wrap max-h-40 overflow-y-auto">{p.error}</pre>}
       {showLog && <pre className="text-[12px] text-muted bg-ground rounded-md px-3 py-2 whitespace-pre-wrap max-h-48 overflow-y-auto">{log.data?.length ? log.data.join("\n") : "Nothing logged yet."}</pre>}
       {!!specs.length && (
@@ -193,9 +388,10 @@ export function PluginsSection() {
         <h2 className="font-semibold">Plugins</h2>
         <p className="text-[13px] text-muted mt-0.5">
           Plugins add screens, themes and integrations. Put yours in <code className="text-[12px]">{d ? shortPath(d.dirs.user) : "the plugins folder"}</code>, one folder each, and
-          they show up here. Edits reload on their own. <code className="text-[12px]">plugins/PLUGINS.md</code> in the repo explains how to write one.
+          they show up here, or install one from a git link below. Edits reload on their own. <code className="text-[12px]">plugins/PLUGINS.md</code> in the repo explains how to write one.
         </p>
       </div>
+      <InstallFromLink />
       <ErrorNote error={q.error} />
       {d?.plugins.map((p) => <PluginCard key={p.manifest.id} p={p} />)}
       {d?.broken.map((b) => (

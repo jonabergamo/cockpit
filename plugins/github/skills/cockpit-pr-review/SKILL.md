@@ -68,3 +68,14 @@ Pending review: https://github.com/<owner>/<repo>/pull/<n>#pullrequestreview-<re
 - `Changes requested`: something should be fixed before merging.
 
 Put the verdict on its own line, with a short reason after it if you like (`Approved with comments, two small things in the hook.`).
+
+## A second look
+
+When the prompt says it's a second look, it names the commit you reviewed and lists your earlier comments. Then:
+
+- Review only the diff between that commit and the PR's head (`git fetch` first, then `git diff <old>..<new>`, or `gh api repos/<owner>/<repo>/compare/<old>...<new>`). Read the code around it as usual.
+- Go through the earlier comments one by one and say whether each was fixed, answered or is still open. Put that list in the review summary.
+- Only comment again where something is still open or the new changes brought a new problem. Don't repeat comments that were dealt with.
+- If the prompt says the branch was rewritten, the old commit may be gone. Review the whole diff, but focus on the parts your earlier comments were about, and say so in the summary.
+
+The two lines at the end are the same.

@@ -16,6 +16,9 @@ import { statusesOf } from "./providers.ts";
 import { kill, listTerms, spawnTerm } from "./pty.ts";
 import { getSettings } from "./settings.ts";
 import { run } from "./util.ts";
+import { nightOn } from "./overnight.ts";
+import { basePr, stackedNote, stackOnto } from "./stacked.ts";
+import { promptFor, templateFor } from "./templates.ts";
 import { createWorktree, deleteWorktree } from "./worktrees.ts";
 
 interface Row {
@@ -25,6 +28,9 @@ interface Row {
   prompt: string;
   ticket: string | null;
   model: string | null;
+  template: string | null;
+  on_pr: string | null;
+  overnight: number;
   attempt: number;
   status: TaskStatus;
   depends_on: string;
@@ -46,6 +52,9 @@ const toTask = (r: Row): Task => ({
   prompt: r.prompt,
   ticket: r.ticket ?? undefined,
   model: r.model ?? undefined,
+  template: r.template ?? undefined,
+  onPr: r.on_pr ?? undefined,
+  overnight: !!r.overnight || undefined,
   attempt: r.attempt,
   status: r.status,
   dependsOn: JSON.parse(r.depends_on || "[]"),
@@ -87,8 +96,8 @@ export function updateTask(id: string, patch: Partial<Pick<Task, "status" | "wor
 
 export function insertTask(t: Task) {
   db.prepare(
-    "insert into tasks (id, group_id, title, prompt, ticket, model, attempt, status, depends_on, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(t.id, t.group, t.title, t.prompt, t.ticket ?? null, t.model ?? null, t.attempt, t.status, JSON.stringify(t.dependsOn), t.createdAt);
+    "insert into tasks (id, group_id, title, prompt, ticket, model, template, on_pr, overnight, attempt, status, depends_on, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(t.id, t.group, t.title, t.prompt, t.ticket ?? null, t.model ?? null, t.template ?? null, t.onPr ?? null, t.overnight ? 1 : 0, t.attempt, t.status, JSON.stringify(t.dependsOn), t.createdAt);
 }
 
 // ---------- running them ----------
@@ -102,6 +111,12 @@ export interface NewTask {
   attempts?: number;
   model?: string;
   dependsOn?: string[];
+  // a kind of work by id; without one it's picked by the ticket
+  template?: string;
+  // a teammate's open PR (link or number) to start on instead of the main branch
+  onPr?: string;
+  // hold it for the overnight queue
+  overnight?: boolean;
 }
 
 export async function createTasks(input: NewTask) {
@@ -110,16 +125,21 @@ export async function createTasks(input: NewTask) {
   if (!config.repo.path) throw new Error("Set repo.path in config.local.toml first; tasks get worktrees of that repo");
   const attempts = Math.min(Math.max(Math.round(input.attempts ?? 1), 1), 4);
   let prompt = input.prompt?.trim() ?? "";
+  const ticket = input.ticket ? (await statusesOf([input.ticket]).catch(() => []))[0] : undefined;
+  const tpl = templateFor({ summary: ticket?.summary ?? title, type: ticket?.type }, input.template);
   if (!prompt && input.ticket) {
-    const t = (await statusesOf([input.ticket]).catch(() => []))[0];
-    prompt = `Work on ${t?.url ?? input.ticket}${t?.summary ? ` (${t.summary})` : ""}. Read the ticket first, make the change, run the checks, and commit when it's done.`;
+    prompt =
+      promptFor(tpl, { key: input.ticket, url: ticket?.url, summary: ticket?.summary }) ??
+      `Work on ${ticket?.url ?? input.ticket}${ticket?.summary ? ` (${ticket.summary})` : ""}. Read the ticket first, make the change, run the checks, and commit when it's done.`;
   }
   if (!prompt) throw new Error("Say what to do, or pick a ticket");
+  // checked now, so a closed or unknown PR is said straight away rather than when the task starts
+  const onPr = input.onPr?.trim() ? (await basePr(input.onPr.trim())).info.url : undefined;
   const known = new Set(listTasks().flatMap((t) => [t.id, t.group]));
   const dependsOn = (input.dependsOn ?? []).filter((d) => known.has(d));
   const group = randomUUID().slice(0, 8);
   for (let i = 1; i <= attempts; i++) {
-    insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, model: input.model || getSettings().tasks.defaultModel || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
+    insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, model: input.model || tpl?.model || getSettings().tasks.defaultModel || undefined, template: tpl?.id, onPr, overnight: !!input.overnight || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
   }
   boardChanged();
   setTimeout(() => tick().catch((e) => console.error("tasks", e)), 50);
@@ -154,27 +174,51 @@ export function pickNext(all: Task[], maxParallel: number, usedPct: number, paus
     .slice(0, free);
 }
 
+// nobody is there to answer overnight, so it shouldn't wait on anyone
+const NIGHT_NOTE = "\n\nThis runs overnight while I'm away, so don't stop to ask me anything: make the sensible choice and note it. If something blocks you, say what and why in your last message and stop. Commit your work, but don't push or open a PR; I'll look in the morning.";
+
 const keyFor = (t: Task) => (t.ticket ? (t.attempt > 1 ? `${t.ticket}-${t.attempt}` : t.ticket) : `task-${t.group}${t.attempt > 1 ? `-${t.attempt}` : ""}`);
 
 function start(t: Task) {
   updateTask(t.id, { status: "starting", startedAt: Date.now() });
-  const job = createWorktree(keyFor(t), t.title, {
-    ticket: t.ticket ?? "",
-    onDone: (ok, path, branch, output) => {
-      if (!ok || !existsSync(path)) {
-        const why = output.trim().split("\n").filter(Boolean).slice(-1)[0] ?? "the worktree command failed";
-        updateTask(t.id, { status: "failed", finishedAt: Date.now(), error: `Couldn't make its worktree: ${why}` });
-        notify({ title: `Task failed: ${t.title}`, body: why, link: "/board", kind: "task" });
-        boardChanged();
-        return;
-      }
-      const args = [...(t.model ? ["--model", t.model] : []), t.prompt];
-      const term = spawnTerm({ cwd: path, command: "claude", args, title: `task · ${t.title}${t.attempt > 1 ? ` (${t.attempt})` : ""}` });
-      updateTask(t.id, { status: "running", worktree: path, branch, termId: term.id });
-      emit("task.started", { ...t, worktree: path, branch });
-      boardChanged();
-    },
-  });
+  let job: ReturnType<typeof createWorktree>;
+  try {
+    job = createWorktree(keyFor(t), t.title, {
+      ticket: t.ticket ?? "",
+      template: t.template ? templateFor({}, t.template) : templateFor({ summary: t.title }),
+      onDone: (ok, path, branch, output) => {
+        if (!ok || !existsSync(path)) {
+          const why = output.trim().split("\n").filter(Boolean).slice(-1)[0] ?? "the worktree command failed";
+          updateTask(t.id, { status: "failed", finishedAt: Date.now(), error: `Couldn't make its worktree: ${why}` });
+          notify({ title: `Task failed: ${t.title}`, body: why, link: "/board", kind: "task" });
+          boardChanged();
+          return;
+        }
+        void (async () => {
+          let prompt = t.prompt + (t.overnight ? NIGHT_NOTE : "");
+          if (t.onPr) {
+            try {
+              const s = await stackOnto(path, t.onPr);
+              prompt += stackedNote({ n: s.ref.n, title: s.info.title, author: s.info.author, branch: s.info.headRefName! });
+            } catch (e) {
+              updateTask(t.id, { status: "failed", finishedAt: Date.now(), worktree: path, branch, error: `Couldn't start it on ${t.onPr}: ${(e as Error).message}` });
+              boardChanged();
+              return;
+            }
+          }
+          const args = [...(t.model ? ["--model", t.model] : []), prompt];
+          const term = spawnTerm({ cwd: path, command: "claude", args, title: `task · ${t.title}${t.attempt > 1 ? ` (${t.attempt})` : ""}` });
+          updateTask(t.id, { status: "running", worktree: path, branch, termId: term.id });
+          emit("task.started", { ...t, worktree: path, branch });
+          boardChanged();
+        })().catch((e) => console.error("tasks", e));
+      },
+    });
+  } catch (e) {
+    updateTask(t.id, { status: "failed", finishedAt: Date.now(), error: (e as Error).message });
+    boardChanged();
+    return;
+  }
   updateTask(t.id, { jobId: job.id });
   boardChanged();
 }
@@ -235,7 +279,9 @@ async function tick() {
       }
     }
   }
-  for (const t of pickNext(listTasks(), s.maxParallel, fivePct(), s.pauseAbovePct)) start(t);
+  // overnight tasks wait for the night, out of the list rather than counted as running
+  const night = nightOn();
+  for (const t of pickNext(listTasks().filter((x) => night || !x.overnight || x.status !== "queued"), s.maxParallel, fivePct(), s.pauseAbovePct)) start(t);
 }
 
 const trusted = new Set<string>();

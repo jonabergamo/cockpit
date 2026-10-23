@@ -152,4 +152,25 @@ server.registerTool(
   wrap(({ worktree, on }: { worktree: string; on: boolean }) => call("POST", "/autopilot", { worktree, on })),
 );
 
+server.registerTool(
+  "report_run",
+  {
+    description:
+      "Record a test, lint, typecheck, audit or e2e command you ran, with its exit code and the end of its output, so it shows on cockpit's Runs screen and on its ticket. Only needed when cockpit's Claude hook isn't installed (it records Bash runs by itself).",
+    inputSchema: {
+      command: z.string().min(1),
+      cwd: z.string().describe("The folder it ran in"),
+      exit_code: z.number().int(),
+      kind: z.enum(["unit", "lint", "typecheck", "audit", "e2e", "proof", "other"]).optional().describe("Worked out from the command when left out"),
+      name: z.string().optional(),
+      ticket: z.string().optional(),
+      output: z.string().optional().describe("The end of its output, a few hundred lines at most"),
+    },
+  },
+  wrap(async (a: { command: string; cwd: string; exit_code: number; kind?: string; name?: string; ticket?: string; output?: string }) => {
+    const r = await call("POST", "/runs", { finished: true, source: "mcp", command: a.command, cwd: a.cwd, exitCode: a.exit_code, kind: a.kind, name: a.name, ticket: a.ticket, output: a.output });
+    return `Recorded as ${r.run.kind} run ${r.id} (${r.run.status}): ${BASE}${r.link}`;
+  }),
+);
+
 await server.connect(new StdioServerTransport());

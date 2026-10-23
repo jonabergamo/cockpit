@@ -61,7 +61,9 @@ const schema = z.object({
       // first prompt of the Claude session that reviews a PR, {url} is the PR link
       // the cockpit-pr-review skill ships with the GitHub plugin and prints the link and verdict the screen reads
       command: z.string().default("/cockpit-pr-review {url}"),
-      backendNote: z.string().default(" Include the backend too."),
+      // added to the prompt when "Include the backend" is ticked. Only a review skill that knows the option needs it,
+      // so the checkbox shows only when this is set
+      backendNote: z.string().default(""),
       cwd: path.default(""),
     })
     .prefault({}),

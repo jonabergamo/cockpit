@@ -7,11 +7,10 @@ import { RefreshButton } from "../components/RefreshButton";
 import { Button, ErrorNote, inputClass, Loading, Modal, PageHeader, StatusTag, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago, bytes } from "../lib/format";
-import { useJobs, usePrs, useWorktrees } from "../lib/queries";
+import { useAppConfig, useJobs, usePrs, useWorktrees } from "../lib/queries";
+import { useEditorName } from "../components/OpenEditor";
 import { LaunchModal } from "./Sessions";
 import { PrBadge, useTickets } from "./Tickets";
-
-const releasedish = /done|pending deploy|closed|released/i;
 
 export function WorktreesPage() {
   const wts = useWorktrees();
@@ -20,6 +19,9 @@ export function WorktreesPage() {
   const jobs = useJobs();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const editorName = useEditorName();
+  // the statuses Settings counts as released
+  const released = new Set((useAppConfig().data?.releasedStatuses ?? []).map((s) => s.toLowerCase()));
   const [jobIds, setJobIds] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<Worktree>();
   const [launch, setLaunch] = useState<string>();
@@ -40,7 +42,7 @@ export function WorktreesPage() {
     if (w.main || w.dirty) return false;
     const pr = prFor(w);
     const t = w.ticket ? byKey.get(w.ticket) : undefined;
-    return pr?.state === "MERGED" || pr?.state === "CLOSED" || (!!t && releasedish.test(t.status));
+    return pr?.state === "MERGED" || pr?.state === "CLOSED" || (!!t && released.has(t.status.toLowerCase()));
   };
 
   const list = (wts.data ?? []).filter((w) => !filter || `${w.name} ${w.branch} ${w.ticket}`.toLowerCase().includes(filter.toLowerCase()));
@@ -105,7 +107,7 @@ export function WorktreesPage() {
               </div>
               <div className="flex gap-1.5">
                 <Button size="sm" variant="primary" onClick={() => run.mutate({ url: "/worktrees/open", path: w.path })}>
-                  VS Code
+                  {editorName}
                 </Button>
                 <Button size="sm" onClick={() => navigate({ to: "/code", search: { root: w.path } })}>
                   Code
@@ -122,6 +124,7 @@ export function WorktreesPage() {
             </div>
           );
         })}
+        {wts.data && !list.length && <div className="px-3 py-6 text-center text-muted">{filter ? `No worktree matches "${filter}".` : "No worktrees yet."}</div>}
       </div>
 
       <Modal open={!!confirm} onClose={() => setConfirm(undefined)} title={`Remove ${confirm?.name}?`}>

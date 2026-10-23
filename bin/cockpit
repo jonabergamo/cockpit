@@ -1,0 +1,94 @@
+#!/usr/bin/env node
+// cockpit's command line. For now one command:
+//
+//   cockpit run [--kind k] [--name n] [--ticket T] [--artifact <path>]... -- <command...>
+//
+// runs the command here, streams its output into a run on cockpit's Runs screen, keeps its exit code and exits with
+// it. --artifact files (a report, a screenshot, a video) are kept with the run once the command ends. The kind is
+// worked out from the command when left out. With cockpit down the command runs just the same.
+// COCKPIT_URL points it at a cockpit that isn't on 127.0.0.1:8770. No dependencies.
+const KINDS = ["unit", "lint", "typecheck", "audit", "e2e", "proof", "verify", "other"];
+const base = (process.env.COCKPIT_URL || "http://127.0.0.1:8770").replace(/\/+$/, "");
+const usage = "usage: cockpit run [--kind k] [--name n] [--ticket T] [--artifact path]... -- <command...>";
+
+async function call(path, body) {
+  try {
+    const res = await fetch(`${base}/api${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(3000) });
+    return res.ok ? await res.json() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function run(argv) {
+  const { spawn } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const opts = { artifacts: [] };
+  let i = 0;
+  for (; i < argv.length && argv[i] !== "--"; i++) {
+    const [flag, value] = [argv[i], argv[i + 1]];
+    if (!["--kind", "--name", "--ticket", "--artifact"].includes(flag) || value === undefined) throw new Error(`unknown option ${flag}\n${usage}`);
+    if (flag === "--kind" && !KINDS.includes(value)) throw new Error(`--kind is one of ${KINDS.join(", ")}`);
+    if (flag === "--artifact") opts.artifacts.push(resolve(value));
+    else opts[flag.slice(2)] = value;
+    i++;
+  }
+  const cmd = argv.slice(i + 1);
+  if (!cmd.length) throw new Error(usage);
+  // one argument is a shell line ("pnpm lint && pnpm test"), several are the command and its arguments
+  const shell = cmd.length === 1;
+  const command = cmd.join(" ");
+
+  const started = await call("/runs", { source: "wrapper", kind: opts.kind, name: opts.name, ticket: opts.ticket, command, cwd: process.cwd() });
+  const id = started?.id;
+  if (id && process.stderr.isTTY) process.stderr.write(`cockpit: ${base}${started.link}\n`);
+
+  // whole lines, twice a second; a heartbeat every 30s keeps a quiet run from looking dead
+  let partial = "";
+  let lines = [];
+  let beat = Date.now();
+  const take = (chunk) => {
+    const parts = (partial + chunk.toString()).split("\n");
+    partial = parts.pop();
+    lines.push(...parts);
+  };
+  const flush = async (last = false) => {
+    if (!id) return;
+    if (last && partial) lines.push(partial), (partial = "");
+    if (!lines.length && Date.now() - beat < 30_000) return;
+    const batch = lines;
+    lines = [];
+    beat = Date.now();
+    await call(`/runs/${id}/event`, { lines: batch });
+  };
+  const timer = setInterval(() => void flush(), 500);
+
+  const child = spawn(shell ? process.env.SHELL || "bash" : cmd[0], shell ? ["-c", cmd[0]] : cmd.slice(1), { stdio: ["inherit", "pipe", "pipe"] });
+  child.stdout.on("data", (d) => (process.stdout.write(d), take(d)));
+  child.stderr.on("data", (d) => (process.stderr.write(d), take(d)));
+  // Ctrl-C goes to the command, which then ends the run as cancelled
+  let stopped = false;
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => ((stopped = true), child.kill(sig)));
+
+  const code = await new Promise((done) => {
+    child.on("error", (e) => (process.stderr.write(`cockpit: ${e.message}\n`), done(127)));
+    child.on("close", (c, signal) => done(c ?? (signal ? 130 : 1)));
+  });
+  clearInterval(timer);
+  await flush(true);
+  if (id) await call(`/runs/${id}/event`, { artifacts: opts.artifacts.map((path) => ({ path })), result: { status: code }, phase: stopped ? "cancelled" : "done" });
+  return code;
+}
+
+const [sub, ...rest] = process.argv.slice(2);
+if (sub !== "run") {
+  process.stderr.write(`${usage}\n`);
+  process.exit(2);
+}
+run(rest).then(
+  (code) => process.exit(code),
+  (e) => {
+    process.stderr.write(`${e.message}\n`);
+    process.exit(2);
+  },
+);

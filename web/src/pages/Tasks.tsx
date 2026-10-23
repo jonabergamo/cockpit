@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Session, Task, TaskStatus } from "@cockpit/shared";
-import { newTask } from "../components/NewTask";
 import { ReplyPanel } from "../components/ReplyPanel";
 import { Button, Empty, ErrorNote, Loading, Modal, PageHeader, Tag } from "../components/ui";
 import { api, qs } from "../lib/api";
@@ -39,7 +38,8 @@ export function waves(groups: { group: string; dependsOn: string[] }[]) {
   return level;
 }
 
-export function TasksPage() {
+// The Work screen's "Queued and attempts" filter: every task by wave, each opening its attempts side by side.
+export function TasksList() {
   const q = useTasks();
   const all = q.data ?? [];
   const groups = [...new Map(all.map((t) => [t.group, t])).values()];
@@ -47,11 +47,6 @@ export function TasksPage() {
   const depth = Math.max(0, ...lvl.values());
   return (
     <div className="space-y-4">
-      <PageHeader title="Tasks" sub="Work cockpit runs in its own worktrees. Tasks that wait on others line up in waves.">
-        <Button variant="primary" onClick={() => newTask.open()}>
-          New task
-        </Button>
-      </PageHeader>
       <ErrorNote error={q.error} />
       {q.isLoading ? (
         <Loading />
@@ -157,7 +152,7 @@ export function TaskGroupPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={g?.title ?? "Task"} sub={g ? `${g.ticket ? `${g.ticket} · ` : ""}${many ? `${g.attempts.length} attempts side by side` : "One attempt"}` : undefined}>
-        <Link to="/tasks">
+        <Link to="/board" search={{ filter: "tasks" }}>
           <Button variant="ghost">All tasks</Button>
         </Link>
       </PageHeader>

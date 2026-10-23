@@ -1,7 +1,8 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { markSeen, needsYou, useBadges } from "../lib/badges";
 import { useConnected } from "../lib/live";
-import { useNavGroups, type NavItem } from "../lib/nav";
+import { place, useNavGroups, type NavItem } from "../lib/nav";
 import { useAppConfig } from "../lib/queries";
 import { useSettings } from "../lib/cost";
 import { fontStore } from "../lib/fonts";
@@ -9,10 +10,13 @@ import { themeStore } from "../lib/theme";
 import { CommandPalette } from "./CommandPalette";
 import { UsageMini } from "./UsageMini";
 import { TerminalLauncher } from "./TerminalLauncher";
+import { RunSomething } from "./RunSomething";
 import { NewTaskModal } from "./NewTask";
+import { AskPanel } from "./AskPanel";
 import { SessionStrip } from "./SessionStrip";
 import { ThemePicker } from "./ThemePicker";
 import { notifyStore, useNotifyMode, type NotifyMode } from "../lib/notifications";
+import { NavBadge } from "./NavBadge";
 import { Kbd } from "./ui";
 
 
@@ -60,22 +64,36 @@ const Logo = () => (
 export function Layout() {
   const connected = useConnected();
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const href = useRouterState({ select: (s) => s.location.href });
   const [menu, setMenu] = useState(false);
   const groups = useNavGroups();
-  const nav = [...groups.core, ...groups.plugins, groups.settings];
+  const nav = [...groups.core, ...groups.plugins, groups.settings, ...groups.tabs, ...groups.extra];
+  const badges = useBadges();
+  const isActive = (n: NavItem) => (n.to === "/" ? path === "/" : [n.to, n.id, ...(n.also ?? [])].some((p) => path.startsWith(p)));
   const item = (n: NavItem) => {
-    const active = n.to === "/" ? path === "/" : path.startsWith(n.to);
+    const active = isActive(n);
+    const badge = badges[n.id];
     return (
       <Link
-        key={n.to}
+        key={n.id}
         to={n.to}
-        className={`flex items-center h-8 px-2.5 rounded-md text-[14px] ${active ? "bg-cobalt-soft text-cobalt font-medium" : "text-muted hover:text-ink hover:bg-ground"}`}
+        search={n.search as never}
+        title={[n.key ? `${n.label} (g ${n.key})` : n.label, badge?.title].filter(Boolean).join(" · ")}
+        className={`flex items-center gap-2 h-8 px-2.5 rounded-md text-[14px] ${active ? "bg-cobalt-soft text-cobalt font-medium" : "text-muted hover:text-ink hover:bg-ground"}`}
       >
         <span className="flex-1 truncate">{n.label}</span>
-        {n.key && <span className="text-[11px] text-faint font-mono">g {n.key}</span>}
+        <NavBadge badge={badge} />
       </Link>
     );
   };
+  // only what's in the sidebar counts, so a hidden screen never lights the menu button
+  const sidebar = [...groups.core, ...groups.plugins];
+  const calling = sidebar.some((n) => needsYou(badges[n.id]));
+  // a plugin badge that only lasts until you look goes once its screen is open
+  const opened = sidebar.find((n) => n.plugin && isActive(n) && badges[n.id]?.untilSeen)?.id;
+  useEffect(() => {
+    if (opened) markSeen(opened);
+  }, [opened]);
   const cfg = useAppConfig();
   const pluginThemes = cfg.data?.themes;
   useEffect(() => {
@@ -88,6 +106,10 @@ export function Layout() {
   const fullBleed = path.startsWith("/code") || path.startsWith("/terminals") || path.startsWith("/memory") || path.startsWith("/p/");
 
   useEffect(() => setMenu(false), [path]);
+  // a session's page goes back to wherever you opened it from
+  useEffect(() => {
+    if (!path.startsWith("/sessions/")) place.set(href, path);
+  }, [href, path]);
 
   // pages meant to sit in a plugin's frame get no chrome
   if (path.startsWith("/embed/")) return <Outlet />;
@@ -117,7 +139,7 @@ export function Layout() {
           <ThemePicker />
           <Link
             to="/settings"
-            className={`-mr-1 size-6 grid place-items-center rounded ${path.startsWith("/settings") ? "text-cobalt bg-cobalt-soft" : "hover:text-ink hover:bg-ground"}`}
+            className={`-mr-1 size-6 grid place-items-center rounded ${path.startsWith("/settings") || groups.settingsPages.some((s) => path.startsWith(`/p/${s.plugin}/${s.id}`)) ? "text-cobalt bg-cobalt-soft" : "hover:text-ink hover:bg-ground"}`}
             title="Settings (g ,)"
             aria-label="Settings"
           >
@@ -138,8 +160,11 @@ export function Layout() {
 
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="flex items-stretch">
-          <button className="md:hidden px-4 border-b border-line bg-panel text-muted" onClick={() => setMenu(true)} aria-label="Menu">
-            ☰
+          <button className="md:hidden px-4 border-b border-line bg-panel text-muted" onClick={() => setMenu(true)} aria-label={calling ? "Menu, something needs you" : "Menu"}>
+            <span className="relative">
+              ☰
+              {calling && <span className="absolute -top-0.5 -right-1.5 size-2 rounded-full bg-amber ring-2 ring-panel" aria-hidden />}
+            </span>
           </button>
           <div className="flex-1 min-w-0">
             <SessionStrip />
@@ -152,6 +177,8 @@ export function Layout() {
       <CommandPalette nav={nav} />
       <TerminalLauncher />
       <NewTaskModal />
+      <RunSomething />
+      <AskPanel />
     </div>
   );
 }

@@ -39,6 +39,10 @@
 
   const go = (to) => (host ? host.navigate(to) : (location.href = to));
 
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const el = (x) => (typeof x === "string" ? document.querySelector(x) : x);
+  const message = (err) => (err && err.message) || String(err ?? "Something went wrong");
+
   window.cockpit = {
     plugin,
     inCockpit: !!host,
@@ -65,6 +69,45 @@
       await req(`/api/code/terms/${encodeURIComponent(id)}/input`, { method: "POST", body: { data: `\x1b[200~${text}\x1b[201~` } });
       await new Promise((r) => setTimeout(r, 200));
       await req(`/api/code/terms/${encodeURIComponent(id)}/input`, { method: "POST", body: { data: "\r" } });
+    },
+    // text made safe to put in innerHTML
+    esc,
+    // shows an error in place of what an element held; el is an element or a selector
+    fail: (target, err) => {
+      const box = el(target);
+      if (!box) return console.error(err);
+      box.innerHTML = `<div class="error" role="alert">${esc(message(err))}</div>`;
+      return box;
+    },
+    // a loading line in place of what an element held, until you draw into it
+    loading: (target, text = "Loading…") => {
+      const box = el(target);
+      if (box) box.innerHTML = `<p class="muted sdk-loading" aria-busy="true">${esc(text)}</p>`;
+      return box;
+    },
+    // Wires a button to fn: it's disabled while fn runs, and a failure shows next to it until the next try.
+    // Returns the run, to call it yourself (on load, say) with the same handling.
+    refreshButton: (target, fn) => {
+      const btn = el(target);
+      const run = async (...args) => {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.setAttribute("aria-busy", "true");
+        try {
+          const out = await fn(...args);
+          btn.nextElementSibling?.classList.contains("sdk-fail") && btn.nextElementSibling.remove();
+          return out;
+        } catch (err) {
+          let note = btn.nextElementSibling;
+          if (!note?.classList.contains("sdk-fail")) btn.after((note = Object.assign(document.createElement("span"), { className: "sdk-fail", role: "alert" })));
+          note.textContent = message(err);
+        } finally {
+          btn.disabled = false;
+          btn.removeAttribute("aria-busy");
+        }
+      };
+      btn.onclick = () => run();
+      return run;
     },
     // opens a Claude session in a terminal, resuming it if it isn't running
     openSession: (id) => go(`/terminals?resume=${encodeURIComponent(id)}`),

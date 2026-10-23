@@ -24,6 +24,8 @@ export interface Session {
   term?: string;
   // what a waiting session waits on, as Claude Code puts it: "input needed", "dialog open"...
   waitingFor?: string;
+  // shells Claude left running after its turn; the session counts as busy until they end
+  background?: number;
 }
 
 export type Entry =
@@ -125,8 +127,11 @@ export interface Ticket {
   inSprint: boolean;
   url?: string;
   lastSession?: { id: string; status: string; updatedAt: number } | null;
+  spend?: TicketSpend;
   // set when the ticket is stacked on an epic that has its own worktree
   epic?: string;
+  // the kind of work it matches, by name
+  kind?: string;
   priority?: string;
 }
 
@@ -139,6 +144,8 @@ export interface PullRequest {
   title: string;
   url: string;
   branch: string;
+  // the branch it merges into
+  base?: string;
   state: string;
   isDraft: boolean;
   reviewDecision?: string;
@@ -154,6 +161,19 @@ export interface PullRequest {
   // the host's own word on it, e.g. CLEAN, BLOCKED, BEHIND, DIRTY
   mergeState?: string;
   headSha?: string;
+  // who was asked to review and where each one stands, from the code host and any review source
+  reviewers?: Reviewer[];
+}
+
+export interface Reviewer {
+  name: string;
+  // REQUESTED: asked and not answered yet. PENDING is the same from a review source.
+  state: "REQUESTED" | "PENDING" | "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED";
+  // the code host's own login, which can be asked again; a review source's people can't be
+  login?: string;
+  source?: string;
+  // when they last reviewed
+  at?: string;
 }
 
 export interface ReviewThread {
@@ -161,6 +181,21 @@ export interface ReviewThread {
   line?: number;
   author?: string;
   body: string;
+}
+
+// your last submitted review of a PR and what happened since, for a second look at only what changed
+export interface LastReview {
+  // the commit you reviewed, and the PR's head now
+  commit: string;
+  head: string;
+  at: string;
+  state: string;
+  url: string;
+  // commits and files since your review; rewritten when the reviewed commit is no longer in the branch (a force-push)
+  commits: number;
+  files: number;
+  rewritten: boolean;
+  comments: ReviewThread[];
 }
 
 export interface Sprint {
@@ -237,7 +272,23 @@ export type ServerEvent =
   // the plugin list, screens or themes changed
   | { type: "plugins" }
   // something on the Board changed: tasks, verify results, autopilot
-  | { type: "board" };
+  | { type: "board" }
+  // a run started, moved on or finished; its output is fetched, not pushed
+  | { type: "run"; run: Run }
+  // what the sidebar shows next to each screen, by its nav id
+  | { type: "badges"; badges: Record<string, Badge> };
+
+// A sidebar entry's indicator. live pulses while something runs, attention and failed are what needs you,
+// count is a plain total. title spells it out for the tooltip and screen readers.
+export interface Badge {
+  live?: number;
+  attention?: number;
+  failed?: number;
+  count?: number;
+  title: string;
+  // a plugin's badge that goes away once its screen is opened
+  untilSeen?: boolean;
+}
 
 export type ClientEvent =
   | { type: "watch"; sessionId: string; agentId?: string; offset: number }
@@ -280,13 +331,25 @@ export interface BoardCard {
   column: BoardColumn;
   // why it's in its column, in a few words
   reason: string;
-  session?: { id: string; status: SessionStatus; waitingFor?: string; updatedAt: number; name?: string; term?: string; pid?: number; title?: string };
-  pr?: { number: number; url: string; title: string; state: string; checks?: PullRequest["checks"]; ignoredFailing?: string[]; review?: string; mergeable?: string; mergeState?: string; isDraft: boolean };
+  session?: { id: string; status: SessionStatus; waitingFor?: string; background?: number; updatedAt: number; name?: string; term?: string; pid?: number; title?: string };
+  pr?: { number: number; url: string; title: string; state: string; checks?: PullRequest["checks"]; ignoredFailing?: string[]; review?: string; mergeable?: string; mergeState?: string; isDraft: boolean; reviewers?: Reviewer[] };
   verify?: { state: "running" | "pass" | "fail"; at: number; summary?: string; jobId?: string };
   autopilot?: { on: boolean; attempts: number; gaveUp: boolean; note?: string };
   task?: { id: string; group: string; status: TaskStatus; attempt: number; title: string };
   stuck?: string;
+  // the teammate's PR its work is built on, and whether that PR moved on since
+  stacked?: { pr: number; url: string; title?: string; author?: string; branch: string; target?: string; state: "open" | "moved" | "merged" | "closed" | "gone"; note?: string };
+  // what the ticket's sessions cost so far, against its budget when it has one
+  spend?: TicketSpend;
   updatedAt: number;
+}
+
+// dollars, or tokens when costs are hidden
+export interface TicketSpend {
+  spent: number;
+  limit?: number;
+  unit: "usd" | "tokens";
+  warnPct: number;
 }
 
 export type TaskStatus = "queued" | "starting" | "running" | "done" | "failed" | "cancelled";
@@ -298,6 +361,12 @@ export interface Task {
   prompt: string;
   ticket?: string;
   model?: string;
+  // the kind of work it was queued as
+  template?: string;
+  // the open PR (link) its worktree starts on, instead of the main branch
+  onPr?: string;
+  // waits for the overnight queue, then runs while you're away
+  overnight?: boolean;
   attempt: number;
   status: TaskStatus;
   dependsOn: string[];
@@ -318,4 +387,61 @@ export interface DigestItem {
   title: string;
   body?: string;
   link?: string;
+}
+
+// --- runs: every test, lint, typecheck, audit, e2e, proof, verify and CI run, wherever it was started ---
+
+export type RunKind = "unit" | "lint" | "typecheck" | "audit" | "e2e" | "proof" | "verify" | "ci" | "other";
+export type RunStatus = "running" | "pass" | "fail" | "cancelled";
+
+export interface RunStep {
+  text: string;
+  state: "running" | "ok" | "failed" | "skipped" | "section";
+  // how deep in subflows
+  depth: number;
+}
+
+export interface RunSummary {
+  passed?: number;
+  failed?: number;
+  skipped?: number;
+  // the names of the tests that failed, as the runner printed them
+  failing?: string[];
+  steps?: RunStep[];
+}
+
+// a file kept with the run, in data/runs/<id>/; type is video, image, text or file
+export interface RunArtifact {
+  name: string;
+  path: string;
+  type: string;
+}
+
+export interface Run {
+  id: string;
+  kind: RunKind;
+  name: string;
+  // where it came from: hook, wrapper, terminal, verify, ci, mcp, script, or plugin:<id>
+  source: string;
+  ticket?: string;
+  worktree?: string;
+  cwd?: string;
+  command?: string;
+  status: RunStatus;
+  exitCode?: number;
+  startedAt: number;
+  endedAt?: number;
+  // the last time anything was heard from it
+  updatedAt: number;
+  summary: RunSummary;
+  artifacts: RunArtifact[];
+  // anything else: the session, the terminal, a phase and progress, a check's url, an error
+  meta: { session?: string; terminal?: string; phase?: string; progress?: number; error?: string; url?: string; [key: string]: unknown };
+}
+
+// GET /api/runs/:id: the run, the end of its output, its steps, and the plugin panels that show it
+export interface RunDetail extends Run {
+  tail: string[];
+  steps: RunStep[];
+  panels: { plugin: string; url: string; steps?: boolean }[];
 }

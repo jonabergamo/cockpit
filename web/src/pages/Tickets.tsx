@@ -1,15 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Epic, PullRequest, Ticket, Worktree } from "@cockpit/shared";
 import { JobLog } from "../components/JobLog";
 import { PrFix } from "../components/PrFix";
 import { newTask } from "../components/NewTask";
+import { useOpenEditor } from "../components/OpenEditor";
 import { RefreshButton } from "../components/RefreshButton";
 import { Button, ErrorNote, inputClass, Loading, Modal, PageHeader, StatusTag, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago } from "../lib/format";
 import { useOpenSession } from "../lib/openSession";
+import { SpendTag } from "../components/Budget";
 import { useAppConfig, useJobs, usePrs, useTickets, useWorktrees } from "../lib/queries";
 
 export { useTickets };
@@ -35,6 +37,12 @@ export function TicketsPage() {
   const cfg = useAppConfig();
   const [filter, setFilter] = useState("");
   const [addingEpic, setAddingEpic] = useState(false);
+  const loaded = !!tickets.data;
+
+  // ?key= scrolls to its ticket once the list is in, wherever it sits: a plain list or an epic's group
+  useEffect(() => {
+    if (key && loaded) document.getElementById(`ticket-${key}`)?.scrollIntoView({ block: "center" });
+  }, [key, loaded]);
 
   const prsBy = new Map<string, PullRequest[]>();
   for (const p of prs.data?.mine ?? []) if (p.ticket && p.state !== "CLOSED") prsBy.set(p.ticket, [...(prsBy.get(p.ticket) ?? []), p]);
@@ -79,7 +87,7 @@ export function TicketsPage() {
           ]}
         />
       </PageHeader>
-      {tickets.isLoading && <Loading what="Asking Jira" />}
+      {tickets.isLoading && <Loading what={`Asking ${cfg.data?.tracker?.name ?? "the tracker"}`} />}
       <ErrorNote error={tickets.error} />
       {tickets.data && (
         <>
@@ -102,7 +110,7 @@ export function TicketsPage() {
 function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?: Worktree; tickets: Ticket[]; prsBy: Map<string, PullRequest[]>; highlight?: string }) {
   const navigate = useNavigate();
   const openSession = useOpenSession();
-  const editor = useMutation({ mutationFn: (path: string) => api.post("/worktrees/open", { path }) });
+  const editor = useOpenEditor();
   const start = useMutation({
     mutationFn: (prompt: string) => api.post<{ id: string }>("/claude/launch", { cwd: wt!.path, prompt, title: e.key }),
     onSuccess: (term) => navigate({ to: "/terminals", search: { id: term.id } }),
@@ -111,6 +119,15 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
   // into the epic's session when there is one, otherwise that ticket starts it
   const work = (t: Ticket) => (e.lastSession ? resume.mutate(t.url ?? t.key) : start.mutate(t.url ?? t.key));
   const busy = start.isPending || resume.isPending;
+  const qc = useQueryClient();
+  // a lead plans the epic's tickets with you and runs them as parallel workers
+  const lead = useMutation({
+    mutationFn: () => api.post<{ id: string }>("/claude/lead", { epic: { key: e.key, summary: e.summary, url: e.url } }),
+    onSuccess: async (term) => {
+      await qc.invalidateQueries({ queryKey: ["terms"] });
+      navigate({ to: "/terminals", search: { id: term.id } });
+    },
+  });
 
   return (
     <section className="bg-panel border border-line rounded-lg">
@@ -122,13 +139,17 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
               {e.key}
             </a>
             <span className="text-[12px] text-muted">{tickets.length} of mine open</span>
+            <SpendTag spend={e.spend} />
           </div>
           <div className="text-[13px] text-muted truncate">{e.summary}</div>
         </div>
+        <Button size="sm" variant="ghost" disabled={lead.isPending} onClick={() => lead.mutate()} title="A lead session for this epic: it reads the epic and its tickets, plans the rest with you and runs them as parallel workers">
+          {lead.isPending ? "Opening" : "Lead this epic"}
+        </Button>
         {wt && (
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" onClick={() => editor.mutate(wt.path)}>
-              VS Code
+            <Button size="sm" disabled={editor.pending} onClick={() => editor.open(wt.path)}>
+              {editor.label}
             </Button>
             <Button size="sm" onClick={() => navigate({ to: "/code", search: { root: wt.path } })}>
               Code
@@ -145,10 +166,15 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
           </div>
         )}
       </div>
-      <ErrorNote error={editor.error ?? start.error ?? resume.error} />
+      {(editor.error || start.error || resume.error || lead.error || editor.job) && (
+        <div className="px-4 py-2 space-y-2 border-b border-line">
+          <ErrorNote error={editor.error ?? start.error ?? resume.error ?? lead.error} />
+          {editor.job && <JobLog job={editor.job} />}
+        </div>
+      )}
       <div className="divide-y divide-line">
         {tickets.map((t) => (
-          <div key={t.key} className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 pr-4 py-2 ${t.key === highlight ? "bg-cobalt-soft/50" : ""}`}>
+          <div key={t.key} id={`ticket-${t.key}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 pr-4 py-2 ${t.key === highlight ? "bg-cobalt-soft/50" : ""}`}>
             <div className="flex-1 min-w-[260px]">
               <div className="flex items-center gap-2">
                 <a href={t.url} target="_blank" rel="noreferrer" className="font-medium hover:text-cobalt">
@@ -162,6 +188,7 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
                 {(prsBy.get(t.key) ?? []).map((p) => (
                   <PrFix key={`fix${p.number}`} pr={p} />
                 ))}
+                <SpendTag spend={t.spend} />
               </div>
               <div className="text-[13px] text-muted truncate">{t.summary}</div>
             </div>
@@ -181,6 +208,7 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
 function NewEpic({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const jobs = useJobs();
+  const tracker = useAppConfig().data?.tracker?.name ?? "tracker";
   const [input, setInput] = useState("");
   const [jobId, setJobId] = useState<string>();
   const job = jobs.data?.find((j) => j.id === jobId);
@@ -204,7 +232,7 @@ function NewEpic({ onClose }: { onClose: () => void }) {
         }}
       >
         <p className="text-[13px] text-muted">One worktree for the whole epic. Its tickets get worked in the epic's Claude session, so their PRs stack on the epic branch.</p>
-        <input autoFocus value={input} onChange={(ev) => setInput(ev.target.value)} placeholder="Epic key or Jira link" className={`${inputClass} w-full`} />
+        <input autoFocus value={input} onChange={(ev) => setInput(ev.target.value)} placeholder={`Epic key or ${tracker} link`} className={`${inputClass} w-full`} />
         <ErrorNote error={create.error} />
         {existing && <p className="text-[13px] text-green">It already had a worktree at {existing}, so that one is used for the epic now.</p>}
         {job && (
@@ -234,26 +262,21 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
   const qc = useQueryClient();
   const openSession = useOpenSession();
   const jobs = useJobs();
-  const ref = useRef<HTMLDivElement>(null);
   const [jobId, setJobId] = useState<string>();
   const job = jobs.data?.find((j) => j.id === jobId);
 
-  useEffect(() => {
-    if (highlight) ref.current?.scrollIntoView({ block: "center" });
-  }, [highlight]);
-
-  const create = useMutation({ mutationFn: () => api.post<{ id: string }>("/worktrees", { key: t.key, summary: t.summary }), onSuccess: (j) => setJobId(j.id) });
-  const editor = useMutation({ mutationFn: (path: string) => api.post("/worktrees/open", { path }) });
+  const create = useMutation({ mutationFn: () => api.post<{ id: string }>("/worktrees", { key: t.key, summary: t.summary, type: t.type }), onSuccess: (j) => setJobId(j.id) });
+  const editor = useOpenEditor();
   // the ticket link alone is enough for a ticket-to-PR skill to pick it up
   const start = useMutation({
-    mutationFn: (cwd: string) => api.post<{ id: string }>("/claude/launch", { cwd, prompt: t.url ?? t.key, title: t.key }),
+    mutationFn: (cwd: string) => api.post<{ id: string }>("/claude/launch", { cwd, prompt: t.url ?? t.key, title: t.key, ticket: t.key }),
     onSuccess: (term) => navigate({ to: "/terminals", search: { id: term.id } }),
   });
   const resume = useMutation({ mutationFn: (id: string) => openSession({ id }) });
   const running = !!job && job.code === undefined;
 
   return (
-    <div ref={ref} className={`px-4 py-2.5 ${highlight ? "bg-cobalt-soft/50" : ""}`}>
+    <div id={`ticket-${t.key}`} className={`px-4 py-2.5 ${highlight ? "bg-cobalt-soft/50" : ""}`}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <div className="flex-1 min-w-[280px]">
           <div className="flex items-center gap-2">
@@ -271,14 +294,16 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
             {prs.map((p) => (
               <PrFix key={`fix${p.number}`} pr={p} />
             ))}
+            <SpendTag spend={t.spend} />
+            {t.kind && <Tag title="The kind of work it matches, from Settings">{t.kind}</Tag>}
           </div>
           <div className="text-[13px] text-muted truncate">{t.summary}</div>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {wt ? (
             <>
-              <Button size="sm" onClick={() => editor.mutate(wt.path)}>
-                VS Code
+              <Button size="sm" disabled={editor.pending} onClick={() => editor.open(wt.path)}>
+                {editor.label}
               </Button>
               <Button size="sm" onClick={() => navigate({ to: "/code", search: { root: wt.path } })}>
                 Code
@@ -305,6 +330,11 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
         </div>
       </div>
       <ErrorNote error={create.error ?? editor.error ?? start.error ?? resume.error} />
+      {editor.job && (
+        <div className="mt-2">
+          <JobLog job={editor.job} />
+        </div>
+      )}
       {job && (
         <div className="mt-2">
           <JobLog

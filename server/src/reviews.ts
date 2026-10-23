@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
+import type { LastReview } from "@cockpit/shared";
 import { listSessions, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
-import { deletePending, parsePr, pendingReview, prInfo } from "./providers.ts";
+import { deletePending, lastReview, parsePr, pendingReview, prInfo } from "./providers.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
 
 db.exec(`
@@ -43,9 +44,21 @@ export interface ReviewRow {
 }
 
 // the code host plugin does the talking: reading the PR and the pending review
-export { parsePr, pendingReview, prInfo } from "./providers.ts";
+export { lastReview, parsePr, pendingReview, prInfo } from "./providers.ts";
 
-export async function startReview(opts: { input: string; backend?: boolean; existing?: "add" | "replace" }) {
+// A second look: only what changed since your last review, and whether each of your comments was dealt with
+export function againNote(last: LastReview) {
+  const short = last.commit.slice(0, 12);
+  const since = last.rewritten
+    ? `The branch was rewritten since then (force-pushed), so ${short} may be gone: compare the PR's diff now with what you can tell of the old one, and say so in the summary.`
+    : `Only review what changed since then: \`git fetch\` and \`git diff ${short}..${last.head.slice(0, 12)}\`, or the compare view for those two commits. That's ${last.commits} commit${last.commits === 1 ? "" : "s"} touching ${last.files} file${last.files === 1 ? "" : "s"}.`;
+  const comments = last.comments.length
+    ? `\n\nMy earlier comments, for each one say whether it was fixed, answered or is still open, and only comment again on the ones still open:\n${last.comments.map((c, i) => `${i + 1}. ${c.path ? `${c.path}${c.line ? `:${c.line}` : ""}: ` : ""}${c.body.replace(/\s+/g, " ").slice(0, 400)}`).join("\n")}`
+    : "";
+  return ` This is a second look. I reviewed it at commit ${short} (${last.state.toLowerCase().replace(/_/g, " ")}, ${last.at.slice(0, 10)}). ${since}${comments}`;
+}
+
+export async function startReview(opts: { input: string; backend?: boolean; existing?: "add" | "replace"; again?: boolean }) {
   const pr = parsePr(opts.input);
   if (!pr) throw new Error("paste a pull request link or number");
   const info = await prInfo(pr);
@@ -58,6 +71,11 @@ export async function startReview(opts: { input: string; backend?: boolean; exis
   const cfg = config.reviews;
   let prompt = cfg.command.replace("{url}", info.url);
   if (opts.backend) prompt += cfg.backendNote;
+  if (opts.again) {
+    const last = await lastReview(pr);
+    if (!last) throw new Error("You haven't reviewed this PR before, so there's nothing to compare with. Start a full review.");
+    prompt += againNote(last);
+  }
   // the review skill would stop to ask about an existing pending review, so answer it up front
   if (opts.existing === "add") prompt += " I already have a pending review on this PR, add your comments to it.";
 
@@ -87,7 +105,8 @@ export function readOutcome(texts: string[]) {
 
 const update = db.prepare("update reviews set session_id = @session_id, status = @status, review_url = @review_url, verdict = @verdict, comments = @comments where id = @id");
 
-async function refresh(r: ReviewRow): Promise<ReviewRow> {
+// offline works the state out from the terminal and the transcript alone: no code host call and nothing saved
+async function refresh(r: ReviewRow, offline = false): Promise<ReviewRow> {
   if (r.status === "done" || r.status === "stopped") return r;
 
   const term = listTerms().find((t) => t.id === r.term_id);
@@ -107,6 +126,7 @@ async function refresh(r: ReviewRow): Promise<ReviewRow> {
   const ended = !term || term.exited !== undefined;
   if (next.verdict && (ended || session?.status === "idle")) {
     next.status = "done";
+    if (offline) return next;
     const pending = await pendingReview({ repo: r.repo, n: r.pr }).catch(() => undefined);
     if (pending) {
       next.review_url = pending.url;
@@ -115,13 +135,19 @@ async function refresh(r: ReviewRow): Promise<ReviewRow> {
   } else if (ended) next.status = "stopped";
   else next.status = session && session.status !== "busy" ? "waiting" : "running";
 
-  update.run(next);
+  if (!offline) update.run(next);
   return next;
 }
 
 export async function listReviews() {
   const rows = db.prepare<[], ReviewRow>("select * from reviews order by started_at desc limit 50").all();
-  return Promise.all(rows.map(refresh));
+  return Promise.all(rows.map((r) => refresh(r)));
+}
+
+// the same list for the sidebar badge, without touching the code host
+export async function reviewStates() {
+  const rows = db.prepare<[], ReviewRow>("select * from reviews order by started_at desc limit 50").all();
+  return Promise.all(rows.map((r) => refresh(r, true)));
 }
 
 export async function getReview(id: number) {

@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+// Claude Code's PostToolUse and PostToolUseFailure hook for Bash: hands the call to cockpit, which records it on
+// the Runs screen when the command is a test, lint, typecheck, audit or e2e run (the patterns are in Settings).
+// No dependencies, prints nothing and always exits 0, so it never gets in Claude's way. Settings → Automation
+// installs it in ~/.claude/settings.json; COCKPIT_URL points it at a cockpit that isn't on 127.0.0.1:8770.
+const MAX = 64 * 1024;
+// the end of the output is what says how it went
+const tail = (s) => (typeof s === "string" && s.length > MAX ? s.slice(-MAX) : s);
+
+(async () => {
+  let raw = "";
+  for await (const chunk of process.stdin) raw += chunk;
+  const p = JSON.parse(raw);
+  if (p.tool_name !== "Bash" || !p.tool_input?.command) return;
+  const res = p.tool_response;
+  const body = {
+    ...p,
+    tool_response: res && typeof res === "object" ? { ...res, stdout: tail(res.stdout), stderr: tail(res.stderr) } : tail(res),
+    error: tail(p.error),
+  };
+  const base = (process.env.COCKPIT_URL || "http://127.0.0.1:8770").replace(/\/+$/, "");
+  await fetch(`${base}/api/runs/hook/event`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(3000) });
+})()
+  .catch(() => {})
+  .finally(() => process.exit(0));

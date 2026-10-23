@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Session, WorkflowAgent, WorkflowRun } from "@cockpit/shared";
-import { Button, Empty, ErrorNote, Loading, PageHeader, Tabs, Tag } from "../components/ui";
+import { Button, Empty, ErrorNote, inputClass, Loading, Modal, PageHeader, Tabs, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago, duration, shortPath } from "../lib/format";
 import { useEditorFont } from "../lib/fonts";
@@ -14,7 +14,7 @@ const stateTone = (s: string) => (/run|start/.test(s) ? "cobalt" : /done|complet
 const k = (n?: number) => (n ? `${Math.round(n / 1000)}k` : "");
 
 export function WorkflowsPage() {
-  const runs = useQuery({ queryKey: ["workflows"], queryFn: () => api.get<WorkflowRun[]>("/claude/workflows"), refetchInterval: (q) => (q.state.data?.some((r) => r.live) ? 3000 : false) });
+  const runs = useQuery({ queryKey: ["workflows"], queryFn: () => api.get<WorkflowRun[]>("/claude/workflows"), refetchInterval: (q) => (q.state.data?.some((r) => r.live) ? 3000 : 15_000) });
 
   return (
     <div className="max-w-[1100px]">
@@ -83,15 +83,15 @@ export function WorkflowPage() {
   const session = useQuery({ queryKey: ["session", run.data?.sessionId], queryFn: () => api.get<Session>(`/sessions/${run.data!.sessionId}`), enabled: !!run.data });
   const [tab, setTab] = useState<"agents" | "script" | "result">("agents");
   const [script, setScript] = useState<string>();
+  const [naming, setNaming] = useState<string>();
 
   const saveAs = useMutation({
-    mutationFn: async () => {
-      const name = prompt("Save as workflow named", run.data!.name);
-      if (!name) return;
+    mutationFn: async (name: string) => {
       const home = run.data!.scriptPath!.split("/.claude/")[0];
       await api.put("/claude/file", { path: `${home}/.claude/workflows/${name}.js`, content: script ?? run.data!.script });
       return name;
     },
+    onSuccess: () => setNaming(undefined),
   });
   const again = useMutation({
     mutationFn: async () => {
@@ -114,7 +114,7 @@ export function WorkflowPage() {
   return (
     <div className="max-w-[1400px]">
       <div className="text-[13px] text-muted mb-1">
-        <Link to="/workflows" className="hover:text-ink">
+        <Link to="/sessions" search={{ tab: "workflows" }} className="hover:text-ink">
           Workflows
         </Link>
       </div>
@@ -176,7 +176,7 @@ export function WorkflowPage() {
       {tab === "script" && (
         <div className="space-y-2">
           <div className="flex gap-2">
-            <Button onClick={() => saveAs.mutate()} disabled={!r.scriptPath}>
+            <Button onClick={() => (saveAs.reset(), setNaming(r.name))} disabled={!r.scriptPath}>
               Save as named workflow
             </Button>
             <Button variant="primary" onClick={() => again.mutate()} disabled={!session.data || !r.scriptPath}>
@@ -184,7 +184,7 @@ export function WorkflowPage() {
             </Button>
             {saveAs.data && <span className="text-[13px] text-green self-center">Saved as {saveAs.data}</span>}
           </div>
-          <ErrorNote error={saveAs.error ?? again.error} />
+          <ErrorNote error={again.error} />
           <div className="h-[70vh] border border-line rounded-lg overflow-hidden">
             <Editor
               path={`wf://${r.runId}.js`}
@@ -197,6 +197,28 @@ export function WorkflowPage() {
           </div>
         </div>
       )}
+
+      <Modal open={naming !== undefined} onClose={() => setNaming(undefined)} title="Save as named workflow">
+        <form
+          className="space-y-3"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            if (naming?.trim()) saveAs.mutate(naming.trim());
+          }}
+        >
+          <input autoFocus value={naming ?? ""} onChange={(ev) => setNaming(ev.target.value)} placeholder="Workflow name" className={`${inputClass} w-full`} />
+          <p className="text-[13px] text-muted">Saved to ~/.claude/workflows/{naming?.trim() || "name"}.js, so any session can run it by name.</p>
+          <ErrorNote error={saveAs.error} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setNaming(undefined)}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={!naming?.trim() || saveAs.isPending}>
+              {saveAs.isPending ? "Saving" : "Save"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {tab === "result" && <pre className="font-mono text-[12px] whitespace-pre-wrap bg-panel border border-line rounded-lg p-4 overflow-auto">{JSON.stringify(r.result, null, 2)}</pre>}
     </div>

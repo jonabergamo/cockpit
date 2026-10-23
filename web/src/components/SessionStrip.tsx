@@ -68,7 +68,7 @@ export function SessionStrip() {
       {sorted.length === 0 && <div className="text-muted self-center">No Claude sessions running.</div>}
       {sorted.map((s) => {
         const where = place(s);
-        const look = statusLook(s.status, s.waitingFor);
+        const look = statusLook(s.status, s.waitingFor, s.background);
         return (
         <div key={s.id} className="relative shrink-0 group/card">
         <button
@@ -76,7 +76,7 @@ export function SessionStrip() {
           disabled={opening === s.id}
           className={`group text-left relative overflow-hidden w-[250px] rounded-md border pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${
             look.border
-          } ${s.status === "busy" ? "sweep" : ""}`}
+          } ${s.status === "busy" && !s.background ? "sweep" : ""}`}
           title={`${label(s)}\n${[s.ticket, shortPath(s.cwd), s.branch].filter(Boolean).join(" · ")}\nClick to open it in a terminal`}
         >
           <span className={`absolute left-0 top-0 bottom-0 w-1 ${look.dot} ${s.status === "idle" ? "opacity-50" : ""}`} />

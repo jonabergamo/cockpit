@@ -242,7 +242,7 @@ export function SetupBanner() {
   const q = useSetup();
   if (!q.data?.missing) return null;
   return (
-    <Link to="/settings" hash="setup" className="block bg-amber-soft text-ink rounded-lg px-4 py-2.5 text-[13px] hover:brightness-105">
+    <Link to="/settings" search={{ tab: "setup" }} className="block bg-amber-soft text-ink rounded-lg px-4 py-2.5 text-[13px] hover:brightness-105">
       {q.data.missing === 1 ? "One thing cockpit needs isn't set up yet." : `${q.data.missing} things cockpit needs aren't set up yet.`} <span className="text-cobalt">Open Setup</span>
     </Link>
   );
