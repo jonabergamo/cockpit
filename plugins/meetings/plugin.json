@@ -1,0 +1,123 @@
+{
+  "id": "meetings",
+  "name": "Meetings",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Record meetings on this computer, or let the desktop app start when a meeting app uses your mic. Transcribed locally with Whisper, then Claude writes each one up for its kind of meeting, and links recurring ones so each picks up where the last left off.",
+  "author": "cockpit",
+  "defaultOn": false,
+  "requires": [
+    {
+      "id": "ffmpeg",
+      "name": "ffmpeg",
+      "check": [
+        "ffmpeg",
+        "-version"
+      ],
+      "install": {
+        "linux": "sudo apt install ffmpeg",
+        "darwin": "brew install ffmpeg"
+      },
+      "docs": "https://ffmpeg.org/download.html"
+    }
+  ],
+  "settings": [
+    {
+      "key": "autoRecord",
+      "label": "When a meeting app uses your mic",
+      "type": "choice",
+      "choices": [
+        "ask",
+        "record",
+        "off"
+      ],
+      "default": "ask",
+      "help": "In the desktop app: ask to record it, record it straight away, or do nothing. Recording stops by itself when the app lets go of the mic"
+    },
+    {
+      "key": "meetingApps",
+      "label": "Meeting apps",
+      "type": "list",
+      "default": [
+        "zoom=Zoom",
+        "teams=Teams",
+        "slack=Slack",
+        "discord=Discord",
+        "facetime=FaceTime",
+        "webex=Webex",
+        "spark=Webex",
+        "chrome=Chrome",
+        "firefox=Firefox",
+        "webkit=Safari",
+        "thebrowser=Arc",
+        "edgemac=Edge",
+        "msedge=Edge",
+        "brave=Brave"
+      ],
+      "help": "part=Name, one per line. An app counts when its macOS bundle id or Linux program name contains the part"
+    },
+    {
+      "key": "kinds",
+      "label": "Kinds of meeting",
+      "type": "json",
+      "default": [],
+      "help": "Add or change kinds: [{\"id\": \"sales\", \"name\": \"Sales call\", \"focus\": \"what to pay attention to\", \"sections\": [{\"title\": \"Objections\", \"hint\": \"what they pushed back on\"}]}]. The same id as a built-in one replaces it"
+    },
+    {
+      "key": "myName",
+      "label": "Your name",
+      "type": "text",
+      "default": "",
+      "help": "How you show in transcripts recorded with the computer's sound. Empty shows \"You\""
+    },
+    {
+      "key": "liveCaptions",
+      "label": "Transcribe while recording",
+      "type": "bool",
+      "default": true,
+      "help": "Shows the transcript as the meeting goes, and makes the summary come faster at the end. Uses the GPU or CPU during the meeting"
+    },
+    {
+      "key": "summaryLanguage",
+      "label": "Summary language",
+      "type": "text",
+      "default": "",
+      "help": "Like English or Português. Empty writes it in the meeting's own language"
+    },
+    {
+      "key": "summaryInstructions",
+      "label": "More for the summary",
+      "type": "text",
+      "default": "",
+      "help": "Anything Claude should always do, like \"list ticket keys mentioned\" or \"keep it under 150 words\""
+    },
+    {
+      "key": "summaryModel",
+      "label": "Summary model",
+      "type": "text",
+      "default": "",
+      "help": "A Claude model or alias, like sonnet. Empty uses your default"
+    },
+    {
+      "key": "cwd",
+      "label": "Folder for Ask Claude",
+      "type": "text",
+      "default": "",
+      "help": "Where Claude starts when you ask about a meeting, like your repo. Empty uses your home folder"
+    },
+    {
+      "key": "whisperPython",
+      "label": "Transcription Python",
+      "type": "text",
+      "default": "~/.local/share/cockpit-whisper/bin/python",
+      "help": "A Python with faster-whisper. The Meetings screen can set one up here for you"
+    },
+    {
+      "key": "whisperModel",
+      "label": "Transcription model",
+      "type": "text",
+      "default": "large-v3-turbo",
+      "help": "Any faster-whisper model. Smaller ones like small or medium are faster on a computer without a GPU"
+    }
+  ]
+}

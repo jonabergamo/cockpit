@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meetings</title>
+    <link rel="stylesheet" href="/plugin-sdk.css" />
+    <link rel="stylesheet" href="meetings.css" />
+    <script src="/plugin-sdk.js"></script>
+  </head>
+  <body>
+    <header class="head">
+      <div>
+        <h1>Meetings</h1>
+        <p class="muted">Recorded and transcribed on this computer. Claude writes up each one when it ends.</p>
+      </div>
+      <input id="search" type="search" placeholder="Search what was said" aria-label="Search meetings" />
+    </header>
+    <main class="grid">
+      <div id="left"></div>
+      <div id="detail"></div>
+    </main>
+    <script src="recorder.js"></script>
+    <script src="meetings.js"></script>
+  </body>
+</html>

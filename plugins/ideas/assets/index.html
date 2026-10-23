@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ideas</title>
+    <link rel="stylesheet" href="/plugin-sdk.css" />
+    <link rel="stylesheet" href="ideas.css" />
+    <script src="/plugin-sdk.js"></script>
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/purify.min.js"></script>
+  </head>
+  <body>
+    <header class="head">
+      <div>
+        <h1>Ideas</h1>
+        <p class="muted">Everything you want to build some day, by project. Give an idea a status when it moves, and hand it to Claude to plan when its time comes.</p>
+      </div>
+      <button id="refresh" title="Ideas Claude saved in a session show up here">Refresh</button>
+    </header>
+    <form id="capture" class="card capture">
+      <input id="cap-title" placeholder="An idea, in a line" autocomplete="off" aria-label="New idea" />
+      <select id="cap-project" aria-label="Project"></select>
+      <button class="primary">Add</button>
+    </form>
+    <div id="error"></div>
+    <main class="grid">
+      <aside id="projects"></aside>
+      <section id="list"></section>
+      <section id="detail"></section>
+    </main>
+    <script src="ideas.js"></script>
+  </body>
+</html>

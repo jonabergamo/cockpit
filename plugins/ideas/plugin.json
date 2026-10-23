@@ -1,0 +1,26 @@
+{
+  "id": "ideas",
+  "name": "Ideas",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Every idea and project you have for later, in one place: capture one in a line, give it a status and notes, group it into phases, and hand it to Claude to plan when its time comes. Claude sessions can save ideas here too.",
+  "author": "cockpit",
+  "defaultOn": false,
+  "settings": [
+    {
+      "key": "planPrompt",
+      "label": "Planning an idea with Claude",
+      "type": "text",
+      "default": "Here's an idea from my list, for {project}. Help me turn it into a plan: what it involves, what we already have that it can build on (look in this folder when it's the right codebase), the open questions, the risks and a first breakdown into small steps. Ask me what you need before writing the plan.\n\n{idea}",
+      "help": "{project} becomes the project's name and {idea} the idea with its notes"
+    },
+    {
+      "key": "statuses",
+      "label": "Statuses",
+      "type": "list",
+      "default": ["Inbox", "Planned", "Doing", "Done", "Dropped"],
+      "help": "In order. The last two count as finished and are hidden unless you ask for them"
+    }
+  ],
+  "skills": [{ "name": "cockpit-ideas" }]
+}
