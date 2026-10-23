@@ -54,8 +54,15 @@ async function status(path: string) {
 export const sizeOf = (path: string) =>
   cached(`du:${path}`, 6 * 3600_000, async () => Number((await run("du", ["-sb", path], { timeout: 300_000 }).catch(() => "0")).split("\t")[0]));
 
+// whether repo.path points at a git checkout; until it does there are no worktrees, and the Board says how to set it
+export function repoState(): "unset" | "missing" | "not-git" | "ok" {
+  if (!repo.path) return "unset";
+  if (!existsSync(repo.path)) return "missing";
+  return existsSync(join(repo.path, ".git")) ? "ok" : "not-git";
+}
+
 export async function listWorktrees(withStatus = true): Promise<Worktree[]> {
-  if (!repo.path) return [];
+  if (repoState() !== "ok") return [];
   const raw = parsePorcelain(await git(repo.path, "worktree", "list", "--porcelain"));
   const sizes = db.prepare<[string], { value: string }>("select value from cache where key = ?");
 

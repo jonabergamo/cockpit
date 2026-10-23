@@ -7,6 +7,7 @@ import { newTask } from "../components/NewTask";
 import { Button, Drawer, Empty, ErrorNote, Loading, PageHeader, Tabs, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago } from "../lib/format";
+import { useAppConfig } from "../lib/queries";
 import { useLive, useLiveSessions } from "../lib/live";
 import { SpendTag } from "../components/Budget";
 import { statusLook } from "../lib/status";
@@ -75,6 +76,22 @@ function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
   );
 }
 
+// Worktrees, tasks and the lead all need the repo, so until repo.path points at a checkout the Board says how to set it
+function SetYourRepo() {
+  const cfg = useAppConfig();
+  const r = cfg.data?.repo;
+  if (!r || r.state === "ok" || cfg.data?.demo) return null;
+  const why = r.state === "unset" ? "cockpit doesn't know which repo you work in yet" : r.state === "missing" ? `${r.path} doesn't exist on this machine` : `${r.path} isn't a git checkout`;
+  return (
+    <div className="bg-panel border border-amber/50 rounded-lg p-4 space-y-2 text-[13px]">
+      <h2 className="font-semibold text-[15px]">Set your repo</h2>
+      <p className="text-muted">The Board shows the worktrees of one repo, and tasks get new ones of it, but {why}. Point cockpit at the checkout you work in, in config.local.toml at the top of cockpit's folder (copy config.example.toml if you have none), then restart cockpit:</p>
+      <pre className="rounded-md bg-ground px-3 py-2 font-mono text-[12px]">{`[repo]\npath = "~/code/your-app"\nname = "your-app"`}</pre>
+      <p className="text-faint">Until then the Board still shows Claude sessions running anywhere else.</p>
+    </div>
+  );
+}
+
 export function BoardPage() {
   const { card: openId, filter } = useSearch({ from: "/board" });
   const navigate = useNavigate();
@@ -118,6 +135,7 @@ export function BoardPage() {
         </Button>
       </PageHeader>
       <ErrorNote error={filter === "tasks" ? lead.error : (q.error ?? lead.error)} />
+      <SetYourRepo />
       {filter === "tasks" ? (
         <TasksList />
       ) : q.isLoading ? (

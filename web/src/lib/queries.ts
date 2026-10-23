@@ -6,6 +6,7 @@ export interface AppConfig {
   statusOrder: string[];
   releasedStatuses: string[];
   repoName: string;
+  repo?: { path: string; state: "unset" | "missing" | "not-git" | "ok" };
   jira: boolean;
   github: boolean;
   demo: boolean;

@@ -19,6 +19,7 @@ import { startBudgetWatch } from "./budget.ts";
 import { startWeekly } from "./weekly.ts";
 import { startAutopilot } from "./autopilot.ts";
 import { startOvernight } from "./overnight.ts";
+import { repoState } from "./worktrees.ts";
 import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
 import { startStacked } from "./stacked.ts";
 import { startBadges } from "./badges.ts";
@@ -49,6 +50,8 @@ export const appConfig = () => ({
   statusOrder: statusConfig().statusOrder,
   releasedStatuses: statusConfig().releasedStatuses,
   repoName: config.repo.name,
+  // where repo.path points and whether it's a git checkout, so the Board can ask for one
+  repo: { path: config.repo.path, state: repoState() },
   // which plugins provide these, so screens that need one can hide
   tracker: activeTracker() ? { plugin: activeTracker()!.plugin, name: activeTracker()!.tracker.name } : null,
   codeHost: activeCodeHost() ? { plugin: activeCodeHost()!.plugin, name: activeCodeHost()!.codeHost.name } : null,
