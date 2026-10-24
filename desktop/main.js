@@ -1,5 +1,6 @@
-// cockpit as an app of its own. The server keeps running on the dev box, where Claude, the worktrees
-// and the CLIs live; this is the window onto it, with the live session count in the menu bar and the dock.
+// cockpit as an app of its own: the window onto a cockpit server, with the live session count in the menu bar and
+// the dock. The server is a hub on this machine (`cockpit service install`) or one on another machine; a node has
+// no screens of its own, so the app never opens one.
 
 const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, globalShortcut, ipcMain, nativeImage, session, shell } = require('electron')
 const { execFile, spawn } = require('child_process')
@@ -33,13 +34,14 @@ function save(next) {
 async function answers(url) {
   try {
     const res = await fetch(new URL('/api/health', url), { signal: AbortSignal.timeout(2500) })
-    return res.ok
+    return res.ok && (await res.json().catch(() => ({}))).role !== 'node'
   } catch {
     return false
   }
 }
 
-// COCKPIT_URL wins, then what the installer saved, then a server on this same machine
+// COCKPIT_URL wins, then what the installer saved, then a server on this same machine. A saved address that has
+// since become a node is passed over, which is how the app moves to a hub set up on this machine.
 async function findServer() {
   const tries = [process.env.COCKPIT_URL, settings().url, 'http://127.0.0.1:8770'].filter(Boolean)
   for (const url of tries) if (await answers(url)) return url.replace(/\/$/, '')

@@ -5,6 +5,11 @@
 //   cockpit node                                   runs this machine as a node, for a hub on another machine
 //   cockpit node pair --hub <id> --token <token> [--replace]
 //                                                  pairs it with the hub that showed that command
+//   cockpit node --adopt                           makes this machine, as it is, a node (role = "node" in config)
+//   cockpit migrate export [file] | import <file> [--force]
+//                                                  moves the hub's part of this cockpit to another machine
+//   cockpit service install|uninstall|status [--role all|hub|node] [--print]
+//                                                  runs cockpit at login: systemd on Linux, launchd on a Mac
 //
 // runs the command here, streams its output into a run on cockpit's Runs screen, keeps its exit code and exits with
 // it. --artifact files (a report, a screenshot, a video) are kept with the run once the command ends. The kind is
@@ -16,6 +21,9 @@ const usage = [
   "usage: cockpit run [--kind k] [--name n] [--ticket T] [--artifact path]... -- <command...>",
   "       cockpit node",
   "       cockpit node pair --hub <id> --token <token> [--replace]",
+  "       cockpit node --adopt",
+  "       cockpit migrate export [file] | import <file> [--force]",
+  "       cockpit service install|uninstall|status [--role all|hub|node] [--print]",
 ].join("\n");
 
 async function call(path, body) {
@@ -124,18 +132,143 @@ async function pair(argv) {
 // the server, as a node: what this machine does by itself, waiting on port 8771 for its hub
 async function node(argv) {
   if (argv[0] === "pair") return pair(argv.slice(1));
+  if (argv[0] === "--adopt") return server("src/migrate.ts", ["adopt"]);
   if (argv.length) throw new Error(usage);
+  return server("src/index.ts", [], { COCKPIT_ROLE: "node" });
+}
+
+// a file of the server, run with its tsx, in the foreground
+async function server(file, args, env = {}) {
   const { spawn } = await import("node:child_process");
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const root = dirname(dirname(fileURLToPath(import.meta.url)));
-  const child = spawn(join(root, "server/node_modules/.bin/tsx"), [join(root, "server/src/index.ts")], { stdio: "inherit", cwd: join(root, "server"), env: { ...process.env, COCKPIT_ROLE: "node" } });
+  const { join } = await import("node:path");
+  const root = await repo();
+  const child = spawn(join(root, "server/node_modules/.bin/tsx"), [join(root, "server", file), ...args], { stdio: "inherit", cwd: join(root, "server"), env: { ...process.env, ...env } });
   for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => child.kill(sig));
   return new Promise((done) => child.on("exit", (code) => done(code ?? 1)));
 }
 
+async function repo() {
+  const { dirname } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  return dirname(dirname(fileURLToPath(import.meta.url)));
+}
+
+const migrate = (argv) => server("src/migrate.ts", argv);
+
+// cockpit at login, as this checkout and with this shell's PATH (a service doesn't load the shell profile, so node,
+// claude and the plugins' CLIs are found the way they are here). One role per machine: installing one stops the others.
+async function service(argv) {
+  const { execFileSync } = await import("node:child_process");
+  const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const { join } = await import("node:path");
+  const [action = "status"] = argv;
+  const i = argv.indexOf("--role");
+  const root = await repo();
+  const data = process.env.COCKPIT_DATA || join(root, "data");
+  const cfg = process.env.COCKPIT_CONFIG || join(root, "config.local.toml");
+  const role = (i >= 0 ? argv[i + 1] : undefined) ?? (existsSync(cfg) ? readFileSync(cfg, "utf8").match(/^role\s*=\s*"(\w+)"/m)?.[1] : undefined) ?? "all";
+  if (!["all", "hub", "node"].includes(role) || !["install", "uninstall", "status"].includes(action)) throw new Error(usage);
+  const tsx = join(root, "server/node_modules/.bin/tsx");
+  const pass = Object.fromEntries(["COCKPIT_DATA", "COCKPIT_CONFIG"].filter((k) => process.env[k]).map((k) => [k, process.env[k]]));
+  // per-shell folders (fnm's, say) are gone once this shell is, so the node running this goes first instead
+  const { realpathSync } = await import("node:fs");
+  const { dirname } = await import("node:path");
+  const keep = (process.env.PATH ?? "").split(":").filter((p) => p && !p.includes("/fnm_multishells/") && !p.startsWith("/run/user/"));
+  const PATH = [...new Set([dirname(realpathSync(process.execPath)), ...keep])].join(":");
+  const env = { PATH, SHELL: process.env.SHELL || "/bin/bash", COCKPIT_ROLE: role, ...pass };
+  const roles = ["all", "hub", "node"];
+  const MARK = "made by cockpit service install";
+  const sh = (cmd, args) => {
+    try {
+      return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) {
+      return e.stdout ?? "";
+    }
+  };
+
+  if (process.platform === "darwin") {
+    const label = (r) => (r === "all" ? "com.cockpit" : `com.cockpit.${r}`);
+    const file = (r) => join(homedir(), "Library/LaunchAgents", `${label(r)}.plist`);
+    const target = (r) => `gui/${process.getuid()}/${label(r)}`;
+    const x = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!-- ${MARK} -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${label(role)}</string>
+  <key>ProgramArguments</key><array><string>${x(tsx)}</string><string>src/index.ts</string></array>
+  <key>WorkingDirectory</key><string>${x(join(root, "server"))}</string>
+  <key>EnvironmentVariables</key><dict>${Object.entries(env).map(([k, v]) => `<key>${k}</key><string>${x(v)}</string>`).join("")}</dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key><string>${x(join(data, "server.log"))}</string>
+  <key>StandardErrorPath</key><string>${x(join(data, "server.log"))}</string>
+</dict>
+</plist>
+`;
+    if (argv.includes("--print")) return process.stdout.write(plist), 0;
+    if (action === "status") return process.stdout.write(roles.map((r) => `${label(r)}: ${existsSync(file(r)) ? (sh("launchctl", ["print", target(r)]).match(/state = (\w+)/)?.[1] ?? "installed, not loaded") : "not installed"}`).join("\n") + "\n"), 0;
+    for (const r of action === "install" ? roles : [role]) {
+      if (!existsSync(file(r))) continue;
+      sh("launchctl", ["bootout", target(r)]);
+      if (action === "uninstall" && readFileSync(file(r), "utf8").includes(MARK)) rmSync(file(r));
+    }
+    if (action === "install") {
+      mkdirSync(join(homedir(), "Library/LaunchAgents"), { recursive: true });
+      mkdirSync(data, { recursive: true });
+      writeFileSync(file(role), plist);
+      execFileSync("launchctl", ["bootstrap", `gui/${process.getuid()}`, file(role)], { stdio: "inherit" });
+      process.stdout.write(`cockpit runs as ${label(role)} now, and at every login. Its log is ${join(data, "server.log")}.\n`);
+    }
+    return 0;
+  }
+
+  const name = (r) => (r === "all" ? "cockpit" : `cockpit-${r}`);
+  const dir = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "systemd/user");
+  const file = (r) => join(dir, `${name(r)}.service`);
+  const unit = `# ${MARK}
+[Unit]
+Description=cockpit (${role === "all" ? "everything on this machine" : role})
+After=network-online.target
+
+[Service]
+WorkingDirectory=${join(root, "server")}
+${Object.entries(env).map(([k, v]) => `Environment="${k}=${v}"`).join("\n")}
+EnvironmentFile=-%h/.config/cockpit/env
+ExecStart=${tsx} src/index.ts
+Restart=on-failure
+RestartSec=5
+# tsx exits with 143 when systemd stops it with SIGTERM
+SuccessExitStatus=143
+StandardOutput=append:${join(data, "server.log")}
+StandardError=append:${join(data, "server.log")}
+
+[Install]
+WantedBy=default.target
+`;
+  if (argv.includes("--print")) return process.stdout.write(unit), 0;
+  const ctl = (...a) => sh("systemctl", ["--user", ...a]);
+  if (action === "status") return process.stdout.write(roles.map((r) => `${name(r)}.service: ${existsSync(file(r)) ? ctl("is-active", `${name(r)}.service`).trim() : "not installed"}`).join("\n") + "\n"), 0;
+  for (const r of action === "install" ? roles : [role]) {
+    if (!existsSync(file(r))) continue;
+    ctl("disable", "--now", `${name(r)}.service`);
+    if (action === "uninstall" && readFileSync(file(r), "utf8").includes(MARK)) rmSync(file(r));
+  }
+  if (action === "install") {
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(data, { recursive: true });
+    writeFileSync(file(role), unit);
+    ctl("daemon-reload");
+    execFileSync("systemctl", ["--user", "enable", "--now", `${name(role)}.service`], { stdio: "inherit" });
+    process.stdout.write(`cockpit runs as ${name(role)}.service now, and at every login (with \`loginctl enable-linger\` it starts at boot). Its log is ${join(data, "server.log")}.\n`);
+  } else ctl("daemon-reload");
+  return 0;
+}
+
 const [sub, ...rest] = process.argv.slice(2);
-const commands = { run, node };
+const commands = { run, node, migrate, service };
 if (!commands[sub]) {
   process.stderr.write(`${usage}\n`);
   process.exit(2);

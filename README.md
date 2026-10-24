@@ -116,13 +116,17 @@ Then, in Settings:
 
 To look around with made-up data first, run `COCKPIT_DEMO=1 COCKPIT_CONFIG=config.example.toml pnpm start`.
 
-### Keep it running (Linux)
+### Keep it running
 
 ```sh
-cp deploy/cockpit.service ~/.config/systemd/user/
-# check the paths and PATH in the file, then:
-systemctl --user enable --now cockpit
+bin/cockpit service install
 ```
+
+This starts cockpit now and at every login, as a systemd user service on Linux or a launchd agent on a Mac. It uses this checkout and the PATH of the shell you run it from, so node, claude and the plugins' CLIs are found the same way. `bin/cockpit service status` shows whether it's running, and `uninstall` removes it. `deploy/cockpit.service` is the same unit written by hand, if you'd rather set it up yourself.
+
+### More than one machine (optional)
+
+Cockpit can run as a hub on the computer you look at, with the terminals, Claude sessions, repo and automations on an always-on node. Automations keep going while the hub sleeps, and the hub catches up when it wakes. See [docs/remote.md](docs/remote.md) for setting it up, or for moving a cockpit you already use.
 
 ### Open it from other devices
 

@@ -80,8 +80,10 @@ const schema = z.object({
 
 export type Config = z.infer<typeof schema>;
 
+export const configFile = process.env.COCKPIT_CONFIG ?? join(root, "config.local.toml");
+
 function load(): Config {
-  const file = process.env.COCKPIT_CONFIG ?? join(root, "config.local.toml");
+  const file = configFile;
   const raw = existsSync(file) ? parse(readFileSync(file, "utf8")) : {};
   const cfg = schema.parse(raw);
   if (process.env.PORT) cfg.port = Number(process.env.PORT);
