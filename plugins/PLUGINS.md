@@ -118,7 +118,7 @@ What `k` offers:
 | `k.sessions({ liveOnly, limit })`, `k.terminals()` | The Claude sessions and terminals cockpit knows about. |
 | `k.cache(key, maxAge, fn, force)` | Runs `fn` and keeps its result for `maxAge` ms in cockpit's cache. `force` runs it again. |
 | `k.runs` | Records runs on the Runs screen and reads them back. See [Runs](#runs). |
-| `k.runPanel({ kinds, page, steps })` | Adds a panel of yours to the page of each run of these kinds. See [Runs](#runs). |
+| `k.runPanel({ kinds, page, steps, meta })` | Adds a panel of yours to the page of each run of these kinds. With `meta`, only to runs that have that field in their meta. See [Runs](#runs). |
 | `k.runOptions({ list, start })` | Adds to what "Run something" on the Runs screen offers for a worktree. See [Run something](#run-something). |
 | `k.badge(screenId, badge)` | Shows a badge next to one of your screens in the sidebar. See [Sidebar badges](#sidebar-badges). |
 | `k.ticketOf(...strings)` | Finds a ticket key in branch names or titles, using the active tracker's pattern. |

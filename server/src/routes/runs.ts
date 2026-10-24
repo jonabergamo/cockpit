@@ -6,6 +6,7 @@ import { runsEverywhere } from "../remote/forward.ts";
 import type { RunDetail, RunEvent, RunFilter, RunKind, RunStatus } from "@cockpit/shared";
 import { config, paths } from "../config.ts";
 import { runPanels, runStartExtras, runSteps } from "../plugins.ts";
+import { playwrightSteps } from "../steps.ts";
 import { appendRun, deleteRun, filesDir, originalOf, restoreVideo, trimVideo, getRun, KINDS, listRuns, logFile, outputTail, recordHook, recordRun, rerun, settled, startRun, stepLines, type HookPayload } from "../runs.ts";
 import { runOptions, startOption } from "../runnable.ts";
 import { livePicture, startRecording, stopRecording } from "../record.ts";
@@ -161,7 +162,9 @@ export const runs = new Hono()
     const lines = Math.min(Math.max(Number(c.req.query("lines")) || 200, 10), 5000);
     const raw = stepLines(r.id);
     const parsed = runSteps(r.kind, raw.length ? raw : outputTail(r.id, 5000));
-    const detail: RunDetail = { ...r, tail: outputTail(r.id, lines), steps: parsed ?? r.summary.steps ?? [], panels: runPanels(r.kind) };
+    // what no plugin reads, cockpit may: Playwright's tests as they end
+    const steps = parsed?.length ? parsed : r.summary.steps?.length ? r.summary.steps : playwrightSteps(outputTail(r.id, 5000));
+    const detail: RunDetail = { ...r, tail: outputTail(r.id, lines), steps, panels: runPanels(r) };
     return c.json(detail);
   })
   .get("/:id/log", (c) => {

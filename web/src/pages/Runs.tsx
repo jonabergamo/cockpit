@@ -356,6 +356,7 @@ export function RunPage() {
   if (!r) return <ErrorNote error={run.error} />;
   const job = typeof r.meta.job === "string" ? jobs.data?.find((j) => j.id === r.meta.job) : undefined;
   const progress = typeof r.meta.progress === "number" && r.status === "running" ? r.meta.progress : undefined;
+  const live = r.status === "running" && r.meta.live === true;
   const files = (name: string) => `/api/runs/${encodeURIComponent(r.id)}/artifacts/${encodeURIComponent(name)}`;
 
   return (
@@ -484,7 +485,7 @@ export function RunPage() {
       )}
       {r.meta.error && <ErrorNote error={r.meta.error} />}
 
-      {r.status === "running" && r.meta.live === true && <LiveScreen runId={r.id} />}
+      {live && <LiveScreen runId={r.id} steps={r.steps} />}
 
       {r.panels.map((p) => (
         <iframe key={p.url} src={`${p.url}${p.url.includes("?") ? "&" : "?"}run=${encodeURIComponent(r.id)}`} title={p.plugin} className="w-full h-[560px] border border-line rounded-lg bg-panel block" allow="clipboard-write; fullscreen" />
@@ -503,7 +504,7 @@ export function RunPage() {
         </section>
       )}
 
-      {r.steps.length > 0 && !r.panels.some((p) => p.steps) && (
+      {r.steps.length > 0 && !live && !r.panels.some((p) => p.steps) && (
         <section>
           <h2 className="font-semibold mb-1.5">Steps</h2>
           <Steps steps={r.steps} done={r.status !== "running"} passed={r.status === "pass"} />
@@ -548,19 +549,49 @@ export function RunPage() {
   );
 }
 
-// What a recorded run's screen shows right now, kept current while it records. Each picture is loaded before it
-// replaces the one on show, so it never flickers to blank.
-function LiveScreen({ runId }: { runId: string }) {
-  const [src, setSrc] = useState<string>();
+// What a recorded run's screen shows right now, kept current while it records, with its steps beside it. The
+// virtual screen is bigger than the browser on it, so the picture is cut to what's ever been drawn on it (the dark
+// rest is the empty screen). Each picture is loaded before it replaces the one on show, so it never flickers.
+function LiveScreen({ runId, steps }: { runId: string; steps: RunStep[] }) {
+  const view = useRef<HTMLCanvasElement>(null);
+  const box = useRef<{ x0: number; y0: number; x1: number; y1: number } | undefined>(undefined);
+  const [shown, setShown] = useState(false);
   useEffect(() => {
     let on = true;
     let timer: ReturnType<typeof setTimeout>;
+    const scan = document.createElement("canvas");
     const next = () => {
-      const url = `/api/runs/${encodeURIComponent(runId)}/live.jpg?t=${Date.now()}`;
       const img = new Image();
-      img.onload = () => on && (setSrc(url), (timer = setTimeout(next, 500)));
+      img.onload = () => {
+        if (!on) return;
+        // where anything's been on the screen, looked for on a small copy, and only ever grown so the view holds still
+        const k = 8;
+        scan.width = Math.ceil(img.width / k);
+        scan.height = Math.ceil(img.height / k);
+        const sc = scan.getContext("2d", { willReadFrequently: true })!;
+        sc.drawImage(img, 0, 0, scan.width, scan.height);
+        const px = sc.getImageData(0, 0, scan.width, scan.height).data;
+        for (let y = 0; y < scan.height; y++)
+          for (let x = 0; x < scan.width; x++) {
+            const i = (y * scan.width + x) * 4;
+            if (px[i] + px[i + 1] + px[i + 2] < 36) continue;
+            const b = box.current;
+            box.current = b ? { x0: Math.min(b.x0, x), y0: Math.min(b.y0, y), x1: Math.max(b.x1, x), y1: Math.max(b.y1, y) } : { x0: x, y0: y, x1: x, y1: y };
+          }
+        const b = box.current;
+        const [sx, sy] = b ? [b.x0 * k, b.y0 * k] : [0, 0];
+        const [sw, sh] = b ? [Math.min(img.width, (b.x1 + 1) * k) - sx, Math.min(img.height, (b.y1 + 1) * k) - sy] : [img.width, img.height];
+        const c = view.current;
+        if (c) {
+          c.width = sw;
+          c.height = sh;
+          c.getContext("2d")!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+          setShown(true);
+        }
+        timer = setTimeout(next, 500);
+      };
       img.onerror = () => on && (timer = setTimeout(next, 1000));
-      img.src = url;
+      img.src = `/api/runs/${encodeURIComponent(runId)}/live.jpg?t=${Date.now()}`;
     };
     next();
     return () => {
@@ -574,7 +605,16 @@ function LiveScreen({ runId }: { runId: string }) {
         <span className="size-2 rounded-full bg-red animate-pulse" />
         Live
       </h2>
-      {src ? <img src={src} alt="The screen as it's being recorded" className="w-full max-h-[70vh] object-contain rounded-lg border border-line bg-black" /> : <div className="h-[200px] rounded-lg border border-line bg-panel grid place-items-center text-muted text-[13px]">Waiting for the screen</div>}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px] items-start">
+        <div className="rounded-lg border border-line bg-black overflow-hidden">
+          <canvas ref={view} className={`w-full h-auto max-h-[70vh] object-contain block ${shown ? "" : "hidden"}`} aria-label="The screen as it's being recorded" />
+          {!shown && <div className="h-[240px] grid place-items-center text-muted text-[13px]">Waiting for the screen</div>}
+        </div>
+        <div>
+          <h3 className="text-[13px] font-semibold mb-1">Steps</h3>
+          {steps.length ? <Steps steps={steps} done={false} passed={false} /> : <div className="bg-panel border border-line rounded-lg px-3 py-2 text-[13px] text-muted">None yet. They show as each test ends.</div>}
+        </div>
+      </div>
     </section>
   );
 }

@@ -392,7 +392,8 @@ export interface Cockpit {
   };
   // a panel of this plugin's on a run's page, for these kinds (every kind when left out); the page gets ?run=<id>.
   // steps: the panel shows the run's steps itself, so the page leaves out its own list
-  runPanel(p: { kinds?: RunKind[]; page: string; steps?: boolean }): void;
+  // meta: only for runs that have this field in their meta, like the device a script recorded
+  runPanel(p: { kinds?: RunKind[]; page: string; steps?: boolean; meta?: string }): void;
   // more things "Run something" offers for a worktree: list says what (asked each time the picker opens, kept
   // 30 seconds), start starts one of them by its id
   runOptions(o: { list(wt: RunTarget): Promise<RunOption[]>; start(id: string, wt: RunTarget): Promise<RunOptionStarted> }): void;

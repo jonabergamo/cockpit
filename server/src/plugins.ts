@@ -113,7 +113,7 @@ interface Plugin {
   runSteps: { kinds: RunKind[]; parse(lines: string[]): RunStep[] }[];
   runStarts: ((run: Run, body: Record<string, unknown>) => Record<string, unknown> | void)[];
   runVideos: ((v: RecordedVideo) => Promise<void>)[];
-  runPanels: { kinds?: RunKind[]; url: string; steps?: boolean }[];
+  runPanels: { kinds?: RunKind[]; url: string; steps?: boolean; meta?: string }[];
   runOptions: Parameters<Cockpit["runOptions"]>[0][];
   // the node it runs on instead of here: its code isn't loaded here, its screens come from there
   remote?: string;
@@ -331,7 +331,7 @@ function makeApi(p: Plugin): Cockpit {
     runPanel(r) {
       if (!live()) return;
       inside(p.dir, r.page);
-      p.runPanels.push({ kinds: r.kinds, url: `/plugins/${id}/${r.page.replace(/^\.?\//, "")}`, ...(r.steps ? { steps: true } : {}) });
+      p.runPanels.push({ kinds: r.kinds, url: `/plugins/${id}/${r.page.replace(/^\.?\//, "")}`, ...(r.steps ? { steps: true } : {}), ...(r.meta ? { meta: r.meta } : {}) });
     },
     runOptions(o) {
       if (live()) p.runOptions.push(o);
@@ -549,7 +549,7 @@ export function runSteps(kind: RunKind, lines: string[]): RunStep[] | undefined 
       }
     }
 }
-export const runPanels = (kind: RunKind) => active().flatMap((p) => p.runPanels.filter((x) => forKind(x.kinds, kind)).map((x) => ({ plugin: p.manifest.id, url: x.url, ...(x.steps ? { steps: true } : {}) })));
+export const runPanels = (run: Pick<Run, "kind" | "meta">) => active().flatMap((p) => p.runPanels.filter((x) => forKind(x.kinds, run.kind) && (!x.meta || (run.meta[x.meta] !== undefined && run.meta[x.meta] !== null && run.meta[x.meta] !== ""))).map((x) => ({ plugin: p.manifest.id, url: x.url, ...(x.steps ? { steps: true } : {}) })));
 // the plugin that makes recorded runs' videos, when one on does; the first one wins
 export function runVideoMaker() {
   for (const p of active()) if (p.runVideos[0]) return { plugin: p.manifest.id, make: p.runVideos[0] };
