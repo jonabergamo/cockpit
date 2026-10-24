@@ -29,6 +29,14 @@ export interface Meta {
 
 // One JSONL line can produce several entries (assistant content blocks, multiple tool results).
 export function parseLine(line: string, meta?: Meta): Entry[] {
+  // an agent session's file holds cockpit's own entries, one per line
+  if (line.startsWith('{"kind":')) {
+    try {
+      return [JSON.parse(line) as Entry];
+    } catch {
+      return [];
+    }
+  }
   if (!line || NOISE.test(line)) return [];
 
   let d: any;

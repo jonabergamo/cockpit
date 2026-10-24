@@ -1,0 +1,8 @@
+{"type":"init","timestamp":"2026-10-24T12:00:00.000Z","session_id":"5f0c7a52-3b3e-4b8e-9d0a-1a2b3c4d5e6f","model":"gemini-2.5-pro"}
+{"type":"message","timestamp":"2026-10-24T12:00:00.100Z","role":"user","content":"Append world to a.txt"}
+{"type":"message","timestamp":"2026-10-24T12:00:01.000Z","role":"assistant","content":"I'll append ","delta":true}
+{"type":"message","timestamp":"2026-10-24T12:00:01.100Z","role":"assistant","content":"the line.","delta":true}
+{"type":"tool_use","timestamp":"2026-10-24T12:00:02.000Z","tool_name":"replace","tool_id":"replace-1","parameters":{"file_path":"a.txt","new_string":"hello\nworld"}}
+{"type":"tool_result","timestamp":"2026-10-24T12:00:02.500Z","tool_id":"replace-1","status":"success","output":"Successfully modified file"}
+{"type":"message","timestamp":"2026-10-24T12:00:03.000Z","role":"assistant","content":"DONE","delta":true}
+{"type":"result","timestamp":"2026-10-24T12:00:03.100Z","status":"success","stats":{"total_tokens":1200,"input_tokens":1100,"output_tokens":100,"duration_ms":3100,"tool_calls":1}}

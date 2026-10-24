@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useRouter, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Entry, Session, Subagent } from "@cockpit/shared";
 import { ReplyPanel } from "../components/ReplyPanel";
@@ -12,7 +12,7 @@ import { useCost } from "../lib/cost";
 import { keep, send, useLive, useLiveSessions } from "../lib/live";
 import { place, placeLabel } from "../lib/nav";
 import { useOpenSession } from "../lib/openSession";
-import { useAppConfig } from "../lib/queries";
+import { useAgents, useAppConfig } from "../lib/queries";
 import { statusLook } from "../lib/status";
 import { useTerms } from "./Terminals";
 
@@ -86,6 +86,15 @@ export function SessionPage() {
   const s = { ...session.data, ...live } as Session | undefined;
   const status = live?.status ?? s?.status;
   const currentAgent = agents.data?.find((a) => a.id === agent);
+  // a coding agent cockpit runs a turn at a time (Codex, Gemini...), rather than Claude Code in a terminal
+  const coders = useAgents(!!s?.agent);
+  const coder = s?.agent ? (coders.data?.find((a) => a.id === s.agent)?.name ?? s.agent) : undefined;
+  const navigate = useNavigate();
+  const act = (what: "terminal" | "stop" | "close") =>
+    api
+      .post(`/agents/sessions/${id}/${what}`)
+      .then(() => void (what === "terminal" ? navigate({ to: "/terminals" }) : session.refetch()))
+      .catch(setErr);
 
   // the session may already be running in one of cockpit's terminals: claude's pid is the pty's own process
   const terms = useTerms();
@@ -135,6 +144,7 @@ export function SessionPage() {
             <h1 className="text-[22px] font-semibold tracking-tight leading-tight">{agent ? (currentAgent?.description ?? `Agent ${agent}`) : (s?.title ?? s?.name ?? id)}</h1>
             <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[13px] text-muted">
               {status && <Tag tone={status === "busy" ? "cobalt" : status === "waiting" ? "amber" : "faint"}>{statusLook(status, s?.waitingFor, s?.background).label}</Tag>}
+              {coder && <Tag tone="faint">{s?.model ? `${coder} · ${s.model}` : coder}</Tag>}
               {s?.ticket && (
                 <Link to="/tickets" search={{ key: s.ticket }} className="text-cobalt hover:underline">
                   {s.ticket}
@@ -145,7 +155,25 @@ export function SessionPage() {
               {s?.updatedAt ? <span>{ago(s.updatedAt)}</span> : null}
             </div>
           </div>
-          {!agent && s?.cwd && (
+          {!agent && s?.cwd && coder && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" onClick={() => act("terminal")} title={`The same conversation in ${coder}'s own screen`}>
+                Open in {coder}
+              </Button>
+              {status === "busy" && <Button onClick={() => act("stop")}>Stop this turn</Button>}
+              {s.worktree && (
+                <Link to="/code" search={{ root: s.worktree }}>
+                  <Button>Open code</Button>
+                </Link>
+              )}
+              {status !== "ended" && status !== "busy" && (
+                <Button variant="ghost" onClick={() => act("close")} title="Takes it off the live lists; the transcript stays">
+                  Close
+                </Button>
+              )}
+            </div>
+          )}
+          {!agent && s?.cwd && !coder && (
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" onClick={resume} title={ownTerm ? "It's already running in a cockpit terminal" : `claude --resume ${id}`}>
                 {ownTerm ? "Open its terminal" : "Resume in terminal"}
@@ -181,7 +209,7 @@ export function SessionPage() {
           )}
           {t.isLoading ? <Loading what="Reading transcript" /> : <Timeline entries={t.entries} agents={agents.data} sessionId={id} />}
           <ErrorNote error={t.error} />
-          {status === "busy" && <div className="text-cobalt text-[13px] mt-3 animate-pulse">Claude is working</div>}
+          {status === "busy" && <div className="text-cobalt text-[13px] mt-3 animate-pulse">{coder ?? "Claude"} is working</div>}
         </div>
         {s?.id && status && status !== "ended" && (
           <div className="border-t border-line pt-3 mt-2">
@@ -198,6 +226,7 @@ export function SessionPage() {
             Object.entries(t.cost.models).map(([m, u]) => (
               <Row key={m} label={m.replace("claude-", "")} value={`${cost.hidden ? "" : `${usd(u.costUSD)} · `}${Math.round((u.outputTokens ?? 0) / 1000)}k out`} />
             ))}
+          {s?.tokens && <Row label="Tokens" value={`${Math.round(s.tokens.input / 1000)}k in · ${Math.round(s.tokens.output / 1000)}k out`} />}
           {s?.pid && <Row label="PID" value={String(s.pid)} />}
           <Row label="Session" value={id.slice(0, 8)} />
         </div>

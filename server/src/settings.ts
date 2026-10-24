@@ -50,6 +50,8 @@ const schema = z.object({
       // queued tasks wait while the 5 hour limit is above this
       pauseAbovePct: z.number().int().min(10).max(100).default(85),
       defaultModel: z.string().max(60).default(""),
+      // the coding agent new tasks use; empty is Claude Code
+      defaultAgent: z.string().max(40).default(""),
     })
     .prefault({}),
   verify: z.object({ auto: z.boolean().default(true) }).prefault({}),
@@ -72,6 +74,8 @@ const schema = z.object({
         name: z.string().min(1).max(60),
         match: z.string().max(300).default(""),
         vars: z.record(z.string().regex(/^\w+$/), z.string().max(300)).default({}),
+        // the coding agent for this kind of work; empty is Claude Code
+        agent: z.string().max(40).default(""),
         model: z.string().max(60).default(""),
         prompt: z.string().max(4000).default(""),
         autopilot: z.enum(["default", "on", "off"]).default("default"),

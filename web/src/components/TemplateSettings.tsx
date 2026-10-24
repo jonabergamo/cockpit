@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { type SettingsRes, useSaveSettings, useSettings } from "../lib/cost";
-import { useAppConfig } from "../lib/queries";
+import { useAgents, useAppConfig } from "../lib/queries";
 import { Button, ErrorNote, inputClass } from "./ui";
 
 type Template = SettingsRes["settings"]["templates"][number];
 
-const blank = (): Template => ({ id: Math.random().toString(36).slice(2, 10), name: "", match: "", vars: {}, model: "", prompt: "", autopilot: "default" });
+const blank = (): Template => ({ id: Math.random().toString(36).slice(2, 10), name: "", match: "", vars: {}, agent: "", model: "", prompt: "", autopilot: "default" });
 const varsText = (v: Record<string, string>) => Object.entries(v).map(([k, x]) => `${k}=${x}`).join("\n");
 const parseVars = (text: string) => Object.fromEntries(text.split("\n").map((l) => l.trim()).filter((l) => /^\w+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
 
@@ -19,15 +19,26 @@ function badPattern(p: string) {
 }
 
 function Row({ t, vars, onChange, onRemove, onMove }: { t: Template; vars: string; onChange: (patch: Partial<Template>, vars?: string) => void; onRemove: () => void; onMove: (d: -1 | 1) => void }) {
+  const agents = useAgents().data ?? [];
+  const models = agents.find((a) => a.id === (t.agent || "claude"))?.models ?? [];
   return (
     <div className="rounded-md border border-line bg-raised p-3 space-y-2 text-[13px]">
       <div className="flex flex-wrap gap-2">
         <input value={t.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="Frontend" className={`${inputClass} w-40`} aria-label="Name" />
         <input value={t.match} onChange={(e) => onChange({ match: e.target.value })} placeholder="Matches every ticket" className={`${inputClass} flex-1 min-w-[180px] font-mono text-[12px] ${badPattern(t.match) ? "border-red" : ""}`} aria-label="Pattern" title="A pattern tested against the ticket's summary and type, ignoring case. Empty matches every ticket" />
+        <select value={t.agent ?? ""} onChange={(e) => onChange({ agent: e.target.value, model: "" })} className={inputClass} aria-label="Agent">
+          <option value="">Default agent</option>
+          {agents.filter((a) => a.installed || a.id === t.agent).map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
         <select value={t.model} onChange={(e) => onChange({ model: e.target.value })} className={inputClass} aria-label="Model">
-          {["", "opus", "sonnet", "haiku"].map((m) => (
-            <option key={m} value={m}>
-              {m || "Default model"}
+          <option value="">Default model</option>
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
             </option>
           ))}
         </select>

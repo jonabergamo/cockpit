@@ -2,7 +2,7 @@
 // review. Cockpit remembers which PR it sits on, notices when that PR gets new commits or merges, and on your word
 // hands the catching up to the worktree's Claude session (rebasing rewrites a pushed branch, so it never does it alone).
 import type { PrRef } from "@cockpit/shared";
-import { paneOf, sendText } from "./agents.ts";
+import { canSend, sendText } from "./agents.ts";
 import { boardChanged, matchWorker } from "./board.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { config } from "./config.ts";
@@ -137,7 +137,7 @@ export async function catchUp(worktree: string) {
   const prompt = catchUpPrompt(r);
   let how: string;
   // only an idle session is told; one waiting on a question would take it as the answer
-  if (session && session.status === "idle" && paneOf(session.id) && (await sendText(session.id, prompt))) how = "Told its session";
+  if (session && (session.agent || session.status === "idle") && canSend(session.id) && (await sendText(session.id, prompt))) how = "Told its session";
   else {
     const args = session ? ["--resume", session.id, prompt] : [prompt];
     spawnTerm({ cwd: worktree, command: "claude", args, title: `catch up #${r.pr}`, session: session?.id });

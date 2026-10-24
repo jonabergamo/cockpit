@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { watch } from "chokidar";
 import { register, type NamespacedUnregister } from "tsx/esm/api";
 import { z } from "zod";
-import { PLUGIN_API, type AccessProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type ReviewSource, type RouteRequest, type RecordedVideo, type Run, type RunKind, type RunOption, type RunOptionStarted, type RunStep, type RunTarget, type ScreenInfo, type SettingValue, type Theme, type Tracker } from "@cockpit/shared";
+import { PLUGIN_API, type AccessProvider, type AgentProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type ReviewSource, type RouteRequest, type RecordedVideo, type Run, type RunKind, type RunOption, type RunOptionStarted, type RunStep, type RunTarget, type ScreenInfo, type SettingValue, type Theme, type Tracker } from "@cockpit/shared";
 import { config, paths } from "./config.ts";
 import { clearPluginBadges, setPluginBadge } from "./badges.ts";
 import { cached } from "./db.ts";
@@ -13,6 +13,7 @@ import { onEvent } from "./events.ts";
 import { broadcast } from "./hub.ts";
 import { notify } from "./notify.ts";
 import { sendText } from "./agents.ts";
+import { useExtraAgents } from "./workers/index.ts";
 import { startJob } from "./jobs.ts";
 import { createTasks } from "./tasks.ts";
 import { kill, listTerms, spawnTerm } from "./pty.ts";
@@ -110,6 +111,7 @@ interface Plugin {
   // what it lets itself call from another machine
   exposed: Map<string, (args: any, files: Record<string, string>) => unknown>;
   access?: AccessProvider;
+  agents: AgentProvider[];
   runSteps: { kinds: RunKind[]; parse(lines: string[]): RunStep[] }[];
   runStarts: ((run: Run, body: Record<string, unknown>) => Record<string, unknown> | void)[];
   runVideos: ((v: RecordedVideo) => Promise<void>)[];
@@ -230,6 +232,7 @@ function unload(p: Plugin) {
   p.reviewSource = undefined;
   p.exposed.clear();
   p.access = undefined;
+  p.agents = [];
   p.runSteps = [];
   p.runStarts = [];
   p.runVideos = [];
@@ -308,6 +311,9 @@ function makeApi(p: Plugin): Cockpit {
     },
     reviewSource(r) {
       if (live()) p.reviewSource = r;
+    },
+    agent(a) {
+      if (live()) p.agents.push(a);
     },
     access(a) {
       if (live()) p.access = a;
@@ -414,7 +420,7 @@ export function loadAll() {
     }
     for (const [id, f] of found) {
       const old = plugins.get(id);
-      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], exposed: new Map(), generation: 0, runSteps: [], runStarts: [], runVideos: [], runPanels: [], runOptions: [] };
+      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], exposed: new Map(), generation: 0, agents: [], runSteps: [], runStarts: [], runVideos: [], runPanels: [], runOptions: [] };
       plugins.set(id, p);
       await load(p);
     }
@@ -524,6 +530,9 @@ function pick<K extends "tracker" | "codeHost">(kind: K) {
   const p = offering.find((x) => x.manifest.id === want) ?? offering[0];
   return p && { plugin: p.manifest.id, [kind]: p[kind]! } as { plugin: string } & Record<K, NonNullable<Plugin[K]>>;
 }
+// agents that plugins add, beside the ones that ship with cockpit
+useExtraAgents(() => [...plugins.values()].filter((p) => p.state === "on").flatMap((p) => p.agents));
+
 export const accessProviders = () => [...plugins.values()].filter((p) => p.state === "on" && p.access).map((p) => p.access!);
 export const activeTracker = () => pick("tracker");
 export const activeCodeHost = () => pick("codeHost");

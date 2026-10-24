@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { CreateOptions, NewTicket, Task, Ticket } from "@cockpit/shared";
+import type { AgentInfo, CreateOptions, NewTicket, Task, Ticket } from "@cockpit/shared";
 import { api } from "../lib/api";
-import { useAppConfig, useTickets } from "../lib/queries";
+import { useAgents, useAppConfig, useTickets } from "../lib/queries";
 import { useSettings } from "../lib/cost";
 import { Button, ErrorNote, inputClass, Modal, Tabs } from "./ui";
 import { TicketPicker } from "./TicketPicker";
@@ -22,7 +22,8 @@ const useNewTask = () =>
     () => state,
   );
 
-const MODELS = ["", "opus", "sonnet", "haiku"];
+// one attempt: which agent and model; empty is the default
+type Attempt = { agent: string; model: string };
 
 export function NewTaskModal() {
   const s = useNewTask();
@@ -34,11 +35,12 @@ export function NewTaskModal() {
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [ticket, setTicket] = useState("");
-  const [attempts, setAttempts] = useState<"1" | "2" | "3">("1");
-  const [model, setModel] = useState("");
+  const [attempts, setAttempts] = useState<Attempt[]>([{ agent: "", model: "" }]);
+  const agents = useAgents(s.open);
   const [kind, setKind] = useState("");
   const base = cfg.data?.baseBranch ?? "main";
-  const kinds = useSettings().data?.settings.templates ?? [];
+  const settings = useSettings().data?.settings;
+  const kinds = settings?.templates ?? [];
   const [after, setAfter] = useState("");
   const [onPr, setOnPr] = useState("");
   const [overnight, setOvernight] = useState(false);
@@ -83,7 +85,8 @@ export function NewTaskModal() {
         setDraft(null);
         qc.invalidateQueries({ queryKey: ["tickets"] });
       }
-      await api.post<Task[]>("/tasks", { title, prompt, ticket: key || undefined, attempts: Number(attempts), model: model || undefined, template: kind || undefined, dependsOn: after ? [after] : [], onPr: onPr.trim() || undefined, overnight: overnight || undefined });
+      const lineup = attempts.map((a) => ({ agent: a.agent || undefined, model: a.model || undefined }));
+      await api.post<Task[]>("/tasks", { title, prompt, ticket: key || undefined, lineup, template: kind || undefined, dependsOn: after ? [after] : [], onPr: onPr.trim() || undefined, overnight: overnight || undefined });
       await Promise.all([qc.invalidateQueries({ queryKey: ["board"] }), qc.invalidateQueries({ queryKey: ["tasks"] })]);
       newTask.close();
       setTitle("");
@@ -105,7 +108,7 @@ export function NewTaskModal() {
           submit();
         }}
       >
-        <p className="text-muted">Cockpit makes a worktree and branch for it and starts Claude there. With more than one attempt, each gets its own, so you can keep the best.</p>
+        <p className="text-muted">Cockpit makes a worktree and branch for it and starts a coding agent there. With more than one attempt, each gets its own, so you can keep the best, or compare agents.</p>
         {cfg.data?.tracker && (!!tickets.data?.tickets.length || !!createOpts.data) && (
           <div className="space-y-1">
             <span className="block text-muted">Ticket (optional)</span>
@@ -134,7 +137,7 @@ export function NewTaskModal() {
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Saved cards on the checkout page" className={`${inputClass} w-full`} autoFocus />
         </label>
         <label className="block space-y-1">
-          <span className="text-muted">What Claude should do {(ticket || draft) && <span className="text-faint">(empty uses the ticket)</span>}</span>
+          <span className="text-muted">What it should do {(ticket || draft) && <span className="text-faint">(empty uses the ticket)</span>}</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder="Describe the outcome you want, and how to check it's done." className={`${inputClass} w-full h-auto py-2`} />
         </label>
         <label className="block space-y-1">
@@ -150,11 +153,8 @@ export function NewTaskModal() {
             </span>
           )}
         </label>
+        <Attempts value={attempts} onChange={setAttempts} agents={(agents.data ?? []).filter((a) => a.installed)} fallback={settings?.tasks.defaultAgent || "claude"} />
         <div className="flex flex-wrap items-end gap-4">
-          <div className="space-y-1">
-            <span className="block text-muted">Attempts</span>
-            <Tabs value={attempts} onChange={setAttempts} items={[{ value: "1", label: "1" }, { value: "2", label: "2" }, { value: "3", label: "3" }]} />
-          </div>
           {kinds.length > 0 && (
             <label className="space-y-1">
               <span className="block text-muted">Kind of work</span>
@@ -168,16 +168,6 @@ export function NewTaskModal() {
               </select>
             </label>
           )}
-          <label className="space-y-1">
-            <span className="block text-muted">Model</span>
-            <select value={model} onChange={(e) => setModel(e.target.value)} className={inputClass}>
-              {MODELS.map((m) => (
-                <option key={m} value={m}>
-                  {m || "Default"}
-                </option>
-              ))}
-            </select>
-          </label>
           {groups.length > 0 && (
             <label className="space-y-1 flex-1 min-w-[180px]">
               <span className="block text-muted">Start after</span>
@@ -205,11 +195,53 @@ export function NewTaskModal() {
             Cancel
           </Button>
           <Button variant="primary" disabled={busy || !title.trim() || (!prompt.trim() && !ticket && !draft)}>
-            {busy ? (draft ? "Making the ticket" : "Queueing") : draft ? "Make the ticket and queue it" : overnight ? "Queue for tonight" : Number(attempts) > 1 ? `Queue ${attempts} attempts` : "Queue it"}
+            {busy ? (draft ? "Making the ticket" : "Queueing") : draft ? "Make the ticket and queue it" : overnight ? "Queue for tonight" : attempts.length > 1 ? `Queue ${attempts.length} attempts` : "Queue it"}
           </Button>
         </div>
       </form>
     </Modal>
+  );
+}
+
+// Who works on it: one row per attempt, each an agent and one of its models. The same agent twice gives independent
+// tries; different ones compare agents on the same work.
+function Attempts({ value, onChange, agents, fallback }: { value: Attempt[]; onChange: (a: Attempt[]) => void; agents: AgentInfo[]; fallback: string }) {
+  const set = (i: number, p: Partial<Attempt>) => onChange(value.map((a, j) => (j === i ? { ...a, ...p } : a)));
+  const models = (id: string) => agents.find((a) => a.id === (id || fallback))?.models ?? [];
+  return (
+    <div className="space-y-1">
+      <span className="block text-muted">{value.length > 1 ? `Attempts (${value.length})` : "Agent"}</span>
+      {value.map((a, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2">
+          <select value={a.agent} onChange={(e) => set(i, { agent: e.target.value, model: "" })} className={inputClass} aria-label="Agent">
+            <option value="">Default ({agents.find((x) => x.id === fallback)?.name ?? fallback})</option>
+            {agents.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+          <select value={a.model} onChange={(e) => set(i, { model: e.target.value })} className={inputClass} aria-label="Model">
+            <option value="">Default model</option>
+            {models(a.agent).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          {value.length > 1 && (
+            <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="text-[12px] text-muted hover:text-ink" aria-label="Remove this attempt">
+              Remove
+            </button>
+          )}
+        </div>
+      ))}
+      {value.length < 4 && (
+        <button type="button" onClick={() => onChange([...value, { ...value[value.length - 1] }])} className="text-[12px] text-cobalt hover:underline">
+          + Another attempt
+        </button>
+      )}
+    </div>
   );
 }
 

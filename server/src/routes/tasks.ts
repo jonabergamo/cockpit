@@ -58,7 +58,7 @@ export const tasks = new Hono()
       list.map(async (t) => {
         const s = t.sessionId ? getSession(t.sessionId) : undefined;
         const stat = t.worktree ? await diffStat(t.worktree).catch(() => undefined) : undefined;
-        return { task: t, files: stat?.files ?? [], session: s && { id: s.id, status: s.status, costUSD: s.costUSD, linesAdded: s.linesAdded, linesRemoved: s.linesRemoved, updatedAt: s.updatedAt } };
+        return { task: t, files: stat?.files ?? [], session: s && { id: s.id, status: s.status, costUSD: s.costUSD, tokens: s.tokens, agent: s.agent, linesAdded: s.linesAdded, linesRemoved: s.linesRemoved, updatedAt: s.updatedAt } };
       }),
     );
     return c.json({ title: list[0].title, prompt: list[0].prompt, ticket: list[0].ticket, dependsOn: list[0].dependsOn, attempts });

@@ -28,6 +28,11 @@ export interface Session {
   background?: number;
   // the machine it ran on, when that's a node rather than this one
   node?: string;
+  // the agent it is, when it isn't Claude Code: "codex", "gemini", or "claude" run without a terminal
+  agent?: string;
+  model?: string;
+  // what it used, for agents that count tokens rather than dollars
+  tokens?: { input: number; output: number };
 }
 
 export type Entry =
@@ -332,6 +337,7 @@ export type ClientEvent =
 export const ticketUrl = (base: string, key: string) => `${base.replace(/\/$/, "")}/browse/${key}`;
 export * from "./themes.ts";
 export * from "./plugin.ts";
+export * from "./agents.ts";
 
 // What a running session is showing, for answering it without opening its terminal
 export interface Ask {
@@ -392,6 +398,8 @@ export interface Task {
   title: string;
   prompt: string;
   ticket?: string;
+  // the coding agent that does it; Claude Code when unset
+  agent?: string;
   model?: string;
   // the kind of work it was queued as
   template?: string;

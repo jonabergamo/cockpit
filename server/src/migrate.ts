@@ -18,7 +18,7 @@ import { run } from "./util.ts";
 const userDir = config.pluginsDir || join(paths.data, "plugins");
 
 // tables that describe the machine the work happens on, which a hub doesn't take
-export const NODE_TABLES = ["sessions", "session_days", "session_text", "search_files", "usage", "files", "rate_limits", "tool_usage", "tool_files", "tasks", "autopilot", "verify", "runs", "stacked", "ci_compare", "links", "folders", "outbox", "cache"];
+export const NODE_TABLES = ["sessions", "session_days", "session_text", "search_files", "usage", "files", "rate_limits", "tool_usage", "tool_files", "tasks", "agent_sessions", "autopilot", "verify", "runs", "stacked", "ci_compare", "links", "folders", "outbox", "cache"];
 // settings rows about this machine's folders and its own hub
 const nodeRow = (key: string) => /^(lead|preview|worktree-template|outbox):/.test(key) || key === "hubSettingsVersion";
 

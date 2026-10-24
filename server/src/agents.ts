@@ -5,6 +5,7 @@ import type { Ask, Entry } from "@cockpit/shared";
 import { liveInfo, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
 import { tmuxIn } from "./pty.ts";
+import { agentRow, sendAgent } from "./workers/runner.ts";
 
 export function paneOf(sessionId: string) {
   const t = liveInfo(sessionId)?.tmux;
@@ -27,8 +28,13 @@ function leaveCopyMode(pane: string) {
   } catch {}
 }
 
-// A bracketed paste, so several lines arrive as one message, then Enter.
+// whether a message can reach it: a pane of cockpit's tmux, or an agent cockpit runs a turn at a time
+export const canSend = (sessionId: string) => !!agentRow(sessionId) || !!paneOf(sessionId);
+
+// A bracketed paste, so several lines arrive as one message, then Enter. An agent run a turn at a time gets it as
+// its next prompt instead.
 export async function sendText(sessionId: string, text: string) {
+  if (agentRow(sessionId)) return sendAgent(sessionId, text);
   const pane = paneOf(sessionId);
   if (!pane) return false;
   leaveCopyMode(pane);
@@ -152,6 +158,8 @@ export async function lastWords(sessionId: string) {
 }
 
 export async function askOf(sessionId: string) {
+  // an agent without a terminal never asks mid-turn; it's reached by its next prompt
+  if (agentRow(sessionId)) return { reachable: true, options: [], last: (await lastWords(sessionId)).text };
   const screen = capture(sessionId);
   const words = await lastWords(sessionId);
   return { reachable: !!screen, ...(screen ? parseScreen(screen) : { options: [] }), last: words.text, pending: words.pending };

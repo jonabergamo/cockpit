@@ -11,6 +11,10 @@ pluginsDir = ""
 [claude]
 dir = "~/.claude"
 
+# Other coding agents, when their command isn't the one on the PATH.
+# [agents.codex]
+# bin = "~/.local/bin/codex"
+
 [repo]
 path = "~/code/app"
 name = "app"

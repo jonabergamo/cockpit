@@ -7,6 +7,7 @@ import { db } from "../db.ts";
 import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
 import { day, ticketOf } from "../util.ts";
+import { agentRow, agentRows, type AgentRow } from "../workers/runner.ts";
 import { backgroundShells } from "./background.ts";
 import { readFrom } from "./transcript.ts";
 
@@ -199,7 +200,7 @@ async function headOf(cwd: string) {
 }
 
 async function refreshBranches() {
-  const cwds = new Set([...live.values()].map((l) => l.cwd).filter(Boolean) as string[]);
+  const cwds = new Set([...[...live.values()].map((l) => l.cwd), ...agentRows().filter((a) => a.status !== "ended").map((a) => a.cwd)].filter(Boolean) as string[]);
   for (const cwd of cwds) {
     const branch = await headOf(cwd).catch(() => undefined);
     if (branch) currentBranch.set(cwd, branch);
@@ -237,6 +238,39 @@ function toSession(r: Row): Session {
   };
 }
 
+// an agent cockpit runs a turn at a time, listed with the rest; one left idle for half a day counts as ended
+const IDLE_ENDS_MS = 12 * 3600_000;
+function agentSession(r: AgentRow): Session {
+  const status = r.status === "idle" && Date.now() - r.updated_at > IDLE_ENDS_MS ? "ended" : r.status;
+  const branch = currentBranch.get(r.cwd);
+  const title = r.title ?? undefined;
+  return {
+    id: r.id,
+    project: r.cwd.replace(/[^a-zA-Z0-9]/g, "-"),
+    cwd: r.cwd,
+    title,
+    status,
+    startedAt: r.started_at,
+    updatedAt: r.updated_at,
+    branch,
+    ticket: ticketOf(r.cwd, branch, title),
+    worktree: worktreeOf(r.cwd),
+    costUSD: r.cost ?? undefined,
+    size: existsSync(r.file) ? 1 : 0,
+    agent: r.agent,
+    model: r.model ?? undefined,
+    tokens: { input: r.tokens_in, output: r.tokens_out },
+  };
+}
+
+// this machine's Claude sessions and agent sessions; a Claude conversation cockpit ran as an agent is shown once
+function mine() {
+  const agents = agentRows();
+  const native = new Set(agents.filter((a) => a.agent === "claude" && a.native_id).map((a) => a.native_id));
+  const claude = db.prepare<[], Row>("select * from sessions order by last_ts desc").all().filter((r) => !native.has(r.id));
+  return [...claude.map(toSession), ...agents.map(agentSession)];
+}
+
 // Sessions on other machines, which a hub lists next to its own; set once nodes can be reached
 export interface RemoteSessions {
   list(): Session[];
@@ -249,13 +283,12 @@ export type ListOpts = { limit?: number; q?: string; ticket?: string; worktree?:
 
 // this machine's own, what a node tells its hub
 export function localSessions(opts: ListOpts = {}) {
-  return filterSessions(db.prepare<[], Row>("select * from sessions order by last_ts desc").all().map(toSession), opts);
+  return filterSessions(mine(), opts);
 }
 
 export function listSessions(opts: ListOpts = {}) {
   if (!remote) return localSessions(opts);
-  const mine = db.prepare<[], Row>("select * from sessions order by last_ts desc").all().map(toSession);
-  return filterSessions([...mine, ...remote.list()], opts);
+  return filterSessions([...mine(), ...remote.list()], opts);
 }
 
 function filterSessions(all: Session[], opts: ListOpts) {
@@ -274,10 +307,12 @@ function filterSessions(all: Session[], opts: ListOpts) {
 
 export function getSession(id: string) {
   const r = getRow.get(id);
-  return r ? toSession(r) : remote?.get(id);
+  if (r) return toSession(r);
+  const a = agentRow(id);
+  return a ? agentSession(a) : remote?.get(id);
 }
 
-export const sessionFile = (id: string) => getRow.get(id)?.file;
+export const sessionFile = (id: string) => getRow.get(id)?.file ?? agentRow(id)?.file;
 
 export async function agentFile(sessionId: string, agentId: string) {
   const file = sessionFile(sessionId);
@@ -363,10 +398,11 @@ async function poll() {
   if (snap !== lastSnapshot) {
     lastSnapshot = snap;
     broadcast({ type: "sessions", sessions });
-    // a node's sessions are its to tell about, through its outbox, so they still arrive after this one slept
-    sessionsChanged(sessions.filter((s) => !s.node));
+    // a node's sessions are its to tell about, through its outbox, so they still arrive after this one slept;
+    // agents run a turn at a time say when they start and finish themselves
+    sessionsChanged(sessions.filter((s) => !s.node && !s.agent));
   }
-  escalate(sessions.filter((s) => !s.node));
+  escalate(sessions.filter((s) => !s.node && !s.agent));
 }
 
 export function startSessions() {

@@ -26,6 +26,8 @@ const schema = z.object({
   pluginsDir: path.default(""),
   // bin is the claude that claude -p runs (notes, asking cockpit), when it isn't the one on the PATH
   claude: z.object({ dir: path.default("~/.claude"), bin: z.string().default("claude") }).prefault({}),
+  // other coding agents by id ("codex", "gemini"), when their command isn't the one on the PATH
+  agents: z.record(z.string(), z.object({ bin: z.string().optional() })).default({}),
   // `cockpit run --record`: the virtual screen the command's browser opens on, and the Chromium that shows its
   // output beside it; empty finds one (on the PATH, or the one Playwright installed)
   record: z.object({ screen: z.string().regex(/^\d{3,4}x\d{3,4}$/).default("1600x1000"), browser: z.string().default("") }).prefault({}),

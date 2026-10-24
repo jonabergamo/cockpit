@@ -72,6 +72,38 @@ export function stream(command: string, onChunk: (s: string) => void, cwd?: stri
   });
 }
 
+// A program run from a login shell (so the PATH has what you installed), with stdin given and stdout read line
+// by line as it comes; stderr is kept for when it fails. Arguments go as they are, never through the shell.
+export function spawnLines(argv: string[], opts: { cwd?: string; input?: string; onLine: (line: string) => void }) {
+  const child = spawn("bash", ["-lc", 'exec "$@"', "bash", ...argv], { cwd: opts.cwd, env: process.env, detached: true });
+  let rest = "";
+  let err = "";
+  child.stdout.on("data", (b: Buffer) => {
+    const lines = (rest + b.toString()).split("\n");
+    rest = lines.pop() ?? "";
+    for (const l of lines) if (l.trim()) opts.onLine(l);
+  });
+  child.stderr.on("data", (b: Buffer) => void (err = (err + b.toString()).slice(-8000)));
+  child.stdin.on("error", () => {});
+  child.stdin.end(opts.input ?? "");
+  const done = new Promise<{ code: number; stderr: string }>((resolve) =>
+    child.on("close", (code) => {
+      if (rest.trim()) opts.onLine(rest);
+      resolve({ code: code ?? 1, stderr: err });
+    }),
+  );
+  return {
+    pid: child.pid,
+    done,
+    // the whole group, so what it started goes too
+    kill: () => {
+      try {
+        process.kill(-child.pid!, "SIGTERM");
+      } catch {}
+    },
+  };
+}
+
 export const slugify = (s: string, max = 40) =>
   s
     .toLowerCase()

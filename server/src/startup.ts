@@ -5,6 +5,7 @@ import { startBudgetWatch } from "./budget.ts";
 import { startAutopilot } from "./autopilot.ts";
 import { startSearch } from "./claude/search.ts";
 import { startSessions } from "./claude/sessions.ts";
+import { startAgentRunner } from "./workers/runner.ts";
 import { startLeadWatch } from "./lead.ts";
 import { startOvernight } from "./overnight.ts";
 import { restoreTerms } from "./pty.ts";
@@ -20,6 +21,7 @@ import { startWeekly } from "./weekly.ts";
 
 // what belongs to the machine itself: its Claude sessions, their usage and search index, runs and terminals
 export function startHostServices() {
+  startAgentRunner();
   startSessions();
   startUsage();
   startSearch();

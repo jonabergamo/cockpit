@@ -14,13 +14,13 @@ export interface SettingsRes {
     hidden: string[];
     fonts: Fonts;
     autopilot: { maxAttempts: number; onByDefault: boolean };
-    tasks: { maxParallel: number; pauseAbovePct: number; defaultModel: string };
+    tasks: { maxParallel: number; pauseAbovePct: number; defaultModel: string; defaultAgent: string };
     verify: { auto: boolean };
     alerts: { stuckMinutes: number; escalateMinutes: number };
     away: { minutes: number };
     budget: { perTicketUSD: number; perTicketMTokens: number; warnPct: number };
     weekly: { on: boolean; day: number; hour: number };
-    templates: { id: string; name: string; match: string; vars: Record<string, string>; model: string; prompt: string; autopilot: "default" | "on" | "off" }[];
+    templates: { id: string; name: string; match: string; vars: Record<string, string>; agent: string; model: string; prompt: string; autopilot: "default" | "on" | "off" }[];
     notes: { prompt: string; maxChars: number; liveBranch: string };
     ci: { local: string[] };
     overnight: { capUSD: number; capMTokens: number; fromHour: number; toHour: number };

@@ -20,6 +20,8 @@ import { nightOn } from "./overnight.ts";
 import { basePr, stackedNote, stackOnto } from "./stacked.ts";
 import { promptFor, templateFor } from "./templates.ts";
 import { createWorktree, deleteWorktree } from "./worktrees.ts";
+import { agentProvider } from "./workers/index.ts";
+import { agentRow, closeAgent, startAgent } from "./workers/runner.ts";
 
 interface Row {
   id: string;
@@ -27,6 +29,7 @@ interface Row {
   title: string;
   prompt: string;
   ticket: string | null;
+  agent: string | null;
   model: string | null;
   template: string | null;
   on_pr: string | null;
@@ -52,6 +55,7 @@ const toTask = (r: Row): Task => ({
   title: r.title,
   prompt: r.prompt,
   ticket: r.ticket ?? undefined,
+  agent: r.agent ?? undefined,
   model: r.model ?? undefined,
   template: r.template ?? undefined,
   onPr: r.on_pr ?? undefined,
@@ -98,8 +102,8 @@ export function updateTask(id: string, patch: Partial<Pick<Task, "status" | "wor
 
 export function insertTask(t: Task) {
   db.prepare(
-    "insert into tasks (id, group_id, title, prompt, ticket, model, template, on_pr, base, overnight, attempt, status, depends_on, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(t.id, t.group, t.title, t.prompt, t.ticket ?? null, t.model ?? null, t.template ?? null, t.onPr ?? null, t.base ?? null, t.overnight ? 1 : 0, t.attempt, t.status, JSON.stringify(t.dependsOn), t.createdAt);
+    "insert into tasks (id, group_id, title, prompt, ticket, agent, model, template, on_pr, base, overnight, attempt, status, depends_on, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(t.id, t.group, t.title, t.prompt, t.ticket ?? null, t.agent ?? null, t.model ?? null, t.template ?? null, t.onPr ?? null, t.base ?? null, t.overnight ? 1 : 0, t.attempt, t.status, JSON.stringify(t.dependsOn), t.createdAt);
 }
 
 // ---------- running them ----------
@@ -111,7 +115,11 @@ export interface NewTask {
   prompt?: string;
   ticket?: string;
   attempts?: number;
+  // the coding agent and model for every attempt; Claude Code when no agent is given
+  agent?: string;
   model?: string;
+  // or one attempt per entry, each with its own agent and model, to compare them
+  lineup?: { agent?: string; model?: string }[];
   dependsOn?: string[];
   // a kind of work by id; without one it's picked by the ticket
   template?: string;
@@ -121,11 +129,15 @@ export interface NewTask {
   overnight?: boolean;
 }
 
+// Claude Code in its terminal is the default, kept as no agent at all
+const agentId = (a?: string) => (a && a !== "claude" ? a : undefined);
+
 export async function createTasks(input: NewTask) {
   const title = input.title?.trim();
   if (!title) throw new Error("Give the task a title");
   if (!config.repo.path) throw new Error("Set repo.path in config.local.toml first; tasks get worktrees of that repo");
-  const attempts = Math.min(Math.max(Math.round(input.attempts ?? 1), 1), 4);
+  const lineup = input.lineup?.length ? input.lineup.slice(0, 4) : undefined;
+  const attempts = lineup?.length ?? Math.min(Math.max(Math.round(input.attempts ?? 1), 1), 4);
   let prompt = input.prompt?.trim() ?? "";
   const ticket = input.ticket ? (await statusesOf([input.ticket]).catch(() => []))[0] : undefined;
   const tpl = templateFor({ summary: ticket?.summary ?? title, type: ticket?.type }, input.template);
@@ -140,8 +152,15 @@ export async function createTasks(input: NewTask) {
   const known = new Set(listTasks().flatMap((t) => [t.id, t.group]));
   const dependsOn = (input.dependsOn ?? []).filter((d) => known.has(d));
   const group = randomUUID().slice(0, 8);
+  const s = getSettings().tasks;
   for (let i = 1; i <= attempts; i++) {
-    insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, model: input.model || tpl?.model || getSettings().tasks.defaultModel || undefined, template: tpl?.id, onPr, base, overnight: !!input.overnight || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
+    const pick = lineup?.[i - 1] ?? input;
+    // a model only goes with the agent it was given for; Claude's default model isn't Codex's
+    // empty falls back to the kind of work's agent, then the default; "claude" is Claude Code in its terminal
+    const agent = agentId(pick.agent || input.agent || tpl?.agent || s.defaultAgent);
+    if (agent && !agentProvider(agent)) throw Object.assign(new Error(`No agent called ${agent}`), { status: 400 });
+    const model = pick.model || (agentId(tpl?.agent) === agent ? tpl?.model : "") || (agentId(s.defaultAgent) === agent ? s.defaultModel : "") || undefined;
+    insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, agent, model, template: tpl?.id, onPr, base, overnight: !!input.overnight || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
   }
   boardChanged();
   setTimeout(() => tick().catch((e) => console.error("tasks", e)), 50);
@@ -165,13 +184,14 @@ export function depsMet(t: Pick<Task, "dependsOn">, all: Pick<Task, "id" | "grou
   });
 }
 
-// which queued tasks may start now: in order, within the slots left, and not while usage is near the limit
+// which queued tasks may start now: in order, within the slots left, and not while usage is near the limit;
+// Claude's 5 hour limit only holds back tasks on Claude
 export function pickNext(all: Task[], maxParallel: number, usedPct: number, pauseAbove: number) {
-  if (usedPct >= pauseAbove) return [];
+  const paused = usedPct >= pauseAbove;
   const active = all.filter((t) => t.status === "starting" || t.status === "running").length;
   const free = Math.max(0, maxParallel - active);
   return all
-    .filter((t) => t.status === "queued" && depsMet(t, all))
+    .filter((t) => t.status === "queued" && (!paused || !!t.agent) && depsMet(t, all))
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(0, free);
 }
@@ -223,9 +243,22 @@ function start(t: Task) {
               return;
             }
           }
-          const args = [...(t.model ? ["--model", t.model] : []), prompt];
-          const term = spawnTerm({ cwd: path, command: "claude", args, title: `task · ${t.title}${t.attempt > 1 ? ` (${t.attempt})` : ""}` });
-          updateTask(t.id, { status: "running", worktree: path, branch, termId: term.id });
+          const title = `${t.title}${t.attempt > 1 ? ` (${t.attempt})` : ""}`;
+          if (t.agent) {
+            // another agent runs a turn at a time without a terminal; its session is there from the start
+            try {
+              const sessionId = startAgent({ agent: t.agent, cwd: path, prompt, model: t.model, title });
+              updateTask(t.id, { status: "running", worktree: path, branch, sessionId });
+            } catch (e) {
+              updateTask(t.id, { status: "failed", finishedAt: Date.now(), worktree: path, branch, error: (e as Error).message });
+              boardChanged();
+              return;
+            }
+          } else {
+            const args = [...(t.model ? ["--model", t.model] : []), prompt];
+            const term = spawnTerm({ cwd: path, command: "claude", args, title: `task · ${title}` });
+            updateTask(t.id, { status: "running", worktree: path, branch, termId: term.id });
+          }
           emit("task.started", { ...t, worktree: path, branch });
           boardChanged();
         })().catch((e) => console.error("tasks", e));
@@ -345,6 +378,8 @@ export function cancelTask(id: string) {
   if (!t || FINAL.has(t.status)) return;
   if (t.termId) kill(t.termId);
   updateTask(id, { status: "cancelled", finishedAt: Date.now() });
+  // after it's marked, so its session ending doesn't count as the task finishing
+  if (t.sessionId && agentRow(t.sessionId)) closeAgent(t.sessionId);
   boardChanged();
 }
 
@@ -361,6 +396,7 @@ export function keepAttempt(id: string) {
     if (t.id === keep.id) continue;
     if (t.termId) kill(t.termId);
     if (!FINAL.has(t.status)) updateTask(t.id, { status: "cancelled", finishedAt: Date.now() });
+    if (t.sessionId && agentRow(t.sessionId)) closeAgent(t.sessionId);
     if (t.worktree && existsSync(t.worktree)) deleteWorktree(t.worktree);
   }
   boardChanged();

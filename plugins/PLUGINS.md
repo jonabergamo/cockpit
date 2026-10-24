@@ -125,6 +125,7 @@ What `k` offers:
 | `k.productionBranch()` | The branch that is production, as set on the Sprint report. It's empty when nobody has set it. |
 | `k.tracker(provider)`, `k.codeHost(provider)` | Plugs a work tracker or a code host into cockpit. See below. |
 | `k.reviewSource(provider)` | Adds PRs to the PR reviews queue without replacing the code host. See below. |
+| `k.agent(provider)` | Adds a coding agent that tasks can be handed to. See below. |
 | `k.access(provider)` | Decides which requests from other machines get in. See below. |
 | `k.providers.tracker()`, `k.providers.codeHost()` | The ones in use, possibly from other plugins. |
 
@@ -174,6 +175,37 @@ k.reviewSource({
   has nothing to review.
 - Add `reviewersOf(fresh)` to say who it put on your own PRs, as `{ url, reviewers }` rows. They join the code
   host's reviewers, so the Board can say "Waiting on Ana" even when the code host was never asked.
+
+## Coding agents
+
+Tasks go to Claude Code by default. Codex and Gemini ship with cockpit as well, and a plugin can add another CLI that works without a terminal and prints JSON lines:
+
+```ts
+k.agent({
+  id: "aider",
+  name: "Aider",
+  bin: "aider",
+  about: "Small edits in a few files.",
+  models: () => [{ id: "sonnet", label: "Sonnet" }],
+  // one turn; the prompt arrives on stdin
+  headless: (t) => ["--json", ...(t.model ? ["--model", t.model] : []), ...(t.resume ? ["--restore", t.resume] : [])],
+  // one line of output, as cockpit's events
+  parse: (line, state) => {
+    const d = JSON.parse(line);
+    if (d.type === "start") return [{ kind: "session", id: d.id }];
+    if (d.type === "reply") return [{ kind: "message", text: d.text }];
+    if (d.type === "end") return [{ kind: "usage", input: d.tokens_in, output: d.tokens_out }, { kind: "done", ok: d.ok }];
+    return [];
+  },
+  terminal: (resume) => (resume ? ["--restore", resume] : []),
+});
+```
+
+- Each prompt runs `bin` with the arguments from `headless`, in the task's worktree, and writes the prompt to stdin. The first turn's `session` event gives the agent's own id for the conversation, and later turns get it back as `t.resume`.
+- `parse` turns a line into events: `session`, `message`, `thinking`, `tool`, `tool_result`, `usage`, `done` and `error`. A line it throws on is skipped. `state` is kept for the whole turn, for an agent that splits one answer over several lines.
+- `t.access` says what the agent may do: `sandbox` (edit its folder and run commands there), `readonly`, or `full`. `t.writable` lists the folders outside the worktree it also needs to write to, like the repo's git data, so it can commit.
+- `terminal` gives the arguments that open the same conversation in the agent's own screen, for the **Open in** button.
+- `bin` can be changed per machine in `config.local.toml`, under `[agents.<id>]`.
 
 ## Access from other machines
 

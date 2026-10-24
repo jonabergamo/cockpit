@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { type SettingsRes, useSaveSettings, useSettings } from "../lib/cost";
-import { useAppConfig } from "../lib/queries";
+import { useAgents, useAppConfig } from "../lib/queries";
 import { Button, ErrorNote, inputClass } from "./ui";
 
 type Patterns = { e2e: string; audit: string; typecheck: string; lint: string; unit: string };
@@ -141,6 +141,7 @@ export function AutomationSettings() {
   const q = useSettings();
   const cfg = useAppConfig();
   const save = useSaveSettings();
+  const agents = useAgents();
   const [err, setErr] = useState<unknown>();
   // runs isn't in the shared settings type yet
   const s = q.data?.settings as S | undefined;
@@ -161,16 +162,28 @@ export function AutomationSettings() {
         <Num label="Tasks running at once" value={s.tasks.maxParallel} min={1} max={12} onSave={(n) => put("tasks", { maxParallel: n })} />
         <Num label="Hold new tasks above" help="Of the 5 hour limit, as the status line reports it" value={s.tasks.pauseAbovePct} min={10} max={100} unit="% used" onSave={(n) => put("tasks", { pauseAbovePct: n })} />
         <label className="flex items-center gap-3 text-[13px]">
+          <span className="flex-1">Default agent for tasks</span>
+          <select value={s.tasks.defaultAgent || "claude"} onChange={(e) => put("tasks", { defaultAgent: e.target.value === "claude" ? "" : e.target.value, defaultModel: "" })} className={inputClass}>
+            {(agents.data ?? [{ id: "claude", name: "Claude Code", installed: true }]).filter((a) => a.installed || a.id === (s.tasks.defaultAgent || "claude")).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-3 text-[13px]">
           <span className="flex-1">Default model for tasks</span>
           <select value={s.tasks.defaultModel} onChange={(e) => put("tasks", { defaultModel: e.target.value })} className={inputClass}>
-            {["", "opus", "sonnet", "haiku"].map((m) => (
-              <option key={m} value={m}>
-                {m || "Claude Code's default"}
+            <option value="">The agent's own default</option>
+            {(agents.data?.find((a) => a.id === (s.tasks.defaultAgent || "claude"))?.models ?? []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
               </option>
             ))}
           </select>
         </label>
       </div>
+      <CodingAgents />
       <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Overnight queue</h3>
         {s.costs === "hide" ? (
@@ -252,5 +265,34 @@ export function AutomationSettings() {
       />
       <ErrorNote error={err} />
     </section>
+  );
+}
+
+// The agents work can go to besides Claude Code's terminal, and whether each is ready on the machine that runs them
+function CodingAgents() {
+  const agents = useAgents();
+  const [err, setErr] = useState<unknown>();
+  if (!agents.data) return null;
+  return (
+    <div className="space-y-2.5">
+      <h3 className="text-[12px] text-faint uppercase tracking-wide">Coding agents</h3>
+      <p className="text-[12px] text-faint">
+        Tasks, flows and the lead can hand work to any of these. Besides Claude Code they run a turn at a time without a terminal: follow up from the session's page, or open it in the agent's own screen. Each needs installing and logging in on the machine the automations run on.
+      </p>
+      {agents.data.map((a) => (
+        <div key={a.id} className="flex items-center gap-3 text-[13px]">
+          <span className="flex-1 min-w-0">
+            <span className="block">{a.name}</span>
+            <span className="block text-[12px] text-faint truncate">{a.installed ? `${a.version} · ${a.about ?? ""}` : `Not installed (${a.id} isn't on the PATH)`}</span>
+          </span>
+          {a.installed && (
+            <Button size="sm" variant="ghost" onClick={() => api.post(`/agents/${a.id}/login`).then(() => (location.href = "/terminals"), setErr)}>
+              Log in
+            </Button>
+          )}
+        </div>
+      ))}
+      <ErrorNote error={err} />
+    </div>
   );
 }

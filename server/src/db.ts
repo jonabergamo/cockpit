@@ -158,11 +158,34 @@ db.exec(`
   create index if not exists runs_ticket on runs (ticket);
 `);
 
+// sessions of agents cockpit runs a turn at a time (Codex, Gemini, Claude without a terminal); what they said is
+// in file, one entry per line
+db.exec(`
+  create table if not exists agent_sessions (
+    id text primary key,
+    agent text not null,
+    model text,
+    cwd text not null,
+    access text not null default 'sandbox',
+    native_id text,
+    title text,
+    status text not null,
+    file text not null,
+    tokens_in integer not null default 0,
+    tokens_out integer not null default 0,
+    cost real,
+    error text,
+    started_at integer not null,
+    updated_at integer not null
+  );
+`);
+
 // columns added after their table first shipped
 const hasColumn = (table: string, column: string) => (db.prepare(`pragma table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
 if (!hasColumn("tasks", "template")) db.exec("alter table tasks add column template text");
 if (!hasColumn("tasks", "on_pr")) db.exec("alter table tasks add column on_pr text");
 if (!hasColumn("tasks", "base")) db.exec("alter table tasks add column base text");
+if (!hasColumn("tasks", "agent")) db.exec("alter table tasks add column agent text");
 if (!hasColumn("tasks", "overnight")) db.exec("alter table tasks add column overnight integer not null default 0");
 
 const inflight = new Map<string, Promise<unknown>>();

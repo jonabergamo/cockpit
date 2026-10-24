@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { Epic, PullRequest, Run, RunDetail, RunKind, RunStatus, ScreenInfo, Sprint, Theme, Ticket, Worktree } from "@cockpit/shared";
+import type { AgentInfo, Epic, PullRequest, Run, RunDetail, RunKind, RunStatus, ScreenInfo, Sprint, Theme, Ticket, Worktree } from "@cockpit/shared";
 import { api, qs } from "./api";
 
 export interface AppConfig {
@@ -41,6 +41,9 @@ export interface Job {
   output: string;
   code?: number;
 }
+
+// the coding agents work can go to, as the machine that runs them sees them
+export const useAgents = (enabled = true) => useQuery({ queryKey: ["coding-agents"], queryFn: () => api.get<AgentInfo[]>("/agents"), staleTime: 60_000, enabled });
 
 export const useAppConfig = () => useQuery({ queryKey: ["config"], queryFn: () => api.get<AppConfig>("/config"), staleTime: Infinity });
 

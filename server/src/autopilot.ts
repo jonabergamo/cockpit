@@ -1,7 +1,7 @@
 // Autopilot: when a PR you turned it on for goes red (failing checks, changes requested), the failure goes
 // back to the Claude session that owns the work, without you pressing anything. It gives up after a few tries.
 import type { PullRequest } from "@cockpit/shared";
-import { paneOf, sendText } from "./agents.ts";
+import { canSend, sendText } from "./agents.ts";
 import { boardChanged, matchWorker } from "./board.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { db } from "./db.ts";
@@ -113,7 +113,7 @@ async function tick() {
       if (session?.status === "busy") continue;
       const prompt = `${await fixPrompt(pr, d.kind)}\n\n(Sent by cockpit's autopilot, try ${r.attempts + 1} of ${max}.)`;
       let how: string;
-      if (session && session.status === "idle" && paneOf(session.id) && (await sendText(session.id, prompt))) how = "told its session";
+      if (session && (session.agent || session.status === "idle") && canSend(session.id) && (await sendText(session.id, prompt))) how = "told its session";
       else {
         // its last session keeps the context; otherwise a new one in the worktree
         const args = session ? ["--resume", session.id, prompt] : [prompt];

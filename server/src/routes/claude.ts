@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { agentTerminal } from "./agents.ts";
 import { headless } from "../placement/headless.ts";
 import { where } from "../placement/where.ts";
 import { findOwner } from "../remote/work.ts";
@@ -56,6 +57,12 @@ export const claude = new Hono()
       // claude only finds a session from the folder it ran in, so use the one we indexed
       await findSession(resume);
       const s = getSession(resume);
+      // another coding agent opens in its own screen, on the machine it runs on
+      if (s?.agent) {
+        if (s.node) return c.json({ error: `Open it from its session page; it runs on ${s.node}` }, 400);
+        const term = agentTerminal(resume);
+        return term ? c.json(term) : c.json({ error: "This agent can't be opened in a terminal" }, 400);
+      }
       // a prompt rides along as the first new message of the resumed session
       const args = ["--resume", resume, ...(prompt ? [prompt] : [])];
       // one that ran on a node resumes there, in the folder it ran in

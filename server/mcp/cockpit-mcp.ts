@@ -103,17 +103,32 @@ server.registerTool(
   "start_task",
   {
     description:
-      "Queue work for a new worker: cockpit makes a worktree and branch, then starts Claude there with the prompt. attempts > 1 runs that many independent tries to compare. after = task or group ids it must wait for (a wave). Returns the tasks created.",
+      "Queue work for a new worker: cockpit makes a worktree and branch, then starts a coding agent there with the prompt (Claude Code unless agent says otherwise; see list_agents). attempts > 1 runs that many independent tries to compare; lineup instead runs one try per entry, each with its own agent and model, to compare agents. after = task or group ids it must wait for (a wave). Returns the tasks created.",
     inputSchema: {
       title: z.string().min(1),
       prompt: z.string().optional().describe("What the worker should do and how to check it's done; empty uses the ticket"),
       ticket: z.string().optional(),
       attempts: z.number().int().min(1).max(4).optional(),
-      model: z.string().optional().describe("e.g. opus, sonnet, haiku; empty is the default"),
+      agent: z.string().optional().describe("claude, codex, gemini... (list_agents); empty is the default"),
+      model: z.string().optional().describe("one of the agent's models from list_agents, e.g. opus or sonnet for claude; empty is its default"),
+      lineup: z
+        .array(z.object({ agent: z.string().optional(), model: z.string().optional() }))
+        .min(1)
+        .max(4)
+        .optional()
+        .describe("one attempt per entry, e.g. [{agent:'claude',model:'opus'},{agent:'codex'}]"),
       after: z.array(z.string()).optional(),
     },
   },
-  wrap((a: { title: string; prompt?: string; ticket?: string; attempts?: number; model?: string; after?: string[] }) => call("POST", "/tasks", { ...a, dependsOn: a.after })),
+  wrap((a: { title: string; prompt?: string; ticket?: string; attempts?: number; agent?: string; model?: string; lineup?: { agent?: string; model?: string }[]; after?: string[] }) =>
+    call("POST", "/tasks", { ...a, dependsOn: a.after }),
+  ),
+);
+
+server.registerTool(
+  "list_agents",
+  { description: "The coding agents cockpit can start workers with: whether each is installed, its models (the first is the default) and what it's good at.", inputSchema: {} },
+  wrap(async () => ((await call("GET", "/agents")) as { id: string; name: string; installed: boolean; about?: string; models: { id: string }[] }[]).map((a) => ({ id: a.id, name: a.name, installed: a.installed, about: a.about, models: a.models.map((m) => m.id) }))),
 );
 
 server.registerTool("list_tasks", { description: "Every task cockpit has queued or run, newest first, with status, worktree, session and group.", inputSchema: {} }, wrap(() => call("GET", "/tasks")));
