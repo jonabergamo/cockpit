@@ -5,6 +5,7 @@ import type { Run, RunKind, RunStatus, RunStep } from "@cockpit/shared";
 import { JobLog } from "../components/JobLog";
 import { PrSummary } from "../components/PrSummary";
 import { runSomething } from "../components/RunSomething";
+import { RunVideo } from "../components/VideoTrim";
 import { Button, Empty, ErrorNote, Loading, PageHeader, Tag, inputClass } from "../components/ui";
 import { api } from "../lib/api";
 import { markSeen } from "../lib/badges";
@@ -511,12 +512,7 @@ export function RunPage() {
           <h2 className="font-semibold">Files</h2>
           {r.artifacts.map((a) =>
             a.type === "video" ? (
-              <div key={a.name}>
-                <video src={files(a.name)} controls preload="metadata" className="max-h-[70vh] max-w-full rounded-lg border border-line bg-black" />
-                <a href={files(a.name)} download={a.name} className="text-[12px] text-muted hover:text-ink">
-                  {a.name}
-                </a>
-              </div>
+              <RunVideo key={a.name} runId={r.id} a={a} url={files(a.name)} />
             ) : a.type === "image" ? (
               <a key={a.name} href={files(a.name)} target="_blank" rel="noreferrer" className="block">
                 <img src={files(a.name)} alt={a.name} className="max-h-[50vh] max-w-full rounded-lg border border-line" />

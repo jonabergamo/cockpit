@@ -2,7 +2,7 @@
 // `cockpit run`, a terminal, verify, a plugin, a script of yours). A run is a row in the runs table, its
 // output is data/runs/<id>.log and its files are in data/runs/<id>/.
 import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, appendFileSync, rmSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, appendFileSync, renameSync, rmSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import type { Run, RunArtifact, RunEvent, RunFilter, RunKind, RunStart, RunStatus, RunSummary, Worktree } from "@cockpit/shared";
@@ -14,7 +14,7 @@ import { notify } from "./notify.ts";
 import { sprintTickets } from "./providers.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
 import { getSettings, type Settings } from "./settings.ts";
-import { ticketOf } from "./util.ts";
+import { run, ticketOf } from "./util.ts";
 import { listWorktrees } from "./worktrees.ts";
 
 export const KINDS: RunKind[] = ["unit", "lint", "typecheck", "audit", "e2e", "proof", "verify", "ci", "other"];
@@ -288,6 +288,56 @@ function addArtifact(r: Run, a: { path: string; name?: string; type?: string }):
   return art;
 }
 
+// ---- cutting a video ----
+
+// the original of a cut video, next to it and not listed, so every cut starts from the whole recording
+export const originalOf = (id: string, name: string) => join(filesDir(id), `.original-${name}`);
+const cutting = new Set<string>();
+
+// Keeps start..end seconds of a run's video. It's encoded again rather than copied, so the cut lands on the exact
+// frame and not on the keyframe before it.
+export async function trimVideo(id: string, name: string, start: number, end: number) {
+  const r = getRun(id);
+  const a = r?.artifacts.find((x) => x.name === name && x.type === "video");
+  if (!r || !a) throw Object.assign(new Error("no such video"), { status: 404 });
+  if (r.status === "running") throw Object.assign(new Error("Wait for the run to end before cutting its video"), { status: 409 });
+  if (!(Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end - start >= 0.5)) throw Object.assign(new Error("The end has to be at least half a second after the start"), { status: 400 });
+  const key = `${id}/${name}`;
+  if (cutting.has(key)) throw Object.assign(new Error("It's already being cut"), { status: 409 });
+  cutting.add(key);
+  try {
+    const file = join(filesDir(id), name);
+    const original = originalOf(id, name);
+    if (!existsSync(original)) copyFileSync(file, original);
+    const tmp = join(filesDir(id), `.cut-${name}`);
+    await run("ffmpeg", ["-y", "-v", "error", "-ss", start.toFixed(3), "-i", original, "-t", (end - start).toFixed(3), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", tmp], { timeout: 15 * 60_000 }).catch((e: Error) => {
+      rmSync(tmp, { force: true });
+      throw Object.assign(new Error(/ENOENT/.test(e.message) ? "Cutting videos needs ffmpeg installed" : `ffmpeg couldn't cut it: ${e.message.split("\n").slice(-1)[0]}`), { status: 500 });
+    });
+    renameSync(tmp, file);
+    const fresh = getRun(id)!;
+    fresh.artifacts = fresh.artifacts.map((x) => (x.name === name ? { ...x, trimmed: { start: +start.toFixed(3), end: +end.toFixed(3), at: Date.now() } } : x));
+    save(fresh);
+    broadcast({ type: "run", run: fresh });
+    return fresh;
+  } finally {
+    cutting.delete(key);
+  }
+}
+
+// puts the whole recording back
+export function restoreVideo(id: string, name: string) {
+  const r = getRun(id);
+  const a = r?.artifacts.find((x) => x.name === name && x.type === "video");
+  const original = originalOf(id, name);
+  if (!r || !a || !existsSync(original)) throw Object.assign(new Error("There's no original to put back"), { status: 404 });
+  renameSync(original, join(filesDir(id), name));
+  r.artifacts = r.artifacts.map((x) => (x.name === name ? { name: x.name, path: x.path, type: x.type } : x));
+  save(r);
+  broadcast({ type: "run", run: r });
+  return r;
+}
+
 const ENDS: Record<string, RunStatus | undefined> = { done: undefined, failed: "fail", cancelled: "cancelled" };
 
 // One event: output lines, raw step lines, progress, a phase, an error, the result.
@@ -417,7 +467,7 @@ export function dropFailedVideos(hours = getSettings().runs.failedVideoHours, no
     if (!videos.length) continue;
     const passed = !!passedLater.get(r.name, r.worktree ?? "", r.startedAt);
     if (!passed && now - (r.endedAt ?? r.startedAt) < hours * 3600_000) continue;
-    for (const v of videos) rmSync(join(filesDir(r.id), v.name), { force: true });
+    for (const v of videos) for (const f of [join(filesDir(r.id), v.name), originalOf(r.id, v.name)]) rmSync(f, { force: true });
     r.artifacts = r.artifacts.filter((a) => a.type !== "video");
     r.meta.videoDropped = passed ? "a later run of it passed" : `it failed more than ${hours} hours ago`;
     save(r);

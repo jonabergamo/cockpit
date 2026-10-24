@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { RunDetail, RunEvent, RunFilter, RunKind, RunStatus } from "@cockpit/shared";
 import { config, paths } from "../config.ts";
 import { runPanels, runStartExtras, runSteps } from "../plugins.ts";
-import { appendRun, deleteRun, filesDir, getRun, KINDS, listRuns, logFile, outputTail, recordHook, recordRun, rerun, settled, startRun, stepLines, type HookPayload } from "../runs.ts";
+import { appendRun, deleteRun, filesDir, originalOf, restoreVideo, trimVideo, getRun, KINDS, listRuns, logFile, outputTail, recordHook, recordRun, rerun, settled, startRun, stepLines, type HookPayload } from "../runs.ts";
 import { runOptions, startOption } from "../runnable.ts";
 import { sendRunFailure } from "../verify.ts";
 
@@ -152,7 +152,8 @@ export const runs = new Hono()
   .get("/:id/artifacts/:name", (c) => {
     const r = getRun(c.req.param("id"));
     const a = r?.artifacts.find((x) => x.name === c.req.param("name"));
-    const file = r && a ? join(filesDir(r.id), a.name) : "";
+    // ?original=1 is the whole recording of a cut video, for changing the cut
+    const file = r && a ? (c.req.query("original") && a.trimmed ? originalOf(r.id, a.name) : join(filesDir(r.id), a.name)) : "";
     if (!file || !existsSync(file)) return c.json({ error: "no such file" }, 404);
     const size = statSync(file).size;
     const ext = a!.name.slice(a!.name.lastIndexOf(".")).toLowerCase();
@@ -169,6 +170,22 @@ export const runs = new Hono()
       status: 206,
       headers: { "content-type": type, "content-range": `bytes ${start}-${end}/${size}`, "accept-ranges": "bytes", "content-length": String(end - start + 1) },
     });
+  })
+  // cut a video to start..end seconds of its original, or put the original back
+  .post("/:id/artifacts/:name/trim", async (c) => {
+    try {
+      const { start, end } = await c.req.json<{ start: number; end: number }>();
+      return c.json(await trimVideo(c.req.param("id"), c.req.param("name"), Number(start), Number(end)));
+    } catch (e) {
+      return fail(e);
+    }
+  })
+  .post("/:id/artifacts/:name/restore", (c) => {
+    try {
+      return c.json(restoreVideo(c.req.param("id"), c.req.param("name")));
+    } catch (e) {
+      return fail(e);
+    }
   })
   .delete("/:id", (c) => {
     if (!getRun(c.req.param("id"))) return c.json({ error: "no such run" }, 404);

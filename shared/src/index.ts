@@ -415,6 +415,8 @@ export interface RunArtifact {
   name: string;
   path: string;
   type: string;
+  // a video cut to these seconds of its original, which is kept so the cut can change or be undone
+  trimmed?: { start: number; end: number; at: number };
 }
 
 export interface Run {
