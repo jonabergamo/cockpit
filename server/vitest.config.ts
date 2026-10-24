@@ -8,5 +8,6 @@ export default defineConfig({
       // a machine set up as a node or hub runs its tests as a single one
       COCKPIT_ROLE: "all",
     },
+    setupFiles: ["./test/setup.ts"],
   },
 });
