@@ -8,6 +8,8 @@ const root = resolve(import.meta.dirname, "../..");
 
 const expand = (p: string) => (p.startsWith("~") ? join(homedir(), p.slice(1)) : p);
 const path = z.string().transform(expand);
+// a default goes through ~ too: zod hands a default back as it is, without the transform
+const pathOr = (d: string) => z.string().default(d).transform(expand);
 
 const schema = z.object({
   // all: everything on this machine (the default). hub: the screens, settings and plugins, working with nodes.
@@ -23,9 +25,9 @@ const schema = z.object({
   // Folders whose git repos can also be opened in the code view, besides the worktrees
   extraRoots: z.array(path).default([]),
   // where your own plugins live, besides the ones that ship in plugins/; empty means <data>/plugins
-  pluginsDir: path.default(""),
+  pluginsDir: pathOr(""),
   // bin is the claude that claude -p runs (notes, asking cockpit), when it isn't the one on the PATH
-  claude: z.object({ dir: path.default("~/.claude"), bin: z.string().default("claude") }).prefault({}),
+  claude: z.object({ dir: pathOr("~/.claude"), bin: z.string().default("claude") }).prefault({}),
   // other coding agents by id ("codex", "gemini"), when their command isn't the one on the PATH
   agents: z.record(z.string(), z.object({ bin: z.string().optional() })).default({}),
   // `cockpit run --record`: the virtual screen the command's browser opens on, and the Chromium that shows its
@@ -33,9 +35,9 @@ const schema = z.object({
   record: z.object({ screen: z.string().regex(/^\d{3,4}x\d{3,4}$/).default("1600x1000"), browser: z.string().default("") }).prefault({}),
   repo: z
     .object({
-      path: path.default(""),
+      path: pathOr(""),
       name: z.string().default(""),
-      worktreesDir: path.default("~/.claude/worktrees"),
+      worktreesDir: pathOr("~/.claude/worktrees"),
       keyPattern: z.string().default("[A-Z][A-Z0-9]+-\\d+"),
       branchTemplate: z.string().default("feat/{key}/{slug}"),
       // the branch work starts from and its PRs go back to, like main or staging; {base} in createCommand
@@ -80,7 +82,7 @@ const schema = z.object({
       // added to the prompt when "Include the backend" is ticked. Only a review skill that knows the option needs it,
       // so the checkbox shows only when this is set
       backendNote: z.string().default(""),
-      cwd: path.default(""),
+      cwd: pathOr(""),
     })
     .prefault({}),
 });
