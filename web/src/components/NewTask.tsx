@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { Task } from "@cockpit/shared";
+import type { CreateOptions, NewTicket, Task, Ticket } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { useAppConfig, useTickets } from "../lib/queries";
 import { useSettings } from "../lib/cost";
 import { Button, ErrorNote, inputClass, Modal, Tabs } from "./ui";
+import { TicketPicker } from "./TicketPicker";
 
 // Opened from the Board, a ticket and ⌘K, so the open state lives outside them all.
 let state: { open: boolean; ticket?: string; after?: string; onPr?: string } = { open: false };
@@ -41,6 +42,9 @@ export function NewTaskModal() {
   const [onPr, setOnPr] = useState("");
   const [overnight, setOvernight] = useState(false);
   const [busy, setBusy] = useState(false);
+  // a ticket to make in the tracker before the task is queued on it
+  const [draft, setDraft] = useState<NewTicket | null>(null);
+  const createOpts = useQuery({ queryKey: ["tickets", "new"], queryFn: () => api.get<CreateOptions | null>("/tickets/new"), enabled: s.open && !!cfg.data?.tracker, staleTime: 5 * 60_000 });
   const [err, setErr] = useState<unknown>();
 
   useEffect(() => {
@@ -53,9 +57,11 @@ export function NewTaskModal() {
     setPrompt("");
     setOnPr(s.onPr ?? "");
     setOvernight(false);
+    setDraft(null);
   }, [s.open, s.ticket, s.after, s.onPr, tickets.data]);
 
   const pickTicket = (key: string) => {
+    setDraft(null);
     setTicket(key);
     const t = tickets.data?.tickets.find((x) => x.key === key);
     if (t && !title) setTitle(t.summary);
@@ -67,7 +73,16 @@ export function NewTaskModal() {
     setBusy(true);
     setErr(undefined);
     try {
-      await api.post<Task[]>("/tasks", { title, prompt, ticket: ticket || undefined, attempts: Number(attempts), model: model || undefined, template: kind || undefined, dependsOn: after ? [after] : [], onPr: onPr.trim() || undefined, overnight: overnight || undefined });
+      let key = ticket;
+      if (draft) {
+        const made = await api.post<Ticket>("/tickets/new", { ...draft, summary: draft.summary.trim() || title.trim(), description: draft.description?.trim() || prompt.trim() || undefined });
+        key = made.key;
+        // made once: asking again after the task fails to queue uses this ticket rather than making another
+        setTicket(key);
+        setDraft(null);
+        qc.invalidateQueries({ queryKey: ["tickets"] });
+      }
+      await api.post<Task[]>("/tasks", { title, prompt, ticket: key || undefined, attempts: Number(attempts), model: model || undefined, template: kind || undefined, dependsOn: after ? [after] : [], onPr: onPr.trim() || undefined, overnight: overnight || undefined });
       await Promise.all([qc.invalidateQueries({ queryKey: ["board"] }), qc.invalidateQueries({ queryKey: ["tasks"] })]);
       newTask.close();
       setTitle("");
@@ -90,25 +105,35 @@ export function NewTaskModal() {
         }}
       >
         <p className="text-muted">Cockpit makes a worktree and branch for it and starts Claude there. With more than one attempt, each gets its own, so you can keep the best.</p>
-        {cfg.data?.tracker && !!tickets.data?.tickets.length && (
-          <label className="block space-y-1">
-            <span className="text-muted">Ticket (optional)</span>
-            <select value={ticket} onChange={(e) => pickTicket(e.target.value)} className={`${inputClass} w-full`}>
-              <option value="">None</option>
-              {tickets.data.tickets.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.key} · {t.summary}
-                </option>
-              ))}
-            </select>
-          </label>
+        {cfg.data?.tracker && (!!tickets.data?.tickets.length || !!createOpts.data) && (
+          <div className="space-y-1">
+            <span className="block text-muted">Ticket (optional)</span>
+            <TicketPicker
+              value={ticket}
+              onChange={pickTicket}
+              tickets={tickets.data?.tickets ?? []}
+              epics={tickets.data?.epics ?? []}
+              statusOrder={cfg.data.statusOrder}
+              creating={!!draft}
+              onCreate={
+                createOpts.data
+                  ? (summary) => {
+                      setTicket("");
+                      setDraft({ summary: summary || title, type: createOpts.data!.types[0], preset: createOpts.data!.presets[0], inSprint: createOpts.data!.sprint, fields: {} });
+                      if (summary && !title) setTitle(summary);
+                    }
+                  : undefined
+              }
+            />
+          </div>
         )}
+        {draft && createOpts.data && <CreateTicket draft={draft} onChange={setDraft} options={createOpts.data} epics={tickets.data?.epics ?? []} tracker={cfg.data?.tracker?.name ?? "the tracker"} />}
         <label className="block space-y-1">
           <span className="text-muted">Title</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Saved cards on the checkout page" className={`${inputClass} w-full`} autoFocus />
         </label>
         <label className="block space-y-1">
-          <span className="text-muted">What Claude should do {ticket && <span className="text-faint">(empty uses the ticket)</span>}</span>
+          <span className="text-muted">What Claude should do {(ticket || draft) && <span className="text-faint">(empty uses the ticket)</span>}</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder="Describe the outcome you want, and how to check it's done." className={`${inputClass} w-full h-auto py-2`} />
         </label>
         <label className="block space-y-1">
@@ -172,11 +197,86 @@ export function NewTaskModal() {
           <Button type="button" variant="ghost" onClick={newTask.close}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={busy || !title.trim() || (!prompt.trim() && !ticket)}>
-            {busy ? "Queueing" : overnight ? "Queue for tonight" : Number(attempts) > 1 ? `Queue ${attempts} attempts` : "Queue it"}
+          <Button variant="primary" disabled={busy || !title.trim() || (!prompt.trim() && !ticket && !draft)}>
+            {busy ? (draft ? "Making the ticket" : "Queueing") : draft ? "Make the ticket and queue it" : overnight ? "Queue for tonight" : Number(attempts) > 1 ? `Queue ${attempts} attempts` : "Queue it"}
           </Button>
         </div>
       </form>
     </Modal>
+  );
+}
+
+// What the new ticket gets: its summary, type, the preset of fields it's filed with, its epic, the sprint, and the
+// fields the tracker asks for (acceptance criteria, points). The description defaults to what Claude should do.
+function CreateTicket({ draft, onChange, options, epics, tracker }: { draft: NewTicket; onChange: (d: NewTicket | null) => void; options: CreateOptions; epics: { key: string; summary: string }[]; tracker: string }) {
+  const set = (p: Partial<NewTicket>) => onChange({ ...draft, ...p });
+  const field = (k: string, v: string | number) => set({ fields: { ...draft.fields, [k]: v } });
+  return (
+    <div className="space-y-3 rounded-md border border-line bg-ground p-3">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">New ticket in {tracker}</span>
+        <button type="button" onClick={() => onChange(null)} className="text-[12px] text-muted hover:text-ink">
+          Don't make one
+        </button>
+      </div>
+      <label className="block space-y-1">
+        <span className="text-muted">Summary <span className="text-faint">(empty uses the title)</span></span>
+        <input value={draft.summary} onChange={(e) => set({ summary: e.target.value })} className={`${inputClass} w-full`} />
+      </label>
+      <div className="flex flex-wrap items-end gap-4">
+        {options.types.length > 1 && (
+          <div className="space-y-1">
+            <span className="block text-muted">Type</span>
+            <Tabs value={draft.type ?? options.types[0]} onChange={(type) => set({ type })} items={options.types.map((t) => ({ value: t, label: t }))} />
+          </div>
+        )}
+        {options.presets.length > 1 && (
+          <div className="space-y-1">
+            <span className="block text-muted">Filed as</span>
+            <Tabs value={draft.preset ?? options.presets[0]} onChange={(preset) => set({ preset })} items={options.presets.map((p) => ({ value: p, label: p }))} />
+          </div>
+        )}
+        {epics.length > 0 && (
+          <label className="space-y-1 flex-1 min-w-[180px]">
+            <span className="block text-muted">Epic</span>
+            <select value={draft.parent ?? ""} onChange={(e) => set({ parent: e.target.value || undefined })} className={`${inputClass} w-full`}>
+              <option value="">None</option>
+              {epics.map((e) => (
+                <option key={e.key} value={e.key}>
+                  {e.key} · {e.summary}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      {options.sprint && (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={!!draft.inSprint} onChange={(e) => set({ inSprint: e.target.checked })} className="size-4 accent-[var(--cobalt)]" />
+          Add it to the current sprint
+        </label>
+      )}
+      {options.fields.map((f) => (
+        <label key={f.key} className="block space-y-1">
+          <span className="text-muted">
+            {f.label} {f.help && <span className="text-faint">({f.help})</span>}
+          </span>
+          {f.kind === "lines" ? (
+            <textarea value={String(draft.fields?.[f.key] ?? "")} onChange={(e) => field(f.key, e.target.value)} rows={3} placeholder="One per line" className={`${inputClass} w-full h-auto py-2`} />
+          ) : (
+            <input
+              type={f.kind === "number" ? "number" : "text"}
+              value={String(draft.fields?.[f.key] ?? "")}
+              onChange={(e) => field(f.key, f.kind === "number" && e.target.value !== "" ? Number(e.target.value) : e.target.value)}
+              className={`${inputClass} block ${f.kind === "number" ? "w-24" : "w-full"}`}
+            />
+          )}
+        </label>
+      ))}
+      <label className="block space-y-1">
+        <span className="text-muted">Description <span className="text-faint">(empty uses what Claude should do)</span></span>
+        <textarea value={draft.description ?? ""} onChange={(e) => set({ description: e.target.value })} rows={3} className={`${inputClass} w-full h-auto py-2`} />
+      </label>
+    </div>
   );
 }

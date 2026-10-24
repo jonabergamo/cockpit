@@ -67,6 +67,50 @@
       "type": "json",
       "default": {},
       "help": "For the status chart, e.g. {\"Done\": [\"QA\", \"Done\"], \"Review\": [\"Review\"]}"
+    },
+    {
+      "key": "project",
+      "label": "Project for new tickets",
+      "type": "text",
+      "help": "Its key, like ACME. Empty uses the board's project"
+    },
+    {
+      "key": "createTypes",
+      "label": "Types of new tickets",
+      "type": "list",
+      "default": [
+        "Task",
+        "Story",
+        "Bug"
+      ],
+      "help": "As Jira names them, one per line"
+    },
+    {
+      "key": "createPresets",
+      "label": "Required fields for new tickets",
+      "type": "json",
+      "default": {},
+      "help": "Named sets of the custom fields your project requires, e.g. {\"Web\": {\"customfield_10100\": [{\"value\": \"Web\"}]}}. The first is the default"
+    },
+    {
+      "key": "acField",
+      "label": "Acceptance criteria field",
+      "type": "text",
+      "help": "Its id, like customfield_10200, to ask for them when creating a ticket"
+    },
+    {
+      "key": "sprintField",
+      "label": "Sprint field",
+      "type": "text",
+      "default": "customfield_10020",
+      "help": "Its id, to put a new ticket straight in the active sprint. Empty turns that off"
+    },
+    {
+      "key": "epicField",
+      "label": "Epic link field",
+      "type": "text",
+      "default": "customfield_10014",
+      "help": "Its id, to put a new ticket under an epic"
     }
   ],
   "requires": [

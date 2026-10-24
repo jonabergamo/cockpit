@@ -3,7 +3,8 @@ import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { fixPlan } from "../fix.ts";
-import { activeSprint, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
+import { activeSprint, createOptions, createTicket, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
+import type { NewTicket } from "@cockpit/shared";
 import { ticketOf } from "../util.ts";
 import { getJob, listJobs, type Job } from "../jobs.ts";
 import { getReview, lastReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
@@ -146,6 +147,17 @@ export const work = new Hono()
       tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key), spend: spend(t.key), kind: templateFor(t)?.name })),
       epics: epics.map((e) => ({ ...e, lastSession: last.get(e.key) ?? null, spend: spend(e.key) })),
     });
+  })
+  // a new ticket in the tracker, assigned to you, to start a task on: what it can ask for, and making one
+  .get("/tickets/new", async (c) => c.json(await createOptions()))
+  .post("/tickets/new", async (c) => {
+    try {
+      const t = await createTicket(await c.req.json<NewTicket>());
+      await myTickets(true).catch(() => {});
+      return c.json(t);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 400) as 400);
+    }
   })
   // Sets up the one worktree an epic's stacked tickets are worked in
   .post("/epics", async (c) => {

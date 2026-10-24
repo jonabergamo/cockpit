@@ -1,4 +1,6 @@
-import type { Cockpit, Ticket, TrackerSprint, TrackerTicket } from "@cockpit/shared";
+import type { Cockpit, NewTicket, Ticket, TrackerSprint, TrackerTicket } from "@cockpit/shared";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Jira through Atlassian's acli. Everything is cached for long and only fetched again when a screen asks
 // for fresh data, since every call is a subprocess and a network round trip.
@@ -27,6 +29,39 @@ export function parseConcat(text: string): any[] {
   return out;
 }
 
+// Jira wants rich text as Atlassian Document Format: paragraphs, or a bullet list for lines like criteria
+const text = (t: string) => [{ type: "text", text: t }];
+export const adf = (body: string) => ({ type: "doc", version: 1, content: body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean).map((p) => ({ type: "paragraph", content: text(p) })) });
+export const adfList = (lines: string[]) => ({ type: "doc", version: 1, content: [{ type: "bulletList", content: lines.map((l) => ({ type: "listItem", content: [{ type: "paragraph", content: text(l) }] })) }] });
+
+export interface CreateConfig {
+  project: string;
+  // values a project requires, by preset name, as Jira field ids to values
+  presets: Record<string, Record<string, unknown>>;
+  acField?: string;
+  pointsField?: string;
+  sprintField?: string;
+  epicField?: string;
+  sprintId?: number;
+}
+
+// what acli's --from-json takes for a new work item; custom fields can only be set here, at creation
+export function createJson(t: NewTicket, c: CreateConfig) {
+  const extra: Record<string, unknown> = { ...(t.preset ? c.presets[t.preset] : Object.values(c.presets)[0]) };
+  const ac = String(t.fields?.ac ?? "").split("\n").map((l) => l.replace(/^[-*•]\s*/, "").trim()).filter(Boolean);
+  if (c.acField && ac.length) extra[c.acField] = adfList(ac);
+  if (c.pointsField && t.fields?.points !== undefined && t.fields.points !== "") extra[c.pointsField] = Number(t.fields.points);
+  if (c.sprintField && t.inSprint && c.sprintId) extra[c.sprintField] = c.sprintId;
+  if (c.epicField && t.parent) extra[c.epicField] = t.parent;
+  return {
+    projectKey: c.project,
+    type: t.type || "Task",
+    summary: t.summary,
+    ...(t.description?.trim() ? { description: adf(t.description) } : {}),
+    ...(Object.keys(extra).length ? { additionalAttributes: extra } : {}),
+  };
+}
+
 export default function setup(k: Cockpit) {
   const s = <T>(key: string) => k.setting<T>(key);
   const acli = async (args: string[]) => JSON.parse(await k.run("acli", ["jira", ...args, "--json"]));
@@ -42,6 +77,17 @@ export default function setup(k: Cockpit) {
     k.cache(`board:${s("board")}`, DAY, async () => {
       if (!s("board")) throw Object.assign(new Error("set the board name in Settings → Plugins → Jira"), { status: 400 });
       return (await acli(["board", "search", "--name", s<string>("board")])).values?.[0]?.id as number;
+    });
+
+  // the project new tickets go in: the setting, else the one the board belongs to ("Acme (ACME)")
+  const projectKey = () =>
+    k.cache(`project:${s("board")}:${s("project")}`, DAY, async () => {
+      if (s<string>("project")) return s<string>("project");
+      if (!s("board")) throw Object.assign(new Error("set the board, or the project for new tickets, in Settings → Plugins → Jira"), { status: 400 });
+      const loc = String((await acli(["board", "search", "--name", s<string>("board")])).values?.[0]?.location ?? "");
+      const key = loc.match(/\(([A-Z][A-Z0-9]+)\)\s*$/)?.[1];
+      if (!key) throw Object.assign(new Error("couldn't tell the board's project; set the project for new tickets in Settings → Plugins → Jira"), { status: 400 });
+      return key;
     });
 
   const points = () => s<string>("pointsField") || "customfield_10016";
@@ -217,6 +263,52 @@ export default function setup(k: Cockpit) {
         },
         force,
       ),
+    async createOptions() {
+      const ac = s<string>("acField");
+      return {
+        types: s<string[]>("createTypes")?.length ? s<string[]>("createTypes") : ["Task", "Story", "Bug"],
+        presets: Object.keys(s<Record<string, unknown>>("createPresets") ?? {}),
+        fields: [
+          ...(ac ? [{ key: "ac", label: "Acceptance criteria", kind: "lines" as const }] : []),
+          { key: "points", label: "Story points", kind: "number" as const },
+        ],
+        sprint: !!s<string>("sprintField"),
+      };
+    },
+    // made from a JSON file, since only that sets custom fields; then assigned to you, since the file's assignee
+    // wants an account id
+    async createTicket(t) {
+      const sprintId = t.inSprint ? (await activeSprint())?.id : undefined;
+      const body = createJson(t, {
+        project: await projectKey(),
+        presets: s<Record<string, Record<string, unknown>>>("createPresets") ?? {},
+        acField: s<string>("acField") || undefined,
+        pointsField: points(),
+        sprintField: s<string>("sprintField") || undefined,
+        epicField: s<string>("epicField") || undefined,
+        sprintId,
+      });
+      const file = join(k.dataDir, `new-ticket-${Date.now()}.json`);
+      writeFileSync(file, JSON.stringify(body));
+      let out: string;
+      try {
+        out = await k.run("acli", ["jira", "workitem", "create", "--from-json", file, "--json"]);
+      } finally {
+        rmSync(file, { force: true });
+      }
+      const key = (() => {
+        try {
+          return JSON.parse(out).key as string;
+        } catch {
+          return out.match(/[A-Z][A-Z0-9]+-\d+/)?.[0];
+        }
+      })();
+      if (!key) throw new Error(`Jira didn't say which ticket it made: ${out.slice(0, 200)}`);
+      await k.run("acli", ["jira", "workitem", "assign", "--key", key, "--assignee", "@me"]).catch(() => {});
+      await myTickets(true).catch(() => []);
+      const made = (await search(`key = ${key}`, !!sprintId).catch(() => []))[0];
+      return made ?? { key, summary: t.summary, status: "To Do", inSprint: !!sprintId };
+    },
     async epicInfo(key) {
       const raw = await acli(["workitem", "view", key, "--fields", "summary,issuetype"]);
       return { key: raw.key as string, summary: (raw.fields?.summary ?? "") as string, isEpic: raw.fields?.issuetype?.name === "Epic" };

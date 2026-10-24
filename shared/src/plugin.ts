@@ -157,6 +157,31 @@ export interface Tracker {
   inStatusOn?(sprintId: number, statuses: string[], day: string): Promise<string[]>;
   worktreeEpics?(keys: string[], force?: boolean): Promise<(Ticket & { children: string[] })[]>;
   epicInfo?(key: string): Promise<{ key: string; summary: string; isEpic: boolean }>;
+  // creating a ticket, assigned to you: what can be asked for (its types, the presets that fill in what the
+  // tracker's projects require, extra fields), then the ticket itself
+  createOptions?(): Promise<CreateOptions>;
+  createTicket?(t: NewTicket): Promise<Ticket>;
+}
+
+export interface CreateOptions {
+  types: string[];
+  // named sets of required values, like the app and team a project asks for; empty when none is needed
+  presets: string[];
+  // more to ask for, by key: lines become a list (acceptance criteria, say)
+  fields: { key: string; label: string; kind: "text" | "lines" | "number"; help?: string }[];
+  // whether a new ticket can go straight into the active sprint
+  sprint: boolean;
+}
+
+export interface NewTicket {
+  summary: string;
+  type?: string;
+  description?: string;
+  preset?: string;
+  // an epic or other parent, by key
+  parent?: string;
+  inSprint?: boolean;
+  fields?: Record<string, string | number>;
 }
 
 export interface PrRef {

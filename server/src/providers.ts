@@ -1,4 +1,4 @@
-import type { PrRef, PullRequest, Reviewer, StatusConfig, Ticket, TrackerSprint, TrackerTicket } from "@cockpit/shared";
+import type { CreateOptions, NewTicket, PrRef, PullRequest, Reviewer, StatusConfig, Ticket, TrackerSprint, TrackerTicket } from "@cockpit/shared";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { activeCodeHost, activeTracker, reviewSources } from "./plugins.ts";
@@ -34,6 +34,13 @@ export async function assignToMe(key: string) {
   const t = tracker();
   if (!t?.assignToMe) throw Object.assign(new Error("the tracker in use can't assign tickets"), { status: 400 });
   await t.assignToMe(key);
+}
+export const createOptions = async (): Promise<CreateOptions | null> => (tracker()?.createTicket ? ((await tracker()?.createOptions?.()) ?? { types: [], presets: [], fields: [], sprint: false }) : null);
+export async function createTicket(t: NewTicket) {
+  const tr = tracker();
+  if (!tr?.createTicket) throw Object.assign(new Error("The tracker in use can't create tickets"), { status: 400 });
+  if (!t.summary?.trim()) throw Object.assign(new Error("Give the ticket a summary"), { status: 400 });
+  return tr.createTicket({ ...t, summary: t.summary.trim() });
 }
 export const worktreeEpics = async (keys: string[], force = false) => (keys.length ? ((await tracker()?.worktreeEpics?.(keys, force)) ?? []) : []);
 export async function epicInfo(key: string) {

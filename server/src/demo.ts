@@ -400,6 +400,7 @@ export function mountDemo(app: Hono) {
     "/api/config": () => Response.json({ statusOrder: report().statusOrder, releasedStatuses: report().releasedStatuses, repoName: "acme", tracker: { plugin: "demo", name: "Jira" }, codeHost: { plugin: "demo", name: "GitHub" }, demo: true, hidden: getSettings().hidden, screens: pluginScreens(), themes: pluginThemes() }),
     "/api/sessions": ok(sessions),
     "/api/tickets": ok({ sprint, tickets: tickets.map((t) => ({ ...t, lastSession: (() => { const s = sessions.find((x) => x.ticket === t.key); return s ? { id: s.id, status: s.status, updatedAt: s.updatedAt } : null; })() })) }),
+    "/api/tickets/new": ok({ types: ["Story", "Task", "Bug"], presets: ["Web", "Mobile"], fields: [{ key: "ac", label: "Acceptance criteria", kind: "lines" }, { key: "points", label: "Story points", kind: "number" }], sprint: true }),
     "/api/prs": ok(prs),
     "/api/sprints": ok([sprint]),
     "/api/worktrees": ok(worktrees),
