@@ -16,7 +16,8 @@ import { spawnTerm } from "../pty.ts";
 import { claudeArgs, promptFor, templateFor, templateOf } from "../templates.ts";
 import { statusesOf } from "../providers.ts";
 import { ask } from "../ask.ts";
-import { spawnRemote } from "../remote/terminals.ts";
+import { refreshTerms, spawnRemote } from "../remote/terminals.ts";
+import { requestApi } from "../remote/forward.ts";
 
 export const claude = new Hono()
   .get("/files", async (c) => c.json(await listFiles()))
@@ -59,7 +60,14 @@ export const claude = new Hono()
       const s = getSession(resume);
       // another coding agent opens in its own screen, on the machine it runs on
       if (s?.agent) {
-        if (s.node) return c.json({ error: `Open it from its session page; it runs on ${s.node}` }, 400);
+        if (s.node) {
+          // the node knows the agent's own id for the conversation; it opens the terminal and says which
+          const res = await requestApi(s.node, { method: "POST", path: `/agents/sessions/${encodeURIComponent(resume)}/terminal`, headers: { "content-type": "application/json" }, body: "{}" });
+          const body = JSON.parse(res.body || "{}");
+          if (res.status !== 200) return c.json(body, res.status as 400);
+          await refreshTerms(s.node);
+          return c.json({ ...body, node: s.node });
+        }
         const term = agentTerminal(resume);
         return term ? c.json(term) : c.json({ error: "This agent can't be opened in a terminal" }, 400);
       }
