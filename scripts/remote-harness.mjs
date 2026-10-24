@@ -3,6 +3,7 @@
 // up, goes down when the node stops, and comes back when it starts again. Run it after a build:
 // `node scripts/remote-harness.mjs`.
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,11 +36,32 @@ git("init", "-q", "-b", "main");
 writeFileSync(join(repo, "README.md"), "harness\n");
 git("add", ".");
 git("-c", "user.name=harness", "-c", "user.email=harness@example.com", "commit", "-qm", "first");
+// a stand-in for claude on the node, so claude -p put there answers without calling Claude
+const fakeBin = join(dirs.node, "bin");
+mkdirSync(fakeBin);
+writeFileSync(join(fakeBin, "claude"), '#!/bin/sh\necho "answered on the node"\n', { mode: 0o755 });
+// a plugin on both machines that hands a file over and says what arrived
+for (const role of ["hub", "node"]) {
+  const dir = join(dirs[role], "plugins", "harness-echo");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "plugin.json"), JSON.stringify({ id: "harness-echo", name: "Harness echo", api: 1 }));
+  writeFileSync(
+    join(dir, "server.ts"),
+    `import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+export default function setup(k) {
+  k.expose("digest", (args, files) => ({ where: args.who, bytes: readFileSync(files.f).length, sha: createHash("sha1").update(readFileSync(files.f)).digest("hex") }));
+  k.route("POST", "/send", ({ body }) => k.remote(k.where("whisper")).call("digest", { who: "node" }, { files: { f: body.path } }));
+}
+`,
+  );
+}
 const configs = {};
 for (const role of ["hub", "node"]) {
   configs[role] = join(dirs[role], "config.toml");
   const toml = readFileSync(config, "utf8")
-    .replace(/^dir = .*$/m, `dir = "${claudeDir(role)}"`)
+    // never the real claude: the hub's would fail loudly, the node's is the stand-in
+    .replace(/^dir = .*$/m, `dir = "${claudeDir(role)}"\nbin = "${role === "node" ? join(fakeBin, "claude") : "/bin/false"}"`)
     .replace(/^extraRoots = .*$/m, "extraRoots = []")
     .replace(/^path = .*$/m, `path = "${role === "node" ? repo : ""}"`)
     .replace(/^worktreesDir = .*$/m, `worktreesDir = "${join(dirs[role], "worktrees")}"`)
@@ -210,6 +232,30 @@ try {
   await new Promise((r) => setTimeout(r, 3000));
   if (!(await once("Overnight queue started")) || !(await once("Overnight queue ended"))) throw new Error(`the node's notifications came over more than once: ${JSON.stringify(await titles())}`);
   console.log("node's notifications reached the hub once, including the one from while it was away");
+
+  // where things run: claude -p and a plugin's work put on the node
+  await until("the link after the restarts", async () => (await state()) === "up", 45_000);
+  await api("hub", "/machines/placement", { method: "PUT", body: JSON.stringify({ cap: "headless", value: "devbox" }) });
+  const asked = await finished((await api("hub", "/claude/question", { method: "POST", body: JSON.stringify({ question: "what's left?" }) })).id);
+  if (!/answered on the node/.test(asked.output)) throw new Error(`claude -p didn't run on the node: ${asked.output}`);
+  console.log("claude -p ran on the node, set from the hub");
+  for (const role of ["hub", "node"]) await api(role, "/plugins/harness-echo", { method: "PUT", body: JSON.stringify({ on: true }) });
+  await api("hub", "/machines/placement", { method: "PUT", body: JSON.stringify({ cap: "whisper", value: "devbox" }) });
+  const sha = (b) => createHash("sha1").update(b).digest("hex");
+  const audio = join(dirs.hub, "recording.bin");
+  const first = Buffer.alloc(5 * 1024 * 1024, 7);
+  writeFileSync(audio, first);
+  const send = () => api("hub", "/plugins/harness-echo/x/send", { method: "POST", body: JSON.stringify({ path: audio }) });
+  let got = await send();
+  if (got.where !== "node" || got.sha !== sha(first)) throw new Error(`the file didn't arrive whole: ${JSON.stringify(got)}`);
+  appendFileSync(audio, Buffer.from("and some more"));
+  got = await send();
+  if (got.sha !== sha(readFileSync(audio))) throw new Error("the file that grew didn't arrive whole");
+  // rewritten in place: the node's copy no longer matches and starts over
+  writeFileSync(audio, Buffer.alloc(first.length + 13, 9));
+  got = await send();
+  if (got.sha !== sha(readFileSync(audio))) throw new Error("the rewritten file didn't arrive whole");
+  console.log("a plugin's work ran on the node, its file copied over, only the new part when it grew");
   console.log("remote harness ok");
 } catch (e) {
   failed = true;

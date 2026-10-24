@@ -19,6 +19,7 @@ import { kill, listTerms, spawnTerm } from "./pty.ts";
 import { appendRun, getRun, listRuns, recordRun, startRun, terminalRun } from "./runs.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { getSettings, readRow, writeRow } from "./settings.ts";
+import { where } from "./placement/where.ts";
 import { run, setKeyPattern, ticketOf } from "./util.ts";
 
 // Plugins are folders with a plugin.json, from plugins/ in the repo (bundled) and from pluginsDir (yours).
@@ -55,6 +56,8 @@ const manifestSchema = z.object({
   author: z.string().optional(),
   homepage: z.string().optional(),
   defaultOn: z.boolean().optional(),
+  // also runs on the hub's nodes, set up the same, for work the hub puts there (transcription, say)
+  nodes: z.boolean().optional(),
   settings: z.array(settingSchema).default([]),
   skills: z.array(z.object({ name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/), required: z.boolean().optional() })).default([]),
   moved: z.record(z.string(), z.string().regex(/^\//, "a cockpit path like /p/other/screen")).optional(),
@@ -104,6 +107,8 @@ interface Plugin {
   tracker?: Tracker;
   codeHost?: CodeHost;
   reviewSource?: ReviewSource;
+  // what it lets itself call from another machine
+  exposed: Map<string, (args: any, files: Record<string, string>) => unknown>;
   access?: AccessProvider;
   runSteps: { kinds: RunKind[]; parse(lines: string[]): RunStep[] }[];
   runStarts: ((run: Run, body: Record<string, unknown>) => Record<string, unknown> | void)[];
@@ -220,6 +225,7 @@ function unload(p: Plugin) {
   p.tracker = undefined;
   p.codeHost = undefined;
   p.reviewSource = undefined;
+  p.exposed.clear();
   p.access = undefined;
   p.runSteps = [];
   p.runStarts = [];
@@ -279,6 +285,13 @@ function makeApi(p: Plugin): Cockpit {
     sendToSession: (sessionId, text) => sendText(sessionId, text),
     task: (t) => createTasks(t),
     job: (label, command, cwd) => new Promise((resolve) => startJob(label, command, cwd, (j) => resolve({ code: j.code ?? 1, output: j.output }))),
+    where: (cap) => where(cap),
+    expose(name, fn) {
+      if (live()) p.exposed.set(name, fn);
+    },
+    remote: (machine) => ({
+      call: async (name, args, opts) => (await import("./remote/plugincalls.ts")).callOn(machine, id, name, args, opts) as never,
+    }),
     onStop: (fn) => void (live() && p.stops.push(fn)),
     cache: (key, maxAge, fn, force) => cached(`plugin:${id}:${key}`, maxAge, fn, force),
     ticketOf: (...hay) => ticketOf(...hay),
@@ -385,7 +398,7 @@ export function loadAll() {
     }
     for (const [id, f] of found) {
       const old = plugins.get(id);
-      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], generation: 0, runSteps: [], runStarts: [], runPanels: [], runOptions: [] };
+      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], exposed: new Map(), generation: 0, runSteps: [], runStarts: [], runPanels: [], runOptions: [] };
       plugins.set(id, p);
       await load(p);
     }
@@ -632,12 +645,12 @@ export function pluginFile(id: string, rel: string) {
   return full;
 }
 
-// The plugins the automations lean on (a tracker, a code host, review sources) and how each is set up, for a
-// hub to pass on to its nodes. One that offered any of those once stays in the set, so turning it off passes on too.
+// The plugins the automations lean on (a tracker, a code host, review sources), and those that say they run on
+// nodes too, with how each is set up, for a hub to pass on to its nodes. One that offered any of those once stays in the set, so turning it off passes on too.
 export function workPluginSetup(): Record<string, Saved> {
   const ids = new Set(readRow<string[]>("workPlugins") ?? []);
   const before = ids.size;
-  for (const p of plugins.values()) if (p.tracker || p.codeHost || p.reviewSource) ids.add(p.manifest.id);
+  for (const p of plugins.values()) if (p.tracker || p.codeHost || p.reviewSource || p.manifest.nodes) ids.add(p.manifest.id);
   if (ids.size !== before) writeRow("workPlugins", [...ids]);
   return Object.fromEntries([...ids].map((id) => [id, saved(id)]));
 }
@@ -646,4 +659,12 @@ export function workPluginSetup(): Record<string, Saved> {
 export async function adoptPluginSetup(setup: Record<string, Saved>) {
   writeRow("plugins", { ...savedAll(), ...setup });
   for (const id of Object.keys(setup)) await reload(id);
+}
+
+// a plugin's exposed function, called by the same plugin on another machine; files arrive as keys of copies here
+export async function callExposed(id: string, name: string, args: unknown, files: Record<string, string>, fileOf: (plugin: string, key: string) => string) {
+  const p = plugins.get(id);
+  const fn = p?.state === "on" ? p.exposed.get(name) : undefined;
+  if (!fn) throw Object.assign(new Error(`${id} isn't on here, or doesn't offer ${name}`), { status: 404 });
+  return fn(args, Object.fromEntries(Object.entries(files ?? {}).map(([k, key]) => [k, fileOf(id, key)])));
 }

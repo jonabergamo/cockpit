@@ -1,18 +1,19 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { headless } from "../placement/headless.ts";
+import { where } from "../placement/where.ts";
+import { findOwner } from "../remote/work.ts";
 import { backups, createMemory, doctor, listFiles, memories, readBackup, readConfig, writeConfig } from "../claude/memory.ts";
 import { getSession, projectsDir } from "../claude/sessions.ts";
 import { getRun, listRuns } from "../claude/workflows.ts";
 import { config } from "../config.ts";
 import { allowedRoot, gitRoot, insideSaved } from "../files.ts";
-import { startJob } from "../jobs.ts";
 import { type EpicRef, openLead } from "../lead.ts";
 import { spawnTerm } from "../pty.ts";
 import { claudeArgs, promptFor, templateFor, templateOf } from "../templates.ts";
 import { statusesOf } from "../providers.ts";
 import { ask } from "../ask.ts";
-import { fill } from "../util.ts";
 import { spawnRemote } from "../remote/terminals.ts";
 
 export const claude = new Hono()
@@ -101,6 +102,11 @@ export const claude = new Hono()
   })
   .post("/ask", async (c) => {
     const { cwd, prompt } = await c.req.json<{ cwd?: string; prompt: string }>();
-    // the repo by default: Claude asks to trust a folder first, and the home folder usually isn't trusted
-    return c.json(startJob("claude -p", `${fill("claude -p {prompt}", { prompt })} < /dev/null`, cwd ?? (config.repo.path || process.env.HOME)));
+    // in a folder of a node it runs there; otherwise wherever Settings → Machines puts claude -p
+    const node = cwd ? await findOwner(cwd) : where("headless");
+    try {
+      return c.json(await headless({ label: "claude -p", prompt, cwd }, undefined, node));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 502) as 502);
+    }
   });

@@ -3,7 +3,7 @@
   "name": "Tailscale",
   "version": "1.0.0",
   "api": 1,
-  "description": "Reach cockpit from your other devices over your tailnet. Run `tailscale serve --bg --https=8444 http://127.0.0.1:8770` on this machine, and only the Tailscale login below gets in.",
+  "description": "Reach cockpit from your other devices over your tailnet, and add the tailnet's machines as nodes. Run `tailscale serve --bg --https=8444 http://127.0.0.1:8770` on this machine, and only the Tailscale login below gets in.",
   "author": "cockpit",
   "defaultOn": false,
   "settings": [

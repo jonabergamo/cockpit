@@ -24,7 +24,8 @@ const schema = z.object({
   extraRoots: z.array(path).default([]),
   // where your own plugins live, besides the ones that ship in plugins/; empty means <data>/plugins
   pluginsDir: path.default(""),
-  claude: z.object({ dir: path.default("~/.claude") }).prefault({}),
+  // bin is the claude that claude -p runs (notes, asking cockpit), when it isn't the one on the PATH
+  claude: z.object({ dir: path.default("~/.claude"), bin: z.string().default("claude") }).prefault({}),
   repo: z
     .object({
       path: path.default(""),

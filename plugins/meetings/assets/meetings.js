@@ -175,7 +175,7 @@ function drawLeft() {
   };
   if (fresh) $("#newbox").innerHTML = `
     ${setupErr ? `<div class="card">${error(`Couldn't check whether transcription is set up: ${setupErr}`)}<button class="small" id="recheck" style="margin-top:8px">Check again</button></div>` : ""}
-    ${notReady ? `<div class="card"><h2>Set up transcription</h2><p class="muted" style="font-size:13px">Meetings are transcribed on this computer with Whisper, which needs its own Python. This makes one with uv${setup.ffmpeg ? "" : ", and you'll need ffmpeg too"}. It downloads about 3 GB the first time.</p><button class="primary" id="setup">Set it up</button><div id="setup-msg"></div></div>` : ""}
+    ${notReady ? `<div class="card"><h2>Set up transcription</h2><p class="muted" style="font-size:13px">Meetings are transcribed ${setup.on ? `on ${esc(setup.on)}` : "on this computer"} with Whisper, which needs its own Python. This makes one with uv${setup.ffmpeg ? "" : ", and you'll need ffmpeg too"}. It downloads about 3 GB the first time.</p><button class="primary" id="setup">Set it up</button><div id="setup-msg"></div></div>` : ""}
     <div class="card" id="new">
       <h2>New meeting</h2>
       ${rec ? recorderHtml() : `

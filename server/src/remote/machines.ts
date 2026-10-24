@@ -14,6 +14,7 @@ import { addWorkLink, removeWorkLink } from "./work.ts";
 import { logEvent, notify } from "../notify.ts";
 import { addApiLink, removeApiLink, startRemoteBoards } from "./forward.ts";
 import { addInboxLink } from "./outbox.ts";
+import { useMachines } from "../placement/where.ts";
 import { addSyncLink, removeSyncLink, startSync } from "./sync.ts";
 
 db.exec(`
@@ -115,6 +116,7 @@ export const retryMachine = (id: string) => linkOf(id)?.retry();
 export function startMachines() {
   startRemoteTerms([]);
   startRemoteBoards();
+  useMachines(listMachines);
   startSync();
   for (const row of db.prepare<[], Row>("select * from machines order by added_at").all()) open(row);
 }

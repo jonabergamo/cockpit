@@ -45,6 +45,8 @@ export interface Manifest {
   homepage?: string;
   // a bundled plugin that starts off until turned on; yours always start off
   defaultOn?: boolean;
+  // also runs on the hub's nodes, set up the same, for work the hub puts there
+  nodes?: boolean;
   settings?: SettingSpec[];
   requires?: Requirement[];
   // Claude Code skills the plugin relies on. One with a folder in the plugin's skills/ ships with it and Setup
@@ -314,6 +316,13 @@ export interface Cockpit {
   // a shell command whose output streams to cockpit's job log
   job(label: string, command: string, cwd?: string): Promise<{ code: number; output: string }>;
   onStop(fn: () => void): void;
+  // Other machines (Settings → Machines). where says which one a kind of work is put on: a machine's id, or
+  // undefined for this one. A function exposed with expose can be called by this same plugin from another
+  // machine with remote(machine).call: files are paths on the calling machine, copied over (only what's new
+  // since the last call when a file just grew) and handed to the function as paths on its own machine.
+  where(cap: "headless" | "whisper"): string | undefined;
+  expose(name: string, fn: (args: any, files: Record<string, string>) => unknown): void;
+  remote(machine: string): { call<T = unknown>(name: string, args?: unknown, opts?: { files?: Record<string, string>; timeoutMs?: number }): Promise<T> };
   // remembered in cockpit's cache table for maxAge ms; force fetches again. Keys are kept per plugin.
   cache<T>(key: string, maxAge: number, fn: () => Promise<T>, force?: boolean): Promise<T>;
   // finds a ticket key in branch names, titles and the like, with the active tracker's pattern

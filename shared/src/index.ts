@@ -303,7 +303,7 @@ export interface Machine {
   node?: string;
   rtt?: number;
   error?: string;
-  info?: { hostname: string; platform: string; version: string; terminals: number };
+  info?: { hostname: string; platform: string; version: string; terminals: number; gpu?: boolean };
 }
 
 // A sidebar entry's indicator. live pulses while something runs, attention and failed are what needs you,

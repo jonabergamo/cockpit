@@ -6,6 +6,7 @@
   "description": "Record meetings on this computer, or let the desktop app start when a meeting app uses your mic. Transcribed locally with Whisper, then Claude writes each one up for its kind of meeting, and links recurring ones so each picks up where the last left off.",
   "author": "cockpit",
   "defaultOn": false,
+  "nodes": true,
   "requires": [
     {
       "id": "ffmpeg",

@@ -12,6 +12,7 @@ import { broadcast } from "../hub.ts";
 import { getRun } from "../runs.ts";
 import type { RemoteLink } from "./link.ts";
 import { findOwner } from "./work.ts";
+import { where } from "../placement/where.ts";
 
 export interface ApiReq {
   op: string;
@@ -71,8 +72,11 @@ export function addApiLink(machine: string, link: RemoteLink) {
 }
 export const removeApiLink = (machine: string) => void links.delete(machine);
 
-// the node that runs the automations: the first one paired, until placement can say otherwise
-export const automationsNode = () => [...links.keys()][0];
+// the node that runs the automations, from Settings → Machines; undefined is this machine
+export const automationsNode = () => {
+  const m = where("automations");
+  return m && links.has(m) ? m : undefined;
+};
 
 const waitUp = (link: RemoteLink, ms: number) =>
   new Promise<boolean>((ok) => {

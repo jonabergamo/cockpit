@@ -48,6 +48,7 @@ A plugin with only `plugin.json` and `themes/` runs no code, and Settings says s
 - Setting types are `text`, `secret`, `bool`, `choice` (with `choices`), `number`, `list` (an array of strings, edited one per line) and `json` (any JSON value). Settings → Plugins draws a form from them, and the values are stored in cockpit's database, not in your folder.
 - A `secret` never goes back to the browser in full: the form shows `••••` and the last four characters.
 - `env` passes the setting to every command you start with `k.run`, as that environment variable. This is how a token entered in Settings reaches a CLI.
+- `nodes: true` means the plugin also runs on the hub's nodes (see Settings → Machines). The hub copies the plugin's on/off state and settings to each node, so work it sends there, like transcription, finds the plugin set up the same way.
 - `moved` lists the screens your plugin no longer has, by id, each with the cockpit path that replaced it, for example `"moved": { "old-screen": "/p/other/screen?tab=x" }`. Old links and saved notifications to `/p/<id>/old-screen` then go to that path, and keep their query.
 
 Cockpit reads the manifest without running your code, so a plugin that fails to load still shows in Settings, with its error.
@@ -111,6 +112,9 @@ What `k` offers:
 | `k.sendToSession(sessionId, text)` | Types a message into a running Claude session and presses Enter. Resolves to `false` when the session isn't in a cockpit terminal. |
 | `k.task({ title, prompt, ticket, attempts, model, dependsOn })` | Queues work: cockpit creates a worktree and branch, then starts Claude there with the prompt. Resolves with the tasks it created. |
 | `k.job(label, command, cwd)` | Runs a shell command as a cockpit job, so its output shows in the job log. Resolves with the exit code and output. |
+| `k.where(cap)` | The machine a kind of work is set to run on in Settings → Machines: `"headless"` (claude -p) or `"whisper"`. Returns a machine's id, or `undefined` for this machine. |
+| `k.expose(name, fn)` | Lets this plugin call `fn` from another machine. `fn` gets the arguments and the files sent with the call, as paths on its own machine. |
+| `k.remote(machine).call(name, args, { files, timeoutMs })` | Calls what this plugin exposed on another machine, where it runs too (see `nodes`). `files` maps names to paths here. They're copied first, and a file that only grew since the last call sends just the new part. |
 | `k.sessions({ liveOnly, limit })`, `k.terminals()` | The Claude sessions and terminals cockpit knows about. |
 | `k.cache(key, maxAge, fn, force)` | Runs `fn` and keeps its result for `maxAge` ms in cockpit's cache. `force` runs it again. |
 | `k.runs` | Records runs on the Runs screen and reads them back. See [Runs](#runs). |

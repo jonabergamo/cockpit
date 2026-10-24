@@ -51,10 +51,22 @@ export function mirrorJob(node: string, j: Job) {
   return jobs.get(j.id)!;
 }
 
+// what to do once a node's job ends, like saving what Claude wrote
+const after = new Map<string, (job: Job) => void>();
+export function whenDone(id: string, fn: (job: Job) => void) {
+  const job = jobs.get(id);
+  if (job?.code !== undefined) return fn(job);
+  after.set(id, fn);
+}
+
 export function mirrorChunk(ev: { id: string; chunk?: string; done?: boolean; code?: number }) {
   const job = jobs.get(ev.id);
   if (!job) return;
   if (ev.chunk) job.output += ev.chunk;
-  if (ev.done) job.code = ev.code;
+  if (ev.done) {
+    job.code = ev.code;
+    after.get(ev.id)?.(job);
+    after.delete(ev.id);
+  }
   broadcast({ type: "job", id: ev.id, chunk: ev.chunk, done: ev.done, code: ev.code });
 }

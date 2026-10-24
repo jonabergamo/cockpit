@@ -25,6 +25,10 @@ import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, resize
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
+import { hasGpu } from "../placement/where.ts";
+import { headlessHere, type Headless } from "../placement/headless.ts";
+import { callExposed } from "../plugins.ts";
+import { fileOf, receiveFile } from "./plugincalls.ts";
 import { ack, onEnqueue, since } from "./outbox.ts";
 import { adopt, type Synced } from "./sync.ts";
 import { Channel, keyOf, macOk, newNonce, PROTOCOL, type Frame, type NodeInfo, type Wire } from "./protocol.ts";
@@ -68,7 +72,7 @@ export function pair(hub: string, token: string, replace = false) {
   return p;
 }
 
-export const nodeInfo = (): NodeInfo => ({ hostname: hostname(), platform: `${process.platform}-${process.arch}`, version: VERSION, terminals: localHost.terminals.list().filter((t) => t.state === "running").length });
+export const nodeInfo = (): NodeInfo => ({ hostname: hostname(), platform: `${process.platform}-${process.arch}`, version: VERSION, terminals: localHost.terminals.list().filter((t) => t.state === "running").length, gpu: hasGpu() });
 
 // Tailscale's addresses are 100.64.0.0/10; with listen = tailscale only those and this machine may connect
 export function fromTailnet(addr = "") {
@@ -168,6 +172,11 @@ export function serve(c: Channel) {
   c.handle("term.changes", ({ id }: { id: string }) => termChanges(currentCwd(id)));
   c.handle("term.paste", ({ data, name }: { data: string; name: string }) => savePaste(Buffer.from(data, "base64"), name).then((path) => ({ path })));
   const offJobs = onJobStart((j) => c.emit("job.start", j));
+  // claude -p for the hub, when Settings → Machines puts it here
+  c.handle("job.headless", (h: Headless) => headlessHere(h));
+  // a plugin of the hub's calling the same plugin here, and the files it hands over
+  c.handle("plugin.file", (f: Parameters<typeof receiveFile>[0]) => receiveFile(f));
+  c.handle("plugin.call", ({ plugin, name, args, files }: { plugin: string; name: string; args: unknown; files: Record<string, string> }) => callExposed(plugin, name, args, files, fileOf));
   // what it has to tell the hub, kept until the hub says it has it
   c.handle("outbox.since", ({ seq }: { seq: number }) => since(seq));
   c.handle("outbox.ack", ({ seq }: { seq: number }) => ack(seq));

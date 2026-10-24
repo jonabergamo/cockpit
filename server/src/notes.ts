@@ -2,11 +2,11 @@
 // the team. Only runs when you ask, since it's a long claude -p call.
 import { listSessions } from "./claude/sessions.ts";
 import { config } from "./config.ts";
-import { startJob } from "./jobs.ts";
+import { headless } from "./placement/headless.ts";
 import { myPrs } from "./providers.ts";
 import { activity, sprintReport } from "./report.ts";
 import { getSettings, readRow, writeRow } from "./settings.ts";
-import { day, fill, run } from "./util.ts";
+import { day, run } from "./util.ts";
 
 export const DEFAULT_NOTES_PROMPT = `Write the additional notes for this sprint's update. People outside the engineering team read them, such as customer service and leadership, so use plain language and say what changed for users or the business, not how the tickets moved.
 
@@ -160,10 +160,7 @@ export function savedNotes(sprintId: number) {
   return { saved: readRow<SavedNotes>(rowKey(sprintId)), jobId: running.get(sprintId) };
 }
 
-const claude = (label: string, prompt: string, onDone: (out: string, ok: boolean) => void) =>
-  // stdin closed, or claude waits a few seconds for piped input and warns about it in the output
-  // in the repo, which Claude already trusts; the home folder usually isn't
-  startJob(label, `${fill("claude -p {prompt}", { prompt })} < /dev/null`, config.repo.path || process.env.HOME, (j) => onDone(notesOnly(j.output), j.code === 0));
+const claude = (label: string, prompt: string, onDone: (out: string, ok: boolean) => void) => headless({ label, prompt }, (j) => onDone(notesOnly(j.output), j.code === 0));
 
 const lengthRule = (max: number) => `The whole reply must be ${max} characters or fewer, spaces and newlines included. Count before you answer and cut the least important items until it fits.`;
 
@@ -185,11 +182,13 @@ export async function generateNotes(sprintId?: number) {
       return;
     }
     const shorten = `These notes are ${notes.length} characters. Shorten them to ${maxChars} characters or fewer, spaces and newlines included. Keep the same sections and the most important items, drop the rest. Don't add anything new. ${OUTPUT_RULE}\n\n${notes}`;
-    const job = claude(`${label} · shorten`, shorten, (out, ok) => (ok && out ? finish(out, tries + 1) : finish(notes, 2)));
-    running.set(sprint.id, job.id);
+    claude(`${label} · shorten`, shorten, (out, ok) => (ok && out ? finish(out, tries + 1) : finish(notes, 2))).then(
+      (job) => running.set(sprint.id, job.id),
+      () => running.delete(sprint.id),
+    );
   };
 
-  const job = claude(label, `${instructions}\n\n${rules}\n\n---\n\n${text}`, (notes, ok) => {
+  const job = await claude(label, `${instructions}\n\n${rules}\n\n---\n\n${text}`, (notes, ok) => {
     if (ok && notes) finish(notes, 0);
     else running.delete(sprint.id);
   });

@@ -30,6 +30,8 @@ export interface NodeInfo {
   platform: string;
   version: string;
   terminals: number;
+  // an NVIDIA GPU, which makes Whisper much faster
+  gpu?: boolean;
 }
 
 export class LinkDown extends Error {

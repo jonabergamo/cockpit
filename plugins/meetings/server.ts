@@ -183,7 +183,20 @@ export default function setup(k: Cockpit) {
   let seq = 0;
   let idle: NodeJS.Timeout | undefined;
   const waiting = new Map<number, (r: Heard) => void>();
-  function hear(file: string, from = 0): Promise<Heard> {
+  // on the machine Settings → Machines puts transcription on: this one, or another (one with a GPU, say) where
+  // this plugin runs too and gets the recording copied over, only the new part when it has grown
+  const names = () => [k.setting<string>("myName") || "You", "Others", ""];
+  async function hear(file: string, from = 0): Promise<Heard> {
+    const on = k.where("whisper");
+    if (!on) return hearHere(file, from, names());
+    return k
+      .remote(on)
+      .call<Heard>("hear", { from, names: names() }, { files: { audio: file }, timeoutMs: 90 * 60_000 })
+      .catch((e: Error) => ({ duration: 0, segments: [], error: `transcribing on ${on} failed: ${e.message}` }));
+  }
+  k.expose("hear", (a: { from?: number; names?: string[] }, files) => hearHere(files.audio, a.from ?? 0, a.names ?? names()));
+
+  function hearHere(file: string, from: number, who: string[]): Promise<Heard> {
     if (!existsSync(python())) return Promise.resolve({ duration: 0, segments: [], error: "Transcription isn't set up yet: open Meetings and press Set it up" });
     if (!worker) {
       const w = spawn(python(), [join(here, "transcribe.py"), "--serve", k.setting<string>("whisperModel") || "large-v3-turbo"], { stdio: ["pipe", "pipe", "ignore"] });
@@ -213,7 +226,7 @@ export default function setup(k: Cockpit) {
     return new Promise((ok) => {
       waiting.set(id, ok);
       setTimeout(() => waiting.has(id) && (waiting.delete(id), ok({ duration: 0, segments: [], error: "the transcription took too long" })), 90 * 60_000);
-      worker!.stdin!.write(JSON.stringify({ id, file, from, names: [k.setting<string>("myName") || "You", "Others", ""] }) + "\n");
+      worker!.stdin!.write(JSON.stringify({ id, file, from, names: who }) + "\n");
     });
   }
   k.onStop(() => worker?.kill());
@@ -602,14 +615,25 @@ export default function setup(k: Cockpit) {
   // here and run the same transcribe.py, with their own speaker names
   k.route("GET", "/whisper", () => ({ python: python(), model: k.setting<string>("whisperModel") || "large-v3-turbo", script: join(here, "transcribe.py"), ready: existsSync(python()) }));
 
-  k.route("GET", "/setup", async () => {
+  // checked and set up where transcription runs, which may be another machine
+  const setupState = async () => {
     const py = python();
     const ffmpeg = await k.run("ffmpeg", ["-version"]).then(() => true, () => false);
     const ready = existsSync(py) && (await k.run(py, ["-c", "import faster_whisper"]).then(() => true, () => false));
     return { ready, ffmpeg, python: py };
+  };
+  k.expose("setupState", setupState);
+  k.route("GET", "/setup", async () => {
+    const on = k.where("whisper");
+    return on ? { ...(await k.remote(on).call<object>("setupState")), on } : setupState();
   });
 
+  k.expose("setup", () => setUp());
   k.route("POST", "/setup", async () => {
+    const on = k.where("whisper");
+    return on ? k.remote(on).call("setup") : setUp();
+  });
+  async function setUp() {
     const py = python();
     const venv = dirname(dirname(py));
     const gpu = await k.run("nvidia-smi", ["-L"]).then(() => true, () => false);
@@ -617,5 +641,5 @@ export default function setup(k: Cockpit) {
     const cmd = `command -v uv >/dev/null || { echo "Needs uv: https://docs.astral.sh/uv/"; exit 1; }; uv venv --python 3.12 ${q(venv)} && uv pip install --python ${q(py)} faster-whisper${extra}`;
     k.job("set up meeting transcription", cmd).then((r) => k.notify({ title: r.code ? "Transcription setup failed" : "Transcription is ready", body: r.code ? "See the job log" : "Meetings can be recorded and summarised now", link: "/p/meetings/meetings" }));
     return { ok: true };
-  });
+  }
 }

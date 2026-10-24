@@ -122,6 +122,18 @@ const schema = z.object({
   ci: z.object({ local: z.array(z.string().max(400)).max(40).default([]) }).prefault({}),
   // the instructions for the sprint report's additional notes; empty uses the built-in ones
   // liveBranch: the branch that is production, so the notes can tell shipped work from work still on its way
+  // where each kind of work runs when there are other machines: "auto", "here" (this machine) or a machine's id
+  machines: z
+    .object({
+      placement: z
+        .object({
+          automations: z.string().max(40).default("auto"),
+          headless: z.string().max(40).default("auto"),
+          whisper: z.string().max(40).default("auto"),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   notes: z
     .object({ prompt: z.string().max(8000).default(""), maxChars: z.number().int().min(0).max(20000).default(0), liveBranch: z.string().max(100).default("") })
     .prefault({}),

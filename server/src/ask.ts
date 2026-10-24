@@ -1,13 +1,10 @@
 // "Ask cockpit": a question about your own work, answered by `claude -p` from what cockpit already knows. The
 // transcript search finds the sessions that talked about it; the Board, your tickets and recent sessions add the
 // state of things. Claude only reads that context, it doesn't go looking, so answers are quick and stay local.
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { board } from "./board.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { searchSessions } from "./claude/search.ts";
-import { config, paths } from "./config.ts";
-import { startJob } from "./jobs.ts";
+import { headless } from "./placement/headless.ts";
 import { myTickets } from "./providers.ts";
 import { day } from "./util.ts";
 
@@ -58,9 +55,5 @@ Question: ${question}
 
 # Cockpit's notes
 ${await context(question)}`;
-  // through a file, since the context is too long for an argument
-  const file = join(paths.data, `ask-${Date.now()}.txt`);
-  writeFileSync(file, prompt, { mode: 0o600 });
-  const q = JSON.stringify(file);
-  return startJob("ask cockpit", `claude -p --model sonnet < ${q}; code=$?; rm -f ${q}; exit $code`, config.repo.path || process.env.HOME);
+  return headless({ label: "ask cockpit", prompt, model: "sonnet" });
 }

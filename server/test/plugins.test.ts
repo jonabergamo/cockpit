@@ -125,7 +125,7 @@ describe("access", () => {
 
   it("tailscale only trusts its login header from a local proxy", () => {
     let a: AccessProvider | undefined;
-    tailscale({ setting: () => "me@example.com", access: (p: AccessProvider) => (a = p) } as unknown as Cockpit);
+    tailscale({ setting: () => "me@example.com", access: (p: AccessProvider) => (a = p), route: () => {}, screen: () => {} } as unknown as Cockpit);
     const req = (h: Record<string, string>, local = true) => ({ header: (k: string) => h[k], local, remote: local ? "127.0.0.1" : "100.1.2.3" });
     expect(a!.allow(req({ "x-forwarded-for": "100.1.2.3", "tailscale-user-login": "me@example.com" }))).toBe(true);
     expect(a!.allow(req({ "x-forwarded-for": "100.1.2.3", "tailscale-user-login": "someone@example.com" }))).toBe(false);

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Machines</title>
+    <link rel="stylesheet" href="/plugin-sdk.css" />
+    <style>
+      .peer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
+      .peer:first-of-type { border-top: 0; }
+      .peer .who { flex: 1; min-width: 220px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--line); margin-right: 6px; }
+      .dot.on { background: var(--green); }
+      .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+      pre.pair { background: var(--ground); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; }
+      .place { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+      .place:first-of-type { border-top: 0; }
+      .place .what { flex: 1; min-width: 220px; }
+      .place select { width: 220px; }
+    </style>
+    <script src="/plugin-sdk.js"></script>
+  </head>
+  <body>
+    <h1>Machines</h1>
+    <p class="muted">The machines on your tailnet. Add one as a node to keep terminals, Claude sessions, the repo and the automations there, then pick below what runs where.</p>
+    <div id="pairing"></div>
+    <div class="card"><h2>On your tailnet</h2><div id="peers" class="sdk-loading">Asking Tailscale</div></div>
+    <div class="card"><h2>Where things run</h2><div id="placement" class="sdk-loading">Loading</div></div>
+    <script src="machines.js"></script>
+  </body>
+</html>

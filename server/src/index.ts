@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { auth } from "./auth.ts";
 import { forward, serveApi } from "./remote/forward.ts";
+import { placementView, type Cap } from "./placement/where.ts";
 import { startAutomations, startHostServices, startHubServices } from "./startup.ts";
 import { addMachine, hubId, listMachines, pairCommandOf, removeMachine, retryMachine, startMachines } from "./remote/machines.ts";
 import { startNodeServer } from "./remote/node.ts";
@@ -122,6 +123,15 @@ const machines = new Hono()
     } catch (e) {
       return fail(e);
     }
+  })
+  // where each kind of work runs
+  .get("/placement", (c) => c.json(placementView()))
+  .put("/placement", async (c) => {
+    const { cap, value } = await c.req.json<{ cap: Cap; value: string }>();
+    if (!placementView().some((p) => p.id === cap)) return c.json({ error: "not a kind of work" }, 400);
+    if (value !== "auto" && value !== "here" && !listMachines().some((m) => m.id === value)) return c.json({ error: "auto, here or a machine's id" }, 400);
+    putSettings({ machines: { placement: { ...getSettings().machines.placement, [cap]: value } } });
+    return c.json(placementView());
   })
   .get("/:id/pair", (c) => {
     try {
