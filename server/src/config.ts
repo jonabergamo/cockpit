@@ -10,6 +10,12 @@ const expand = (p: string) => (p.startsWith("~") ? join(homedir(), p.slice(1)) :
 const path = z.string().transform(expand);
 
 const schema = z.object({
+  // all: everything on this machine (the default). hub: the screens, settings and plugins, working with nodes.
+  // node: terminals, Claude sessions, the repo and automations, for a hub on another machine to use
+  role: z.enum(["all", "hub", "node"]).default("all"),
+  // where a node waits for its hub: tailscale listens on loopback and this machine's Tailscale address, all on
+  // every address, or give one address
+  node: z.object({ port: z.number().default(8771), listen: z.string().default("tailscale") }).prefault({}),
   port: z.number().default(8770),
   host: z.string().default("127.0.0.1"),
   // older setups kept the Tailscale login here; it's read once into the tailscale plugin's settings
@@ -76,6 +82,9 @@ function load(): Config {
   const raw = existsSync(file) ? parse(readFileSync(file, "utf8")) : {};
   const cfg = schema.parse(raw);
   if (process.env.PORT) cfg.port = Number(process.env.PORT);
+  if (process.env.COCKPIT_ROLE) cfg.role = z.enum(["all", "hub", "node"]).parse(process.env.COCKPIT_ROLE);
+  if (process.env.COCKPIT_NODE_PORT) cfg.node.port = Number(process.env.COCKPIT_NODE_PORT);
+  if (process.env.COCKPIT_NODE_LISTEN) cfg.node.listen = process.env.COCKPIT_NODE_LISTEN;
   if (!cfg.repo.name && cfg.repo.path) cfg.repo.name = cfg.repo.path.split("/").pop()!;
   return cfg;
 }

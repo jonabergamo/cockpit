@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-// cockpit's command line. For now one command:
+// cockpit's command line:
 //
 //   cockpit run [--kind k] [--name n] [--ticket T] [--artifact <path>]... -- <command...>
+//   cockpit node                                   runs this machine as a node, for a hub on another machine
+//   cockpit node pair --hub <id> --token <token> [--replace]
+//                                                  pairs it with the hub that showed that command
 //
 // runs the command here, streams its output into a run on cockpit's Runs screen, keeps its exit code and exits with
 // it. --artifact files (a report, a screenshot, a video) are kept with the run once the command ends. The kind is
@@ -9,7 +12,11 @@
 // COCKPIT_URL points it at a cockpit that isn't on 127.0.0.1:8770. No dependencies.
 const KINDS = ["unit", "lint", "typecheck", "audit", "e2e", "proof", "verify", "other"];
 const base = (process.env.COCKPIT_URL || "http://127.0.0.1:8770").replace(/\/+$/, "");
-const usage = "usage: cockpit run [--kind k] [--name n] [--ticket T] [--artifact path]... -- <command...>";
+const usage = [
+  "usage: cockpit run [--kind k] [--name n] [--ticket T] [--artifact path]... -- <command...>",
+  "       cockpit node",
+  "       cockpit node pair --hub <id> --token <token> [--replace]",
+].join("\n");
 
 async function call(path, body) {
   try {
@@ -80,12 +87,60 @@ async function run(argv) {
   return code;
 }
 
+// The pairing a node keeps in <data>/node.json: the hash of the hub's token, never the token itself. The node
+// reads it on every connection, so a running node picks it up without a restart.
+async function pair(argv) {
+  const { createHash } = await import("node:crypto");
+  const { chmodSync, mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+  const { hostname } = await import("node:os");
+  const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const flag = (name) => {
+    const i = argv.indexOf(name);
+    return i >= 0 ? argv[i + 1] : undefined;
+  };
+  const hub = flag("--hub");
+  const token = flag("--token");
+  if (!hub || !/^[\w-]{4,64}$/.test(hub) || !token || token.length < 20) throw new Error("usage: cockpit node pair --hub <id> --token <token> [--replace]");
+  const data = process.env.COCKPIT_DATA || join(dirname(dirname(fileURLToPath(import.meta.url))), "data");
+  mkdirSync(data, { recursive: true });
+  const file = join(data, "node.json");
+  let p;
+  try {
+    p = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    const name = hostname();
+    p = { id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "node", name, hubs: [] };
+  }
+  const others = (p.hubs ?? []).filter((h) => h.hub !== hub);
+  if (others.length && !argv.includes("--replace")) throw new Error(`This node is paired with another hub already (${others.map((h) => h.hub).join(", ")}). Add --replace to move it to this one.`);
+  p.hubs = [{ hub, key: createHash("sha256").update(token).digest("hex"), pairedAt: Date.now() }];
+  writeFileSync(file, JSON.stringify(p, null, 2));
+  chmodSync(file, 0o600);
+  process.stdout.write(`Paired node ${p.id} with ${hub}. Start it with \`cockpit node\` if it isn't running.\n`);
+  return 0;
+}
+
+// the server, as a node: what this machine does by itself, waiting on port 8771 for its hub
+async function node(argv) {
+  if (argv[0] === "pair") return pair(argv.slice(1));
+  if (argv.length) throw new Error(usage);
+  const { spawn } = await import("node:child_process");
+  const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const root = dirname(dirname(fileURLToPath(import.meta.url)));
+  const child = spawn(join(root, "server/node_modules/.bin/tsx"), [join(root, "server/src/index.ts")], { stdio: "inherit", cwd: join(root, "server"), env: { ...process.env, COCKPIT_ROLE: "node" } });
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => child.kill(sig));
+  return new Promise((done) => child.on("exit", (code) => done(code ?? 1)));
+}
+
 const [sub, ...rest] = process.argv.slice(2);
-if (sub !== "run") {
+const commands = { run, node };
+if (!commands[sub]) {
   process.stderr.write(`${usage}\n`);
   process.exit(2);
 }
-run(rest).then(
+commands[sub](rest).then(
   (code) => process.exit(code),
   (e) => {
     process.stderr.write(`${e.message}\n`);

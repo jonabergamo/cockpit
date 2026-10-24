@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { AutomationSettings } from "../components/AutomationSettings";
 import { FontSection } from "../components/FontSettings";
+import { MachinesSection } from "../components/Machines";
 import { PluginsSection, ScreensSection } from "../components/PluginSettings";
 import { SetupSection } from "../components/SetupSection";
 import { TemplateSettings } from "../components/TemplateSettings";
@@ -9,9 +10,9 @@ import { Button, ErrorNote, Loading, PageHeader, Tabs } from "../components/ui";
 import { type CostMode, useCost, useSaveSettings, useSettings } from "../lib/cost";
 import { useNavGroups } from "../lib/nav";
 
-export const SETTINGS_TABS = ["general", "setup", "automation", "screens", "plugins"] as const;
+export const SETTINGS_TABS = ["general", "setup", "automation", "machines", "screens", "plugins"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
-const TAB_LABEL: Record<SettingsTab, string> = { general: "General", setup: "Setup", automation: "Automation", screens: "Screens", plugins: "Plugins" };
+const TAB_LABEL: Record<SettingsTab, string> = { general: "General", setup: "Setup", automation: "Automation", machines: "Machines", screens: "Screens", plugins: "Plugins" };
 
 export function SettingsPage() {
   const { tab = "general" } = useSearch({ from: "/settings" });
@@ -78,6 +79,7 @@ export function SettingsPage() {
           <TemplateSettings />
         </>
       )}
+      {tab === "machines" && <MachinesSection />}
       {tab === "screens" && <ScreensSection />}
       {tab === "plugins" && !!pages.length && (
         <section className="bg-panel border border-line rounded-lg p-4 space-y-2">
