@@ -131,6 +131,24 @@ server.registerTool(
   wrap(async () => ((await call("GET", "/agents")) as { id: string; name: string; installed: boolean; about?: string; models: { id: string }[] }[]).map((a) => ({ id: a.id, name: a.name, installed: a.installed, about: a.about, models: a.models.map((m) => m.id) }))),
 );
 
+server.registerTool(
+  "list_flows",
+  { description: "The flows cockpit can run: recipes of steps that pass one piece of work between coding agents in one worktree (plan, build, check, review, loop back on changes). With runs: true, the runs too, with each step's status.", inputSchema: { runs: z.boolean().optional() } },
+  wrap(async ({ runs }: { runs?: boolean }) => ({
+    flows: ((await call("GET", "/flows")) as { id: string; name: string; description?: string; steps: { id: string; kind?: string; agent?: string }[] }[]).map((f) => ({ id: f.id, name: f.name, description: f.description, steps: f.steps.map((s) => `${s.id}${s.kind && s.kind !== "agent" ? ` (${s.kind})` : s.agent ? ` (${s.agent})` : ""}`) })),
+    ...(runs ? { runs: ((await call("GET", "/flows/runs")) as { id: string; title: string; status: string; steps: { step: string; round: number; status: string }[] }[]).slice(0, 20).map((r) => ({ id: r.id, title: r.title, status: r.status, steps: r.steps.map((s) => `${s.step}#${s.round}: ${s.status}`) })) } : {}),
+  })),
+);
+
+server.registerTool(
+  "start_flow",
+  {
+    description: "Run a flow (see list_flows) on a piece of work: cockpit makes one worktree and runs the flow's steps there, each with its own agent. Returns the run; follow it with list_flows runs: true.",
+    inputSchema: { flow: z.string(), title: z.string().min(1), prompt: z.string().optional().describe("What to do and how to check it's done; empty uses the ticket"), ticket: z.string().optional() },
+  },
+  wrap((a: { flow: string; title: string; prompt?: string; ticket?: string }) => call("POST", "/flows/runs", a)),
+);
+
 server.registerTool("list_tasks", { description: "Every task cockpit has queued or run, newest first, with status, worktree, session and group.", inputSchema: {} }, wrap(() => call("GET", "/tasks")));
 
 server.registerTool(

@@ -180,6 +180,24 @@ db.exec(`
   );
 `);
 
+// flows being run: the recipe as it was when it started, and each step's rounds as JSON
+db.exec(`
+  create table if not exists flow_runs (
+    id text primary key,
+    flow text not null,
+    title text not null,
+    prompt text not null,
+    ticket text,
+    worktree text,
+    branch text,
+    status text not null,
+    steps text not null,
+    created_at integer not null,
+    finished_at integer,
+    error text
+  );
+`);
+
 // columns added after their table first shipped
 const hasColumn = (table: string, column: string) => (db.prepare(`pragma table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
 if (!hasColumn("tasks", "template")) db.exec("alter table tasks add column template text");

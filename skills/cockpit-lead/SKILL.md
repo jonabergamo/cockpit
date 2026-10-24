@@ -12,6 +12,7 @@ You plan, the workers build. Cockpit gives you tools (the `cockpit` MCP server) 
 - `list_workers`: the Board. Every worker with its column (queued, working, needs, review, ready), why it's there, its session, PR and checks. Start here, and come back here.
 - `start_task`: queue a worker. Give it a clear title and a prompt that says what done looks like and how to check it. `agent` and `model` pick who does it. `attempts` above 1 runs independent tries to compare, and `lineup` runs one try per agent and model to compare agents on the same work. `after` takes task or group ids to wait for, which is how you build waves.
 - `list_agents`: the agents that are installed, their models and what each is good at.
+- `list_flows` and `start_flow`: flows are recipes that pass one piece of work between agents in one worktree, like plan, build, check, review, and back again on changes. Use one when the user has a flow that fits, instead of chaining tasks yourself.
 - `read_screen` then `send_message` or `answer_prompt`: see what a worker is asking and answer it.
 - `pr_status`: PRs with checks and reviews, and with `details` the failing logs or review comments.
 - `task_group`, `list_tasks`, `cancel_task`, `verify`, `autopilot`.

@@ -169,7 +169,7 @@ async function target(c: Context, path: string): Promise<string | undefined> {
   if (!auto) return;
   // what belongs to the machine the automations run on: its tasks, reviews, usage, tickets and budgets, and its
   // Claude set up (memory, settings, workflows) and Runs hook, since that's where Claude runs
-  if (/^\/(tasks|agents|budgets|reviews|usage|weekly|tickets)(\/|$)/.test(path)) return auto;
+  if (/^\/(tasks|agents|flows|budgets|reviews|usage|weekly|tickets)(\/|$)/.test(path)) return auto;
   if (/^\/claude\/(files|file|backups|memories|doctor|workflows)(\/|$)/.test(path)) return auto;
   if (path === "/runs/hook") return auto;
   // the hook's events and `cockpit run` of this machine record its own runs

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { AgentInfo, CreateOptions, NewTicket, Task, Ticket } from "@cockpit/shared";
+import type { AgentInfo, CreateOptions, Flow, FlowRun, NewTicket, Task, Ticket } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { useAgents, useAppConfig, useTickets } from "../lib/queries";
 import { useSettings } from "../lib/cost";
@@ -37,6 +37,9 @@ export function NewTaskModal() {
   const [ticket, setTicket] = useState("");
   const [attempts, setAttempts] = useState<Attempt[]>([{ agent: "", model: "" }]);
   const agents = useAgents(s.open);
+  // a flow instead of a single agent: its steps pass the work between agents in one worktree
+  const [flow, setFlow] = useState("");
+  const flows = useQuery({ queryKey: ["flows"], queryFn: () => api.get<Flow[]>("/flows"), enabled: s.open });
   const [kind, setKind] = useState("");
   const base = cfg.data?.baseBranch ?? "main";
   const settings = useSettings().data?.settings;
@@ -84,6 +87,14 @@ export function NewTaskModal() {
         setTicket(key);
         setDraft(null);
         qc.invalidateQueries({ queryKey: ["tickets"] });
+      }
+      if (flow) {
+        const run = await api.post<FlowRun>("/flows/runs", { flow, title, prompt, ticket: key || undefined });
+        newTask.close();
+        setTitle("");
+        setPrompt("");
+        navigate({ to: "/flows/$id", params: { id: run.id } });
+        return;
       }
       const lineup = attempts.map((a) => ({ agent: a.agent || undefined, model: a.model || undefined }));
       await api.post<Task[]>("/tasks", { title, prompt, ticket: key || undefined, lineup, template: kind || undefined, dependsOn: after ? [after] : [], onPr: onPr.trim() || undefined, overnight: overnight || undefined });
@@ -140,7 +151,7 @@ export function NewTaskModal() {
           <span className="text-muted">What it should do {(ticket || draft) && <span className="text-faint">(empty uses the ticket)</span>}</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder="Describe the outcome you want, and how to check it's done." className={`${inputClass} w-full h-auto py-2`} />
         </label>
-        <label className="block space-y-1">
+        <label className={`block space-y-1 ${flow ? "hidden" : ""}`}>
           <span className="text-muted">
             Start from <span className="text-faint">(optional, its PR goes back there)</span>
           </span>
@@ -153,9 +164,23 @@ export function NewTaskModal() {
             </span>
           )}
         </label>
-        <Attempts value={attempts} onChange={setAttempts} agents={(agents.data ?? []).filter((a) => a.installed)} fallback={settings?.tasks.defaultAgent || "claude"} />
+        {!!flows.data?.length && (
+          <label className="block space-y-1">
+            <span className="text-muted">Run it as</span>
+            <select value={flow} onChange={(e) => setFlow(e.target.value)} className={`${inputClass} w-full`}>
+              <option value="">A task, with the agents below</option>
+              {flows.data.map((f) => (
+                <option key={f.id} value={f.id}>
+                  Flow: {f.name}
+                </option>
+              ))}
+            </select>
+            {flow && <span className="block text-[12px] text-faint">{flows.data.find((f) => f.id === flow)?.description}</span>}
+          </label>
+        )}
+        {!flow && <Attempts value={attempts} onChange={setAttempts} agents={(agents.data ?? []).filter((a) => a.installed)} fallback={settings?.tasks.defaultAgent || "claude"} />}
         <div className="flex flex-wrap items-end gap-4">
-          {kinds.length > 0 && (
+          {!flow && kinds.length > 0 && (
             <label className="space-y-1">
               <span className="block text-muted">Kind of work</span>
               <select value={kind} onChange={(e) => setKind(e.target.value)} className={inputClass}>
@@ -168,7 +193,7 @@ export function NewTaskModal() {
               </select>
             </label>
           )}
-          {groups.length > 0 && (
+          {!flow && groups.length > 0 && (
             <label className="space-y-1 flex-1 min-w-[180px]">
               <span className="block text-muted">Start after</span>
               <select value={after} onChange={(e) => setAfter(e.target.value)} className={`${inputClass} w-full`}>
@@ -182,7 +207,7 @@ export function NewTaskModal() {
             </label>
           )}
         </div>
-        <label className="flex items-start gap-2 text-[13px] cursor-pointer">
+        <label className={`flex items-start gap-2 text-[13px] cursor-pointer ${flow ? "hidden" : ""}`}>
           <input type="checkbox" checked={overnight} onChange={(e) => setOvernight(e.target.checked)} className="mt-0.5 size-4 accent-[var(--cobalt)]" />
           <span>
             Overnight
@@ -195,7 +220,7 @@ export function NewTaskModal() {
             Cancel
           </Button>
           <Button variant="primary" disabled={busy || !title.trim() || (!prompt.trim() && !ticket && !draft)}>
-            {busy ? (draft ? "Making the ticket" : "Queueing") : draft ? "Make the ticket and queue it" : overnight ? "Queue for tonight" : attempts.length > 1 ? `Queue ${attempts.length} attempts` : "Queue it"}
+            {busy ? (draft ? "Making the ticket" : "Queueing") : draft ? "Make the ticket and queue it" : flow ? "Start the flow" : overnight ? "Queue for tonight" : attempts.length > 1 ? `Queue ${attempts.length} attempts` : "Queue it"}
           </Button>
         </div>
       </form>

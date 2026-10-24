@@ -52,16 +52,18 @@ function write(row: AgentRow, e: Omit<Entry, "id" | "ts"> & Record<string, unkno
 }
 
 // Where the repo keeps its git data, which a sandboxed agent may otherwise only read, so it couldn't commit: the
-// .git folder above cwd, or for a worktree the main checkout's, which its .git file points into
-function gitDir(cwd: string) {
+// .git folder above cwd, or for a worktree both its own folder in the main checkout's .git (its index and HEAD)
+// and that .git itself (the objects and branches), each named, since Codex keeps a worktree's own folder read-only
+// unless it's given by name
+function gitDirs(cwd: string): string[] {
   for (let dir = resolve(cwd); ; dir = dirname(dir)) {
     const dotGit = join(dir, ".git");
     try {
-      if (statSync(dotGit).isDirectory()) return dotGit;
+      if (statSync(dotGit).isDirectory()) return [dotGit];
       const linked = resolve(dir, readFileSync(dotGit, "utf8").replace(/^gitdir:\s*/, "").trim());
-      return resolve(dirname(linked), "..");
+      return [linked, resolve(dirname(linked), "..")];
     } catch {}
-    if (dirname(dir) === dir) return;
+    if (dirname(dir) === dir) return [];
   }
 }
 
@@ -155,7 +157,7 @@ function turn(id: string, prompt: string): void {
   update(id, { status: "busy", error: null });
   const state: Record<string, unknown> = {};
   const result: { ok?: boolean; last?: string; error?: string } = {};
-  const writable = row.access === "readonly" ? [] : [gitDir(row.cwd)].filter((d): d is string => !!d);
+  const writable = row.access === "readonly" ? [] : gitDirs(row.cwd);
   const argv = [agentBin(p), ...p.headless({ prompt, cwd: row.cwd, model: row.model ?? undefined, access: row.access, resume: row.native_id ?? undefined, writable })];
   let h: ReturnType<typeof spawnLines>;
   try {

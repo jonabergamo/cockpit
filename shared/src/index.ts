@@ -338,6 +338,7 @@ export const ticketUrl = (base: string, key: string) => `${base.replace(/\/$/, "
 export * from "./themes.ts";
 export * from "./plugin.ts";
 export * from "./agents.ts";
+export * from "./flows.ts";
 
 // What a running session is showing, for answering it without opening its terminal
 export interface Ask {
