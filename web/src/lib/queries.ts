@@ -6,7 +6,8 @@ export interface AppConfig {
   statusOrder: string[];
   releasedStatuses: string[];
   repoName: string;
-  repo?: { path: string; state: "unset" | "missing" | "not-git" | "ok" };
+  // node: the machine the repo is on, when that's a node
+  repo?: { path: string; state: "unset" | "missing" | "not-git" | "ok"; node?: string };
   jira: boolean;
   github: boolean;
   demo: boolean;

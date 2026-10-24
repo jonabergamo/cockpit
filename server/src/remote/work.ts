@@ -4,6 +4,7 @@
 import type { Worktree } from "@cockpit/shared";
 import { mirrorChunk, mirrorJob, type Job } from "../jobs.ts";
 import { listWorktrees, repoState } from "../worktrees.ts";
+import { where } from "../placement/where.ts";
 import type { RemoteLink } from "./link.ts";
 
 export interface Roots {
@@ -91,8 +92,11 @@ export async function findOwner(path: string) {
   return ownerOf(path);
 }
 
-// where new worktrees are made: this machine when its repo is set up, else the first node whose is
+// Where new worktrees are made: on the machine the automations run on when it has the repo, since its tasks,
+// autopilot and checks work in them; else this machine when its repo is set up, else the first node whose is
 export function repoNode(): string | undefined {
+  const auto = where("automations");
+  if (auto && nodes.get(auto)?.repo === "ok") return auto;
   if (repoState() === "ok") return;
   for (const [machine, n] of nodes) if (n.repo === "ok") return machine;
 }

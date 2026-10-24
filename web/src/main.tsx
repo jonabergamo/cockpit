@@ -20,7 +20,7 @@ import { ReportScreen, SessionsScreen, TicketsScreen, UsageScreen, WeekScreen } 
 import { listen } from "./lib/live";
 import { show } from "./lib/notifications";
 import { installPluginHost } from "./lib/pluginHost";
-import type { Job } from "./lib/queries";
+import type { AppConfig, Job } from "./lib/queries";
 import "./lib/theme";
 import "./index.css";
 
@@ -85,6 +85,8 @@ listen((ev) => {
   if (ev.type === "terms") queryClient.setQueryData(["terms"], ev.terms);
   if (ev.type === "badges") queryClient.setQueryData(["badges"], ev.badges);
   if (ev.type === "plugins") queryClient.invalidateQueries({ queryKey: ["config"] }), queryClient.invalidateQueries({ queryKey: ["plugins"] });
+  // the repo can be on a node that has only just connected
+  if (ev.type === "machines" && queryClient.getQueryData<AppConfig>(["config"])?.repo?.state !== "ok") queryClient.invalidateQueries({ queryKey: ["config"] });
   if (ev.type === "notify") show(ev, (link) => router.history.push(link));
   if (ev.type === "run") queryClient.invalidateQueries({ queryKey: ["runs"] }), queryClient.invalidateQueries({ queryKey: ["run", ev.run.id] });
   if (ev.type === "job") {
