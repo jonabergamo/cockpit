@@ -221,6 +221,12 @@ body {
 [data-desktop] .drag :is(a, button, input, select, textarea) {
   -webkit-app-region: no-drag;
 }
+/* the page below the title bar never drags the window: macOS can keep a drag area from an earlier layout, and a
+   click on something that isn't a button there (a terminal tab, a card) would move the window instead */
+[data-desktop] main,
+[data-desktop] .no-drag {
+  -webkit-app-region: no-drag;
+}
 [data-desktop="darwin"] .traffic {
   padding-left: 84px;
 }
