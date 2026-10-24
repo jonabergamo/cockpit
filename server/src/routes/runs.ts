@@ -8,6 +8,8 @@ import { config, paths } from "../config.ts";
 import { runPanels, runStartExtras, runSteps } from "../plugins.ts";
 import { appendRun, deleteRun, filesDir, originalOf, restoreVideo, trimVideo, getRun, KINDS, listRuns, logFile, outputTail, recordHook, recordRun, rerun, settled, startRun, stepLines, type HookPayload } from "../runs.ts";
 import { runOptions, startOption } from "../runnable.ts";
+import { startRecording, stopRecording } from "../record.ts";
+import { terminalPage } from "../record-page.ts";
 import { sendRunFailure } from "../verify.ts";
 
 const fail = (e: unknown) => Response.json({ error: (e as Error).message }, { status: (e as { status?: number }).status ?? 500 });
@@ -75,7 +77,7 @@ export const runs = new Hono()
   // Fields it doesn't know go in the run's meta.
   .post("/", async (c) => {
     const b = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
-    const { name, kind, ticket, worktree, branch, cwd, command, source, meta, finished, status, exitCode, output, startedAt, endedAt, ...rest } = b;
+    const { name, kind, ticket, worktree, branch, cwd, command, source, meta, finished, status, exitCode, output, startedAt, endedAt, record, screen, ...rest } = b;
     const extra = Object.fromEntries(Object.entries(rest).filter(([k, v]) => /^\w{1,40}$/.test(k) && ["string", "number", "boolean"].includes(typeof v)));
     const input = {
       name: typeof name === "string" ? name : undefined,
@@ -96,8 +98,10 @@ export const runs = new Hono()
     }
     const r = startRun(input, src);
     mkdirSync(filesDir(r.id), { recursive: true });
+    // record: the command runs on the virtual screen this hands back, and is recorded until /record/stop
+    const rec = record ? await startRecording(r.id, typeof screen === "string" && /^\d{3,4}x\d{3,4}$/.test(screen) ? screen : undefined).catch((e: Error) => ({ recordError: e.message })) : {};
     // videoDir is where a recording script drops its video, then names the file in its result
-    return c.json({ ...runStartExtras(r, b), id: r.id, videoDir: filesDir(r.id), filesDir: filesDir(r.id), link: `/runs/${r.id}` });
+    return c.json({ ...runStartExtras(r, b), ...rec, id: r.id, videoDir: filesDir(r.id), filesDir: filesDir(r.id), link: `/runs/${r.id}` });
   })
   // "Run something": what can run in a worktree, and starting one of those
   .get("/options", async (c) => {
@@ -137,6 +141,13 @@ export const runs = new Hono()
   .post("/:id/event", async (c) => {
     const r = appendRun(c.req.param("id"), ((await c.req.json().catch(() => ({}))) ?? {}) as RunEvent);
     return r ? c.json({ ok: true }) : c.json({ error: "no such run" }, 404);
+  })
+  // what the recording shows beside the browser: the run's output as it comes
+  .get("/:id/terminal", (c) => (getRun(c.req.param("id")) ? c.html(terminalPage(c.req.param("id"))) : c.json({ error: "no such run" }, 404)))
+  // the command ended: the video is made, then the run ends with its exit code
+  .post("/:id/record/stop", async (c) => {
+    const b = ((await c.req.json().catch(() => ({}))) ?? {}) as { status?: unknown; cancelled?: unknown };
+    return c.json(await stopRecording(c.req.param("id"), { status: Number(b.status) || 0, cancelled: !!b.cancelled }));
   })
   .get("/:id", (c) => {
     const r = settled(c.req.param("id"));

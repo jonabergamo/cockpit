@@ -6,7 +6,8 @@ import { localHost } from "../src/remote/local.ts";
 
 // Starting processes and opening terminals stays in these few places, so every machine-bound call can be routed
 // to another machine later. A new module that needs one goes through a Host instead.
-const ALLOWED = new Set(["util.ts", "pty.ts"]);
+// record.ts records the screen of the machine it's on, which `cockpit run --record` always asks for itself.
+const ALLOWED = new Set(["util.ts", "pty.ts", "record.ts"]);
 const SPAWNS = /from ["'](node:)?child_process["']|from ["']node-pty["']|require\(["'](node:)?child_process["']\)/;
 
 const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : f.endsWith(".ts") ? [join(dir, f)] : []));

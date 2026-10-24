@@ -165,6 +165,14 @@ bin/cockpit run --name "checkout flow" --artifact report.html -- pnpm e2e
 
 It streams the output to cockpit and exits with the command's exit code. If cockpit is down, the command runs as normal. Without the hook, Claude can report what it ran with the `report_run` tool from cockpit's MCP server.
 
+To get a video of a browser test run for a PR, add `--record`. It needs Linux with Xvfb, ffmpeg and Chromium, and Settings → Setup checks for them.
+
+```sh
+bin/cockpit run --record --name "ACME-123 checkout" -- pnpm exec playwright test --headed
+```
+
+The command runs on a virtual screen with `DISPLAY` set, plus `COCKPIT_RECORDING=1` so a test config can switch to headed mode or slow motion. Its output shows live on a second screen. When the command ends, cockpit cuts the recording down to the browser's window, puts the output beside it and keeps the video with the run, where you can trim it. Rerun on the Runs screen records it again. A headless browser never appears on the screen, so its video only has the output. In the config, `record.screen` sets the screen size and `record.browser` sets the Chromium that shows the output.
+
 ## Features in action
 
 ### Work

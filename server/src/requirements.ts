@@ -39,6 +39,13 @@ const core: Requirement[] = [
     docs: "https://docs.anthropic.com/en/docs/claude-code/mcp",
     optional: true,
   },
+  // `cockpit run --record`: the virtual screen a browser test runs on, and the recording of it
+  ...(process.platform === "linux"
+    ? [
+        { id: "xvfb", name: "Xvfb (recording runs)", check: ["sh", "-c", "command -v Xvfb"], install: { linux: "sudo apt install xvfb" }, docs: "https://www.x.org/releases/current/doc/man/man1/Xvfb.1.xhtml", optional: true },
+        { id: "ffmpeg", name: "ffmpeg (recording runs)", check: ["ffmpeg", "-hide_banner", "-version"], install: { linux: "sudo apt install ffmpeg" }, docs: "https://ffmpeg.org/download.html", optional: true },
+      ]
+    : []),
 ];
 
 function mcpInstall() {

@@ -213,7 +213,7 @@ Scripts use the HTTP API the same way:
 - `GET /api/runs`, `GET /api/runs/<id>` (with the end of its output and its steps), `GET /api/runs/<id>/log`, `GET /api/runs/<id>/artifacts/<name>` (supports range requests, so videos can seek), `DELETE /api/runs/<id>` and `POST /api/runs/<id>/rerun`.
 - A script that reports its own runs can send `rerun` in its first `POST /api/runs`, with the shell command that starts it again. Rerun then runs that command in a terminal and lets the script record the new run, so a recording script records and shows live just as it did the first time.
 
-From a shell, `bin/cockpit run [--kind k] [--name n] [--ticket T] [--artifact <path>]... -- <command>` runs a command, streams its output into a run and exits with the command's exit code. If cockpit isn't running, the command still runs as normal. It suits skills and git hooks. Set `COCKPIT_URL` when cockpit isn't on `127.0.0.1:8770`.
+From a shell, `bin/cockpit run [--kind k] [--name n] [--ticket T] [--artifact <path>]... -- <command>` runs a command, streams its output into a run and exits with the command's exit code. If cockpit isn't running, the command still runs as normal. It suits skills and git hooks. Set `COCKPIT_URL` when cockpit isn't on `127.0.0.1:8770`. Add `--record` to make a video of it: the command runs on a virtual screen, its output shows beside it, and the video is kept with the run. This needs Linux with Xvfb, ffmpeg and Chromium.
 
 ### Run something
 

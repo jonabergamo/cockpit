@@ -9,6 +9,7 @@ import { startLeadWatch } from "./lead.ts";
 import { startOvernight } from "./overnight.ts";
 import { restoreTerms } from "./pty.ts";
 import { startSnapshots } from "./report.ts";
+import { startRecordings } from "./record.ts";
 import { startRuns } from "./runs.ts";
 import { startStacked } from "./stacked.ts";
 import { startStuckWatch } from "./stuck.ts";
@@ -23,6 +24,7 @@ export function startHostServices() {
   startUsage();
   startSearch();
   startRuns();
+  startRecordings();
   const restored = restoreTerms();
   if (restored) console.log(`reattached ${restored} terminals`);
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // cockpit's command line:
 //
-//   cockpit run [--kind k] [--name n] [--ticket T] [--artifact <path>]... -- <command...>
+//   cockpit run [--kind k] [--name n] [--ticket T] [--artifact <path>]... [--record [--screen WxH]] -- <command...>
 //   cockpit node                                   runs this machine as a node, for a hub on another machine
 //   cockpit node pair --hub <id> --token <token> [--replace]
 //                                                  pairs it with the hub that showed that command
@@ -14,11 +14,14 @@
 // runs the command here, streams its output into a run on cockpit's Runs screen, keeps its exit code and exits with
 // it. --artifact files (a report, a screenshot, a video) are kept with the run once the command ends. The kind is
 // worked out from the command when left out. With cockpit down the command runs just the same.
+// --record makes a video of it for a PR (Linux, with Xvfb, ffmpeg and Chromium): the command runs on a virtual
+// screen (DISPLAY is set, and COCKPIT_RECORDING=1 for a test config to go headed or slower), its output shows
+// beside it, and the video is kept with the run. Run browser tests headed, e.g. playwright test --headed.
 // COCKPIT_URL points it at a cockpit that isn't on 127.0.0.1:8770. No dependencies.
 const KINDS = ["unit", "lint", "typecheck", "audit", "e2e", "proof", "verify", "other"];
 const base = (process.env.COCKPIT_URL || "http://127.0.0.1:8770").replace(/\/+$/, "");
 const usage = [
-  "usage: cockpit run [--kind k] [--name n] [--ticket T] [--artifact path]... -- <command...>",
+  "usage: cockpit run [--kind k] [--name n] [--ticket T] [--artifact path]... [--record [--screen WxH]] -- <command...>",
   "       cockpit node",
   "       cockpit node pair --hub <id> --token <token> [--replace]",
   "       cockpit node --adopt",
@@ -26,9 +29,9 @@ const usage = [
   "       cockpit service install|uninstall|status [--role all|hub|node] [--print]",
 ].join("\n");
 
-async function call(path, body) {
+async function call(path, body, timeout = 3000) {
   try {
-    const res = await fetch(`${base}/api${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${base}/api${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout) });
     return res.ok ? await res.json() : undefined;
   } catch {
     return undefined;
@@ -42,7 +45,11 @@ async function run(argv) {
   let i = 0;
   for (; i < argv.length && argv[i] !== "--"; i++) {
     const [flag, value] = [argv[i], argv[i + 1]];
-    if (!["--kind", "--name", "--ticket", "--artifact"].includes(flag) || value === undefined) throw new Error(`unknown option ${flag}\n${usage}`);
+    if (flag === "--record") {
+      opts.record = true;
+      continue;
+    }
+    if (!["--kind", "--name", "--ticket", "--artifact", "--screen"].includes(flag) || value === undefined) throw new Error(`unknown option ${flag}\n${usage}`);
     if (flag === "--kind" && !KINDS.includes(value)) throw new Error(`--kind is one of ${KINDS.join(", ")}`);
     if (flag === "--artifact") opts.artifacts.push(resolve(value));
     else opts[flag.slice(2)] = value;
@@ -54,9 +61,14 @@ async function run(argv) {
   const shell = cmd.length === 1;
   const command = cmd.join(" ");
 
-  const started = await call("/runs", { source: "wrapper", kind: opts.kind, name: opts.name, ticket: opts.ticket, command, cwd: process.cwd() });
+  // Rerun on the Runs screen records it again the same way
+  const rerun = opts.record ? [process.argv[1], "run", "--record", ...(opts.screen ? ["--screen", opts.screen] : []), ...(opts.name ? ["--name", opts.name] : []), "--kind", opts.kind || "proof", "--", ...cmd].map((a) => (/^[\w./:@=,+-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(" ") : undefined;
+  // starting the screens takes a moment longer than a plain run
+  const started = await call("/runs", { source: "wrapper", kind: opts.kind || (opts.record ? "proof" : undefined), name: opts.name, ticket: opts.ticket, command, cwd: process.cwd(), ...(opts.record ? { record: true, screen: opts.screen, video: true, rerun } : {}) }, opts.record ? 30_000 : 3000);
   const id = started?.id;
   if (id && process.stderr.isTTY) process.stderr.write(`cockpit: ${base}${started.link}\n`);
+  const display = started?.display;
+  if (opts.record && !display) process.stderr.write(`cockpit: not recording: ${started?.recordError ?? "cockpit isn't running"}\n`);
 
   // whole lines, twice a second; a heartbeat every 30s keeps a quiet run from looking dead
   let partial = "";
@@ -76,9 +88,11 @@ async function run(argv) {
     beat = Date.now();
     await call(`/runs/${id}/event`, { lines: batch });
   };
-  const timer = setInterval(() => void flush(), 500);
+  // a recording shows the output beside the browser, so it goes sooner
+  const timer = setInterval(() => void flush(), opts.record ? 200 : 500);
 
-  const child = spawn(shell ? process.env.SHELL || "bash" : cmd[0], shell ? ["-c", cmd[0]] : cmd.slice(1), { stdio: ["inherit", "pipe", "pipe"] });
+  const env = display ? { ...process.env, DISPLAY: display, COCKPIT_RECORDING: "1" } : process.env;
+  const child = spawn(shell ? process.env.SHELL || "bash" : cmd[0], shell ? ["-c", cmd[0]] : cmd.slice(1), { stdio: ["inherit", "pipe", "pipe"], env });
   child.stdout.on("data", (d) => (process.stdout.write(d), take(d)));
   child.stderr.on("data", (d) => (process.stderr.write(d), take(d)));
   // Ctrl-C goes to the command, which then ends the run as cancelled
@@ -91,7 +105,13 @@ async function run(argv) {
   });
   clearInterval(timer);
   await flush(true);
-  if (id) await call(`/runs/${id}/event`, { artifacts: opts.artifacts.map((path) => ({ path })), result: { status: code }, phase: stopped ? "cancelled" : "done" });
+  if (id && display) {
+    await call(`/runs/${id}/event`, { artifacts: opts.artifacts.map((path) => ({ path })), result: { status: code } });
+    process.stderr.write("cockpit: making the video\n");
+    const made = await call(`/runs/${id}/record/stop`, { status: code, cancelled: stopped }, 30 * 60_000);
+    if (made?.file) process.stderr.write(`cockpit: video ${base}/api/runs/${id}/artifacts/${made.file} (on ${base}${started.link})\n`);
+    else if (!stopped) process.stderr.write(`cockpit: no video: ${made?.error ?? "cockpit didn't answer"}\n`);
+  } else if (id) await call(`/runs/${id}/event`, { artifacts: opts.artifacts.map((path) => ({ path })), result: { status: code }, phase: stopped ? "cancelled" : "done" });
   return code;
 }
 
