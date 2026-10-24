@@ -70,7 +70,11 @@ describe("agent output", () => {
     const turn = { prompt: "x", cwd: "/w", access: "sandbox" as const, writable: ["/repo/.git"] };
     expect(codex.headless(turn)).toEqual(["exec", "--json", "--skip-git-repo-check", "-c", 'sandbox_mode="workspace-write"', "-c", 'approval_policy="never"', "-c", 'sandbox_workspace_write.writable_roots=["/repo/.git"]', "-"]);
     expect(codex.headless({ ...turn, resume: "t1", model: "m", access: "readonly" })).toEqual(["exec", "resume", "--json", "--skip-git-repo-check", "-m", "m", "-c", 'sandbox_mode="read-only"', "-c", 'approval_policy="never"', "t1", "-"]);
-    expect(claude.headless({ ...turn, resume: "s1" })).toEqual(["-p", "--output-format", "stream-json", "--verbose", "--resume", "s1", "--permission-mode", "acceptEdits", "--add-dir", "/repo/.git"]);
+    const c = claude.headless({ ...turn, resume: "s1" });
+    expect(c.slice(0, 8)).toEqual(["-p", "--output-format", "stream-json", "--verbose", "--resume", "s1", "--permission-mode", "acceptEdits"]);
+    // it can commit with nobody there to approve it, and gets the folder's git data
+    expect(c).toContain("Bash(git commit:*)");
+    expect(c.slice(-2)).toEqual(["--add-dir", "/repo/.git"]);
     expect(gemini.headless({ ...turn, access: "full" })).toContain("yolo");
   });
 });

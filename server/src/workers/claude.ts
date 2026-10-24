@@ -1,12 +1,28 @@
 // Claude Code without its terminal: claude -p, printing stream-json. Tasks on Claude still get the usual terminal;
 // this is for work nobody watches as it happens, like the steps of a flow.
+import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import type { AgentAccess, AgentEvent, AgentProvider } from "@cockpit/shared";
 
-const ACCESS: Record<AgentAccess, string[]> = {
-  sandbox: ["--permission-mode", "acceptEdits"],
-  readonly: ["--permission-mode", "plan"],
-  full: ["--dangerously-skip-permissions"],
-};
+// what a turn nobody can approve anything in still needs: reading the repo's state, and committing its work
+const GIT = ["Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)"];
+
+// Claude Code's own sandbox (bubblewrap and socat on Linux, built in on macOS): commands run fenced into the folder
+// and need no approval, which is what Codex's workspace-write does
+const onPath = (bin: string) => (process.env.PATH ?? "").split(delimiter).some((d) => d && existsSync(join(d, bin)));
+const canSandbox = () => process.platform === "darwin" || (onPath("bwrap") && onPath("socat"));
+
+function access(a: AgentAccess) {
+  if (a === "full") return ["--dangerously-skip-permissions"];
+  if (a === "readonly") return ["--permission-mode", "plan"];
+  return [
+    "--permission-mode",
+    "acceptEdits",
+    "--allowedTools",
+    ...GIT,
+    ...(canSandbox() ? ["--settings", JSON.stringify({ sandbox: { enabled: true, autoAllowBashIfSandboxed: true } })] : []),
+  ];
+}
 
 const text = (c: unknown) => (typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => (typeof x === "string" ? x : x?.text ?? "")).join("") : "");
 
@@ -27,7 +43,7 @@ export const claude: AgentProvider = {
     "--verbose",
     ...(t.model ? ["--model", t.model] : []),
     ...(t.resume ? ["--resume", t.resume] : []),
-    ...ACCESS[t.access],
+    ...access(t.access),
     ...(t.writable ?? []).flatMap((d) => ["--add-dir", d]),
   ],
   parse(line) {
