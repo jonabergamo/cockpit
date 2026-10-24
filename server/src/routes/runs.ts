@@ -8,7 +8,7 @@ import { config, paths } from "../config.ts";
 import { runPanels, runStartExtras, runSteps } from "../plugins.ts";
 import { appendRun, deleteRun, filesDir, originalOf, restoreVideo, trimVideo, getRun, KINDS, listRuns, logFile, outputTail, recordHook, recordRun, rerun, settled, startRun, stepLines, type HookPayload } from "../runs.ts";
 import { runOptions, startOption } from "../runnable.ts";
-import { startRecording, stopRecording } from "../record.ts";
+import { livePicture, startRecording, stopRecording } from "../record.ts";
 import { terminalPage } from "../record-page.ts";
 import { sendRunFailure } from "../verify.ts";
 
@@ -144,6 +144,12 @@ export const runs = new Hono()
   })
   // what the recording shows beside the browser: the run's output as it comes
   .get("/:id/terminal", (c) => (getRun(c.req.param("id")) ? c.html(terminalPage(c.req.param("id"))) : c.json({ error: "no such run" }, 404)))
+  // the screen as it's being recorded, for the run's page to show live
+  .get("/:id/live.jpg", (c) => {
+    const file = livePicture(c.req.param("id"));
+    if (!file || !existsSync(file)) return c.json({ error: "not recording" }, 404);
+    return new Response(readFileSync(file), { headers: { "content-type": "image/jpeg", "cache-control": "no-store" } });
+  })
   // the command ended: the video is made, then the run ends with its exit code
   .post("/:id/record/stop", async (c) => {
     const b = ((await c.req.json().catch(() => ({}))) ?? {}) as { status?: unknown; cancelled?: unknown };

@@ -74,8 +74,17 @@ async function screen(w: number, h: number, file: string): Promise<Screen> {
   return { n, w, h, xvfb, file };
 }
 
-// light on the CPU while the tests run; the video is encoded properly once they're done
-const grab = (s: Screen) => spawn("ffmpeg", ["-y", "-v", "error", "-f", "x11grab", "-draw_mouse", "0", "-video_size", `${s.w}x${s.h}`, "-framerate", "25", "-i", `:${s.n}`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", s.file], { stdio: ["pipe", "ignore", "ignore"] });
+// light on the CPU while the tests run; the video is encoded properly once they're done. live, when given, is a
+// picture of the screen kept current twice a second, for the run's page to show while it records
+const grab = (s: Screen, live?: string) =>
+  spawn(
+    "ffmpeg",
+    ["-y", "-v", "error", "-f", "x11grab", "-draw_mouse", "0", "-video_size", `${s.w}x${s.h}`, "-framerate", "25", "-i", `:${s.n}`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", s.file, ...(live ? ["-vf", "fps=2,scale=1280:-2", "-q:v", "6", "-update", "1", "-f", "image2", live] : [])],
+    { stdio: ["pipe", "ignore", "ignore"] },
+  );
+
+// the picture of a run's screen as it records, while it does
+export const livePicture = (id: string) => (recordings.has(id) ? join(recordings.get(id)!.dir, "live.jpg") : undefined);
 
 const ended = (p: ChildProcess) => new Promise<void>((done) => (p.exitCode !== null || p.signalCode !== null ? done() : p.once("exit", () => done())));
 
@@ -116,9 +125,10 @@ export async function startRecording(id: string, size = config.record.screen) {
   recordings.set(id, r);
   // the output page draws before the recording starts, so the video doesn't open on a blank pane
   await sleep(1500);
-  app.grab = grab(app);
+  app.grab = grab(app, join(dir, "live.jpg"));
   term.grab = grab(term);
   r.startedAt = Date.now();
+  appendRun(id, { meta: { live: true } });
   return { display: `:${app.n}` };
 }
 
@@ -190,7 +200,7 @@ export function stopRecording(id: string, f: { status: number; cancelled?: boole
   if (!r) return Promise.resolve({ error: "this run isn't being recorded" });
   if (r.stopping) return r.stopping;
   r.stopping = (async () => {
-    appendRun(id, { result: { status: f.status }, phase: "stopping" });
+    appendRun(id, { result: { status: f.status }, phase: "stopping", meta: { live: false } });
     // the output page reads the log a moment behind, so its last lines get on the video too
     await sleep(1500);
     await stopScreens(r);
@@ -231,6 +241,7 @@ export function startRecordings() {
     r.stopping = stopScreens(r).then(() => {
       rmSync(r.dir, { recursive: true, force: true });
       recordings.delete(r.id);
+      appendRun(r.id, { meta: { live: false } });
       return { error: "the run ended before its recording was stopped" };
     });
   });

@@ -484,6 +484,8 @@ export function RunPage() {
       )}
       {r.meta.error && <ErrorNote error={r.meta.error} />}
 
+      {r.status === "running" && r.meta.live === true && <LiveScreen runId={r.id} />}
+
       {r.panels.map((p) => (
         <iframe key={p.url} src={`${p.url}${p.url.includes("?") ? "&" : "?"}run=${encodeURIComponent(r.id)}`} title={p.plugin} className="w-full h-[560px] border border-line rounded-lg bg-panel block" allow="clipboard-write; fullscreen" />
       ))}
@@ -543,5 +545,36 @@ export function RunPage() {
         )}
       </section>
     </div>
+  );
+}
+
+// What a recorded run's screen shows right now, kept current while it records. Each picture is loaded before it
+// replaces the one on show, so it never flickers to blank.
+function LiveScreen({ runId }: { runId: string }) {
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    let on = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      const url = `/api/runs/${encodeURIComponent(runId)}/live.jpg?t=${Date.now()}`;
+      const img = new Image();
+      img.onload = () => on && (setSrc(url), (timer = setTimeout(next, 500)));
+      img.onerror = () => on && (timer = setTimeout(next, 1000));
+      img.src = url;
+    };
+    next();
+    return () => {
+      on = false;
+      clearTimeout(timer);
+    };
+  }, [runId]);
+  return (
+    <section>
+      <h2 className="font-semibold mb-1.5 flex items-center gap-2">
+        <span className="size-2 rounded-full bg-red animate-pulse" />
+        Live
+      </h2>
+      {src ? <img src={src} alt="The screen as it's being recorded" className="w-full max-h-[70vh] object-contain rounded-lg border border-line bg-black" /> : <div className="h-[200px] rounded-lg border border-line bg-panel grid place-items-center text-muted text-[13px]">Waiting for the screen</div>}
+    </section>
   );
 }
