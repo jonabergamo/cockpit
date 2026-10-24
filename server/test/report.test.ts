@@ -55,7 +55,7 @@ describe("sprint maths", () => {
   });
 });
 
-import { burndown, distribution, sayDoOf } from "../src/report.ts";
+import { burndown, closedAt, distribution, sayDoOf } from "../src/report.ts";
 
 describe("team style charts", () => {
   it("counts down from the scope and leaves the future empty", () => {
@@ -89,6 +89,25 @@ describe("team style charts", () => {
     ];
     expect(sayDoOf(tickets, "2026-10-14T23:00:00.000Z")).toEqual({ committed: 10, completed: 3 });
     expect(sayDoOf(tickets, "2026-10-14T23:00:00.000Z", true)).toEqual({ committed: 10, completed: 5 });
+  });
+
+  it("counts until the sprint was closed, not its planned end", () => {
+    const sprint = { end: "2026-10-13T23:00:00.000Z", completed: "2026-10-15T12:39:00.000Z" };
+    const tickets = [
+      { status: "Done", points: 3, resolvedAt: "2026-10-10T10:00:00.000Z" },
+      { status: "Done", points: 2, resolvedAt: "2026-10-15T09:00:00.000Z" },
+      { status: "Done", points: 1, resolvedAt: "2026-10-16T09:00:00.000Z" },
+    ];
+    expect(sayDoOf(tickets, closedAt(sprint))).toEqual({ committed: 6, completed: 5 });
+    expect(closedAt({ end: sprint.end })).toBe(sprint.end);
+  });
+
+  it("counts what was in a done status like QA when the sprint closed, even if it got to Done later", () => {
+    const tickets = [
+      { key: "A-1", status: "Done", points: 2, resolvedAt: "2026-10-20T10:00:00.000Z" },
+      { key: "A-2", status: "Done", points: 3, resolvedAt: "2026-10-21T10:00:00.000Z" },
+    ];
+    expect(sayDoOf(tickets, "2026-10-15T12:00:00.000Z", false, new Set(["A-1"]))).toEqual({ committed: 5, completed: 2 });
   });
 });
 

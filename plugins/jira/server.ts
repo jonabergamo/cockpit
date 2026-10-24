@@ -116,10 +116,17 @@ export default function setup(k: Cockpit) {
     };
   }
 
+  // the sprint list leaves out when a sprint was closed, which a sprint's own view has; it never changes once closed
+  const closedOn = (id: number) =>
+    k.cache(`sprint-closed:${id}`, 365 * DAY, async () => ((await acli(["sprint", "view", "--id", String(id)])) as { completeDate?: string }).completeDate ?? null);
   const sprints = () =>
     k.cache("sprints", 3600_000, async () => {
       const pages = await acliPages(["board", "list-sprints", "--id", String(await boardId()), "--paginate"]);
-      return pages.flatMap((p) => p.sprints ?? []).map((x: any): TrackerSprint => ({ id: x.id, name: x.name, start: x.startDate, end: x.endDate, goal: x.goal, state: x.state }));
+      const list = pages.flatMap((p) => p.sprints ?? []).map((x: any): TrackerSprint => ({ id: x.id, name: x.name, start: x.startDate, end: x.endDate, completed: x.completeDate, goal: x.goal, state: x.state }));
+      // only the recent ones, which the say/do history reads
+      const recent = list.filter((x) => x.state === "closed" && x.start && !x.completed).sort((a, b) => b.start!.localeCompare(a.start!)).slice(0, 8);
+      await Promise.all(recent.map(async (x) => (x.completed = (await closedOn(x.id).catch(() => null)) ?? undefined)));
+      return list;
     });
   const activeSprint = async () => (await sprints()).find((x) => x.state === "active");
 

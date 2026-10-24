@@ -218,6 +218,8 @@ export interface Sprint {
   name: string;
   start?: string;
   end?: string;
+  // when it was actually closed, which can be days after end
+  completed?: string;
   goal?: string;
 }
 

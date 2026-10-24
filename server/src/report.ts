@@ -43,9 +43,14 @@ export function burndown(points: BurnPoint[]) {
 }
 
 // Committed is everything in the sprint, completed is what reached a done status before the sprint ended.
-export function sayDoOf(tickets: { status: string; points?: number; resolvedAt?: string; statusChangedAt?: string }[], end?: string, active = false) {
+// A sprint ends when it's closed, as the tracker's own sprint report counts it, which is often after its planned end.
+export const closedAt = (s: { end?: string; completed?: string }) => s.completed ?? s.end;
+// doneAtClose is what the tracker's history says sat in a done status when the sprint closed: a ticket in QA then
+// that reached its last status later still counts, as QA does in the active sprint
+export function sayDoOf(tickets: { key?: string; status: string; points?: number; resolvedAt?: string; statusChangedAt?: string }[], end?: string, active = false, doneAtClose?: Set<string>) {
   const committed = tickets.reduce((n, t) => n + (t.points ?? 0), 0);
   const completed = tickets.reduce((n, t) => {
+    if (t.key && doneAtClose?.has(t.key)) return n + (t.points ?? 0);
     if (!doneSet().has(t.status)) return n;
     const at = t.resolvedAt ?? t.statusChangedAt;
     return active || !end || !at || at <= end ? n + (t.points ?? 0) : n;
@@ -61,9 +66,11 @@ export async function sayDo(count = 6, scope: Scope = "team") {
       const active = s.state === "active";
       const tickets = await sprintTickets(s.id, false, active ? undefined : 7 * 24 * 3600_000, scope);
       // compare ISO strings in one timezone
-      const end = s.end ? new Date(s.end).toISOString() : undefined;
+      const at = closedAt(s);
+      const end = at ? new Date(at).toISOString() : undefined;
       const norm = tickets.map((t) => ({ ...t, resolvedAt: t.resolvedAt && new Date(t.resolvedAt).toISOString(), statusChangedAt: t.statusChangedAt && new Date(t.statusChangedAt).toISOString() }));
-      return { id: s.id, name: s.name, active, ...sayDoOf(norm, end, active) };
+      const doneAt = !active && at ? await inStatusOn(s.id, [...doneSet()], day(at))?.catch(() => undefined) : undefined;
+      return { id: s.id, name: s.name, active, ...sayDoOf(norm, end, active, doneAt && new Set(doneAt)) };
     }),
   );
 }
