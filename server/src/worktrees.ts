@@ -117,6 +117,7 @@ export function createWorktree(key: string, summary: string, opts: { ticket?: st
     key,
     slug,
     branch,
+    base: repo.baseBranch,
     name: repo.name,
   });
   // a placeholder nothing filled would reach the shell as text

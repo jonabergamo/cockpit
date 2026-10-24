@@ -12,7 +12,7 @@ import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { emit, onEvent } from "./events.ts";
 import { notify } from "./notify.ts";
-import { statusesOf } from "./providers.ts";
+import { parsePr, statusesOf } from "./providers.ts";
 import { kill, listTerms, spawnTerm } from "./pty.ts";
 import { getSettings } from "./settings.ts";
 import { run } from "./util.ts";
@@ -30,6 +30,7 @@ interface Row {
   model: string | null;
   template: string | null;
   on_pr: string | null;
+  base: string | null;
   overnight: number;
   attempt: number;
   status: TaskStatus;
@@ -54,6 +55,7 @@ const toTask = (r: Row): Task => ({
   model: r.model ?? undefined,
   template: r.template ?? undefined,
   onPr: r.on_pr ?? undefined,
+  base: r.base ?? undefined,
   overnight: !!r.overnight || undefined,
   attempt: r.attempt,
   status: r.status,
@@ -96,8 +98,8 @@ export function updateTask(id: string, patch: Partial<Pick<Task, "status" | "wor
 
 export function insertTask(t: Task) {
   db.prepare(
-    "insert into tasks (id, group_id, title, prompt, ticket, model, template, on_pr, overnight, attempt, status, depends_on, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(t.id, t.group, t.title, t.prompt, t.ticket ?? null, t.model ?? null, t.template ?? null, t.onPr ?? null, t.overnight ? 1 : 0, t.attempt, t.status, JSON.stringify(t.dependsOn), t.createdAt);
+    "insert into tasks (id, group_id, title, prompt, ticket, model, template, on_pr, base, overnight, attempt, status, depends_on, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(t.id, t.group, t.title, t.prompt, t.ticket ?? null, t.model ?? null, t.template ?? null, t.onPr ?? null, t.base ?? null, t.overnight ? 1 : 0, t.attempt, t.status, JSON.stringify(t.dependsOn), t.createdAt);
 }
 
 // ---------- running them ----------
@@ -113,7 +115,7 @@ export interface NewTask {
   dependsOn?: string[];
   // a kind of work by id; without one it's picked by the ticket
   template?: string;
-  // a teammate's open PR (link or number) to start on instead of the main branch
+  // where to start instead of the repo's base branch: a teammate's open PR (link or number), or a branch on origin
   onPr?: string;
   // hold it for the overnight queue
   overnight?: boolean;
@@ -133,13 +135,13 @@ export async function createTasks(input: NewTask) {
       `Work on ${ticket?.url ?? input.ticket}${ticket?.summary ? ` (${ticket.summary})` : ""}. Read the ticket first, make the change, run the checks, and commit when it's done.`;
   }
   if (!prompt) throw new Error("Say what to do, or pick a ticket");
-  // checked now, so a closed or unknown PR is said straight away rather than when the task starts
-  const onPr = input.onPr?.trim() ? (await basePr(input.onPr.trim())).info.url : undefined;
+  // checked now, so a closed or unknown PR or branch is said straight away rather than when the task starts
+  const { onPr, base } = await startPoint(input.onPr?.trim() ?? "");
   const known = new Set(listTasks().flatMap((t) => [t.id, t.group]));
   const dependsOn = (input.dependsOn ?? []).filter((d) => known.has(d));
   const group = randomUUID().slice(0, 8);
   for (let i = 1; i <= attempts; i++) {
-    insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, model: input.model || tpl?.model || getSettings().tasks.defaultModel || undefined, template: tpl?.id, onPr, overnight: !!input.overnight || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
+    insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, model: input.model || tpl?.model || getSettings().tasks.defaultModel || undefined, template: tpl?.id, onPr, base, overnight: !!input.overnight || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
   }
   boardChanged();
   setTimeout(() => tick().catch((e) => console.error("tasks", e)), 50);
@@ -196,6 +198,21 @@ function start(t: Task) {
         }
         void (async () => {
           let prompt = t.prompt + (t.overnight ? NIGHT_NOTE : "");
+          if (!t.onPr) {
+            const target = t.base ?? config.repo.baseBranch;
+            if (t.base) {
+              const git = (...a: string[]) => run("git", ["-C", path, ...a]);
+              try {
+                await git("fetch", "origin", t.base);
+                await git("reset", "--hard", `origin/${t.base}`);
+              } catch (e) {
+                updateTask(t.id, { status: "failed", finishedAt: Date.now(), worktree: path, branch, error: `Couldn't start it on ${t.base}: ${(e as Error).message}` });
+                boardChanged();
+                return;
+              }
+            }
+            prompt += `\n\nThis branch starts from \`${target}\`. When you open the PR, target it: \`--base ${target}\`.`;
+          }
           if (t.onPr) {
             try {
               const s = await stackOnto(path, t.onPr);
@@ -234,11 +251,21 @@ async function hasChanges(worktree: string) {
 }
 
 export async function baseOf(worktree: string) {
-  for (const ref of ["origin/HEAD", "origin/main", "origin/master", "main", "master"]) {
+  for (const ref of [`origin/${config.repo.baseBranch}`, "origin/HEAD", "origin/main", "origin/master", "main", "master"]) {
     const base = (await run("git", ["-C", worktree, "merge-base", "HEAD", ref]).catch(() => "")).trim();
     if (base) return base;
   }
   return undefined;
+}
+
+// What "start from" says: a PR to build on, another branch, or nothing (the base branch, also when it's named)
+export async function startPoint(input: string): Promise<{ onPr?: string; base?: string }> {
+  if (!input || input === config.repo.baseBranch || input === `origin/${config.repo.baseBranch}`) return {};
+  if (parsePr(input)) return { onPr: (await basePr(input)).info.url };
+  const branch = input.replace(/^origin\//, "");
+  const ok = /^[\w./-]+$/.test(branch) && !!(await run("git", ["-C", config.repo.path, "ls-remote", "--heads", "origin", branch]).catch(() => "")).trim();
+  if (!ok) throw Object.assign(new Error(`${input} isn't a PR link or number, or a branch on origin`), { status: 400 });
+  return { base: branch };
 }
 
 function finish(t: Task, status: TaskStatus, why?: string) {

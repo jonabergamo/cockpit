@@ -395,8 +395,10 @@ export interface Task {
   model?: string;
   // the kind of work it was queued as
   template?: string;
-  // the open PR (link) its worktree starts on, instead of the main branch
+  // the open PR (link) its worktree starts on, instead of the repo's base branch
   onPr?: string;
+  // another branch it starts from, and its PR goes back to
+  base?: string;
   // waits for the overnight queue, then runs while you're away
   overnight?: boolean;
   attempt: number;

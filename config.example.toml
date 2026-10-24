@@ -16,10 +16,12 @@ path = "~/code/app"
 name = "app"
 worktreesDir = "~/.claude/worktrees"
 keyPattern = "[A-Z][A-Z0-9]+-\\d+"
-# Placeholders: {repo} {worktreesDir} {key} {slug} {branch} {path} {name}
+# The branch new work starts from and its pull requests go back to.
+baseBranch = "main"
+# Placeholders: {repo} {worktreesDir} {key} {slug} {branch} {base} {path} {name}
 # Any other {placeholder} in createCommand, like {apps}, is filled by the kind of work in Settings → Kinds of work.
 branchTemplate = "feat/{key}/{slug}"
-createCommand = "git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/main"
+createCommand = "git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/{base}"
 deleteCommand = "git -C {repo} worktree remove {path}"
 openCommand = "code {path}"
 # A worktree on another machine (see Settings → Machines), opened here over ssh. {host} is that machine's address.

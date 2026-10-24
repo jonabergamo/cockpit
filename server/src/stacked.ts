@@ -5,6 +5,7 @@ import type { PrRef } from "@cockpit/shared";
 import { paneOf, sendText } from "./agents.ts";
 import { boardChanged, matchWorker } from "./board.ts";
 import { listSessions } from "./claude/sessions.ts";
+import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { onEvent } from "./events.ts";
 import { notify } from "./notify.ts";
@@ -58,7 +59,7 @@ export async function basePr(input: string) {
   const ref = parsePr(input);
   if (!ref) throw Object.assign(new Error("That doesn't look like a pull request link or number"), { status: 400 });
   const info = await prInfo(ref);
-  if (info.state && info.state !== "OPEN") throw Object.assign(new Error(`#${ref.n} is ${info.state.toLowerCase()}, so there's nothing to build on. Start from the main branch.`), { status: 400 });
+  if (info.state && info.state !== "OPEN") throw Object.assign(new Error(`#${ref.n} is ${info.state.toLowerCase()}, so there's nothing to build on. Start from ${config.repo.baseBranch}.`), { status: 400 });
   if (!info.headRefName) throw Object.assign(new Error(`The code host didn't say which branch #${ref.n} is on`), { status: 400 });
   return { ref, info };
 }
@@ -87,7 +88,7 @@ export const stackedNote = (s: { n: number; title?: string; author?: string; bra
 // what the worktree's Claude is asked to do once their PR moved or merged
 export function catchUpPrompt(s: Pick<StackRow, "pr" | "branch" | "target" | "base_sha" | "seen_sha" | "state">) {
   if (s.state === "merged") {
-    const target = s.target ?? "main";
+    const target = s.target ?? config.repo.baseBranch;
     return `#${s.pr}, the PR this branch was built on, has been merged into ${target}. Move your work onto ${target}: \`git fetch origin ${target}\`, then \`git rebase --onto origin/${target} ${s.seen_sha.slice(0, 12)}\` so only your own commits are replayed (theirs are in ${target} now, possibly squashed). Resolve any conflicts keeping what both sides meant, run the checks, and if this branch was already pushed, push it with \`--force-with-lease\`. If it has a PR, point it at ${target}: \`gh pr edit --base ${target}\`. Tell me what changed. (Sent by cockpit.)`;
   }
   return `#${s.pr} (\`${s.branch}\`), the PR this branch is built on, has new commits. Bring them in: \`git fetch origin ${s.branch}\`, then \`git rebase --onto origin/${s.branch} ${s.base_sha.slice(0, 12)}\`. Resolve any conflicts keeping what both sides meant, run the checks, and if this branch was already pushed, push it with \`--force-with-lease\`. Tell me what changed. (Sent by cockpit.)`;

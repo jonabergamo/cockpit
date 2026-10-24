@@ -60,10 +60,11 @@ export const appConfig = () => ({
   preview: !!config.repo.devCommand,
   // so the open buttons can say which editor they open
   openCommand: config.repo.openCommand,
+  baseBranch: config.repo.baseBranch,
   // the PR review screen offers "Include the backend" only when the review command takes it
   reviewBackend: !!config.reviews.backendNote,
   // placeholders in repo.createCommand beyond the built-in ones, which kinds of work have to fill
-  createVars: [...new Set([...config.repo.createCommand.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].filter((v) => !["repo", "worktreesDir", "key", "slug", "branch", "name"].includes(v)),
+  createVars: [...new Set([...config.repo.createCommand.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].filter((v) => !["repo", "worktreesDir", "key", "slug", "branch", "base", "name"].includes(v)),
 });
 
 const plugins = new Hono()

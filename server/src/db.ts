@@ -162,6 +162,7 @@ db.exec(`
 const hasColumn = (table: string, column: string) => (db.prepare(`pragma table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
 if (!hasColumn("tasks", "template")) db.exec("alter table tasks add column template text");
 if (!hasColumn("tasks", "on_pr")) db.exec("alter table tasks add column on_pr text");
+if (!hasColumn("tasks", "base")) db.exec("alter table tasks add column base text");
 if (!hasColumn("tasks", "overnight")) db.exec("alter table tasks add column overnight integer not null default 0");
 
 const inflight = new Map<string, Promise<unknown>>();

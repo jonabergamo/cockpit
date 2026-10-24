@@ -37,6 +37,7 @@ export function NewTaskModal() {
   const [attempts, setAttempts] = useState<"1" | "2" | "3">("1");
   const [model, setModel] = useState("");
   const [kind, setKind] = useState("");
+  const base = cfg.data?.baseBranch ?? "main";
   const kinds = useSettings().data?.settings.templates ?? [];
   const [after, setAfter] = useState("");
   const [onPr, setOnPr] = useState("");
@@ -138,10 +139,16 @@ export function NewTaskModal() {
         </label>
         <label className="block space-y-1">
           <span className="text-muted">
-            On top of a PR <span className="text-faint">(optional, someone's open PR your work needs)</span>
+            Start from <span className="text-faint">(optional, its PR goes back there)</span>
           </span>
-          <input value={onPr} onChange={(e) => setOnPr(e.target.value)} placeholder="Paste a PR link or number. Empty starts from the main branch" className={`${inputClass} w-full`} />
-          {onPr.trim() && <span className="block text-[12px] text-faint">Its branch is the starting point. When that PR gets new commits or merges, the Board says so and can hand the catching up to Claude.</span>}
+          <input value={onPr} onChange={(e) => setOnPr(e.target.value)} placeholder={`${base}. Or another branch, or a PR link or number to build on`} className={`${inputClass} w-full`} />
+          {onPr.trim() && onPr.trim() !== base && (
+            <span className="block text-[12px] text-faint">
+              {/^(#?\d+|https?:\/\/\S+)$/.test(onPr.trim())
+                ? "Its branch is the starting point. When that PR gets new commits or merges, the Board says so and can hand the catching up to Claude."
+                : `That branch on origin is the starting point, and the PR targets it instead of ${base}.`}
+            </span>
+          )}
         </label>
         <div className="flex flex-wrap items-end gap-4">
           <div className="space-y-1">

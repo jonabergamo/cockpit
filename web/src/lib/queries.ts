@@ -23,6 +23,8 @@ export interface AppConfig {
   openCommand?: string;
   reviewBackend?: boolean;
   createVars: string[];
+  // where new work starts and its PRs go back to
+  baseBranch?: string;
 }
 
 export interface TicketsRes {

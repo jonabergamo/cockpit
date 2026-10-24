@@ -33,7 +33,9 @@ const schema = z.object({
       worktreesDir: path.default("~/.claude/worktrees"),
       keyPattern: z.string().default("[A-Z][A-Z0-9]+-\\d+"),
       branchTemplate: z.string().default("feat/{key}/{slug}"),
-      createCommand: z.string().default("git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/main"),
+      // the branch work starts from and its PRs go back to, like main or staging; {base} in createCommand
+      baseBranch: z.string().default("main"),
+      createCommand: z.string().default("git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/{base}"),
       deleteCommand: z.string().default("git -C {repo} worktree remove {path}"),
       openCommand: z.string().default("code {path}"),
       // a worktree on a node, opened from here in an editor that works over ssh; {host} is the node's address
