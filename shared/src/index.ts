@@ -114,7 +114,13 @@ export interface TermInfo {
   session?: string;
   // a split shell that belongs to this terminal, kept out of the tab bar
   parent?: string;
+  // the machine it runs on ("local" for this one), and whether it can be reached: a terminal on a node whose
+  // link dropped is still running there, only out of reach until the link comes back
+  node?: string;
+  state?: TermState;
 }
+
+export type TermState = "running" | "disconnected" | "exited";
 
 export interface Ticket {
   key: string;
@@ -276,7 +282,23 @@ export type ServerEvent =
   // a run started, moved on or finished; its output is fetched, not pushed
   | { type: "run"; run: Run }
   // what the sidebar shows next to each screen, by its nav id
-  | { type: "badges"; badges: Record<string, Badge> };
+  | { type: "badges"; badges: Record<string, Badge> }
+  // the machines this hub works with and whether each one can be reached
+  | { type: "machines"; machines: Machine[] };
+
+// A node this hub dials. state: up, connecting, down (the link dropped, it's dialing again), or refused (the
+// node turned it away: not paired with this hub, or a different link version)
+export interface Machine {
+  id: string;
+  name: string;
+  url: string;
+  state: "connecting" | "up" | "down" | "refused";
+  since: number;
+  node?: string;
+  rtt?: number;
+  error?: string;
+  info?: { hostname: string; platform: string; version: string; terminals: number };
+}
 
 // A sidebar entry's indicator. live pulses while something runs, attention and failed are what needs you,
 // count is a plain total. title spells it out for the tooltip and screen readers.

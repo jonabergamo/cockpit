@@ -4,35 +4,22 @@ import { Hono } from "hono";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { auth } from "./auth.ts";
-import { startSessions } from "./claude/sessions.ts";
+import { startAutomations, startHostServices, startHubServices } from "./startup.ts";
+import { addMachine, hubId, listMachines, pairCommandOf, removeMachine, retryMachine, startMachines } from "./remote/machines.ts";
+import { startNodeServer } from "./remote/node.ts";
 import { config, demo, paths } from "./config.ts";
 import { mountDemo } from "./demo.ts";
 import { activeCodeHost, activeTracker, callRoute, listPlugins, movedScreens, pluginFile, pluginLog, pluginScreens, pluginThemes, startPlugins, updatePlugin } from "./plugins.ts";
-import { restoreTerms } from "./pty.ts";
 import { migrateLegacy, statusConfig } from "./providers.ts";
-import { startSnapshots } from "./report.ts";
 import { install, installSkill, login, setupStatus } from "./requirements.ts";
 import { detectBilling, getSettings, putSettings } from "./settings.ts";
-import { startLeadWatch } from "./lead.ts";
-import { startStuckWatch } from "./stuck.ts";
-import { startBudgetWatch } from "./budget.ts";
-import { startWeekly } from "./weekly.ts";
-import { startAutopilot } from "./autopilot.ts";
-import { startOvernight } from "./overnight.ts";
 import { repoState } from "./worktrees.ts";
 import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
-import { startStacked } from "./stacked.ts";
-import { startBadges } from "./badges.ts";
-import { startVerify } from "./verify.ts";
-import { startTasks } from "./tasks.ts";
 import { tasks } from "./routes/tasks.ts";
-import { startUsage } from "./usage.ts";
-import { startSearch } from "./claude/search.ts";
 import { claude } from "./routes/claude.ts";
 import { code } from "./routes/code.ts";
 import { report } from "./routes/report.ts";
 import { runs } from "./routes/runs.ts";
-import { startRuns } from "./runs.ts";
 import { sessions } from "./routes/sessions.ts";
 import { work } from "./routes/work.ts";
 import { canUpgrade, wss } from "./ws.ts";
@@ -124,8 +111,36 @@ const plugins = new Hono()
     }
   });
 
+// the nodes this hub works with
+const machines = new Hono()
+  .get("/", (c) => c.json({ hub: hubId(), role: config.role, machines: listMachines() }))
+  .post("/", async (c) => {
+    try {
+      const { name, address } = await c.req.json<{ name: string; address: string }>();
+      return c.json(addMachine(String(name ?? ""), String(address ?? "")));
+    } catch (e) {
+      return fail(e);
+    }
+  })
+  .get("/:id/pair", (c) => {
+    try {
+      return c.json({ command: pairCommandOf(c.req.param("id")) });
+    } catch (e) {
+      return fail(e);
+    }
+  })
+  .post("/:id/retry", (c) => c.json((retryMachine(c.req.param("id")), { ok: true })))
+  .delete("/:id", (c) => {
+    try {
+      removeMachine(c.req.param("id"));
+      return c.json({ ok: true });
+    } catch (e) {
+      return fail(e);
+    }
+  });
+
 const api = new Hono()
-  .get("/health", (c) => c.json({ ok: true }))
+  .get("/health", (c) => c.json({ ok: true, role: config.role }))
   .get("/config", (c) => c.json(appConfig()))
   .get("/settings", async (c) => c.json({ settings: getSettings(), billing: await detectBilling() }))
   .put("/settings", async (c) => {
@@ -158,6 +173,7 @@ const api = new Hono()
     }
   })
   .route("/plugins", plugins)
+  .route("/machines", machines)
   .route("/sessions", sessions)
   .route("/claude", claude)
   .route("/code", code)
@@ -183,7 +199,8 @@ app.get("/plugins/:id/*", (c) => {
   return new Response(readFileSync(file), { headers: { "content-type": types[extname(file)] ?? "application/octet-stream", "cache-control": "no-cache" } });
 });
 
-if (existsSync(paths.web)) {
+// a node has no screens of its own; its hub shows them
+if (existsSync(paths.web) && config.role !== "node") {
   const root = relative(process.cwd(), paths.web);
   // Built files carry a hash in their name, so they can be cached forever. The page itself must never be,
   // and is read on every request so a rebuild shows up on reload without restarting the server.
@@ -209,24 +226,16 @@ server.on("upgrade", (req, socket, head) => {
 if (!demo) migrateLegacy();
 startPlugins().catch((e) => console.error("plugins failed to start", e));
 
+// all: everything here. node: what the machine does by itself, for a hub to show. hub: the screens and what's
+// about you, with its nodes doing the work (automations move to the nodes; until then a hub doesn't run them)
 if (!demo) {
-  startSessions();
-  startSnapshots();
-  startUsage();
-  startSearch();
-  startStuckWatch();
-  startBudgetWatch();
-  startWeekly();
-  startLeadWatch();
-  startRuns();
-  startVerify();
-  startAutopilot();
-  startStacked();
-  startOvernight();
-  startTasks();
-  const restored = restoreTerms();
-  if (restored) console.log(`reattached ${restored} terminals`);
-  startBadges();
+  startHostServices();
+  if (config.role !== "hub") startAutomations();
+  if (config.role !== "node") {
+    startHubServices();
+    startMachines();
+  }
+  if (config.role === "node") startNodeServer().catch((e) => console.error("node: couldn't start", e));
 }
 
 export type Api = typeof api;

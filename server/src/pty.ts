@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as pty from "node-pty";
 import type { WebSocket } from "ws";
+import type { TermInfo } from "@cockpit/shared";
 import { demo, paths } from "./config.ts";
 import { emit } from "./events.ts";
 import { broadcast, send } from "./hub.ts";
@@ -221,7 +222,7 @@ export function restoreTerms() {
   return n;
 }
 
-const info = (t: Term) => ({ id: t.id, title: t.title, cwd: t.cwd, command: t.command, createdAt: t.createdAt, exited: t.exited, pid: t.pid, session: t.session, parent: t.parent });
+const info = (t: Term): TermInfo => ({ id: t.id, title: t.title, cwd: t.cwd, command: t.command, createdAt: t.createdAt, exited: t.exited, pid: t.pid, session: t.session, parent: t.parent, node: "local", state: t.exited === undefined ? "running" : "exited" });
 
 // Where the terminal is now, so a `cd` in a shell moves the changes panel with it.
 export function currentCwd(id: string) {
