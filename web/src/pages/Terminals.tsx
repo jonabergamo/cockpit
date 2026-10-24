@@ -14,17 +14,8 @@ import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { ago, shortPath } from "../lib/format";
 import { statusLook } from "../lib/status";
 
-export interface TermInfo {
-  id: string;
-  title: string;
-  cwd: string;
-  command: string;
-  createdAt: number;
-  exited?: number;
-  pid?: number;
-  session?: string;
-  parent?: string;
-}
+export type { TermInfo } from "@cockpit/shared";
+import type { TermInfo } from "@cockpit/shared";
 
 // kept current by the `terms` push, see main.tsx
 export const useTerms = () => useQuery({ queryKey: ["terms"], queryFn: () => api.get<TermInfo[]>("/code/terms") });
@@ -142,9 +133,11 @@ export function TerminalsPage() {
             key={t.id}
             className={`group flex items-center gap-2 h-8 pl-3 pr-1 rounded-md shrink-0 cursor-pointer ${t.id === active ? "bg-raised border border-line" : "text-muted hover:text-ink"}`}
             onClick={() => navigate({ to: "/terminals", search: { id: t.id } })}
-            title={`${t.command}\n${t.cwd}\nstarted ${ago(t.createdAt)}`}
+            title={`${t.command}\n${t.node && t.node !== "local" ? `on ${t.node}: ` : ""}${t.cwd}\nstarted ${ago(t.createdAt)}${t.state === "disconnected" ? "\ndisconnected, reconnecting" : ""}`}
           >
-            {(() => {
+            {t.state === "disconnected" ? (
+              <span className="size-1.5 rounded-full bg-amber animate-pulse" title="Its machine is disconnected" />
+            ) : (() => {
               // what Claude is doing in it: working, waiting for you, or done with its turn
               const s = sessionOf(t);
               const st = s?.status;
@@ -156,6 +149,7 @@ export function TerminalsPage() {
                 />
               );
             })()}
+            {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted">{t.node}</span>}
             <span className="text-[13px] max-w-[220px] truncate">{t.title}</span>
             <span className="text-[12px] text-faint max-w-[140px] truncate">{shortPath(t.cwd).split("/").slice(-2).join("/")}</span>
             {(() => {

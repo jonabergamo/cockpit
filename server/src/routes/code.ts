@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import * as files from "../files.ts";
 import * as term from "../pty.ts";
 import { listWorktrees } from "../worktrees.ts";
+import { spawnRemote } from "../remote/terminals.ts";
 
 // Every request carries the root it works on; it must be a worktree or a project under extraRoots.
 const code = new Hono<{ Variables: { root: string } }>();
@@ -64,7 +65,15 @@ code
   .post("/fs/push", async (c) => c.json({ out: await files.push(c.var.root) }))
   .get("/terms", (c) => c.json(term.listTerms()))
   .post("/terms", async (c) => {
-    const body = await c.req.json<{ cwd: string; title?: string; command?: string; args?: string[]; parent?: string }>();
+    const body = await c.req.json<{ cwd: string; title?: string; command?: string; args?: string[]; parent?: string; node?: string }>();
+    if (body.node && body.node !== "local") {
+      const { node, ...opts } = body;
+      try {
+        return c.json(await spawnRemote(node, opts));
+      } catch (e) {
+        return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 500) as 500);
+      }
+    }
     // a subfolder is fine as long as its repo is one cockpit knows, e.g. the split shell next to a claude started in an app folder
     const ok = (await files.allowedRoot(body.cwd)) || body.cwd === process.env.HOME || files.insideSaved(body.cwd) || (await files.allowedRoot((await files.gitRoot(body.cwd)) ?? body.cwd));
     if (!ok) return c.json({ error: "cwd not allowed" }, 403);

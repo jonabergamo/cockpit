@@ -61,14 +61,46 @@ try {
   await until("the link to come up", async () => (await state()) === "up");
   console.log("paired and connected");
 
+  // a terminal on the node, opened and watched through the hub like a browser would
+  const tick = "i=0; while true; do echo tick $i; i=$((i+1)); sleep 0.3; done";
+  const term = await api("hub", "/code/terms", { method: "POST", body: JSON.stringify({ cwd: tmpdir(), node: "devbox", command: "bash", args: ["-c", tick], title: "ticker" }) });
+  const seen = { text: "", resets: 0, exited: false };
+  const ws = new WebSocket(`ws://127.0.0.1:${ports.hub}/ws`);
+  ws.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.id !== term.id) return;
+    // like the browser: a reset clears the screen, and the whole scrollback follows
+    if (ev.type === "pty.reset") (seen.text = ""), seen.resets++;
+    if (ev.type === "pty.data") seen.text += ev.data;
+    if (ev.type === "pty.exit") seen.exited = true;
+  };
+  await new Promise((ok) => (ws.onopen = ok));
+  ws.send(JSON.stringify({ type: "pty.attach", id: term.id }));
+  const ticks = () => [...seen.text.matchAll(/tick (\d+)/g)].map((m) => Number(m[1]));
+  await until("the node's terminal output", async () => ticks().length >= 3);
+  const termState = async () => (await api("hub", "/code/terms")).find((t) => t.id === term.id)?.state;
+  if ((await termState()) !== "running") throw new Error("the node's terminal isn't listed as running");
+  console.log(`terminal on the node streams through the hub (tick ${Math.max(...ticks())})`);
+
+  const before = Math.max(...ticks());
   await stop(node);
   await until("the link to go down", async () => ["down", "connecting"].includes(await state()));
-  console.log("node stopped: link down");
+  await until("the terminal to show disconnected", async () => (await termState()) === "disconnected");
+  console.log("node stopped: link down, terminal disconnected but still listed");
+  // it keeps ticking on the node's tmux while the hub can't see it
+  await new Promise((r) => setTimeout(r, 2000));
 
   node = start("node");
   await until("the link to come back", async () => (await state()) === "up", 45_000);
   const m = (await api("hub", "/machines")).machines[0];
   console.log(`node back: link up again (${m.info?.hostname}, ${m.info?.platform})`);
+  await until("the terminal to run again", async () => (await termState()) === "running");
+  await until("output from while it was away", async () => Math.max(...ticks()) > before + 5, 20_000);
+  const after = ticks();
+  if (seen.exited) throw new Error("the terminal was reported as exited");
+  if (new Set(after).size !== after.length) throw new Error(`a tick shows twice after reconnecting: ${after.join(",")}`);
+  console.log(`terminal back and current (tick ${Math.max(...after)}, ${seen.resets} clean restarts, nothing twice)`);
+  ws.close();
   console.log("remote harness ok");
 } catch (e) {
   failed = true;

@@ -4,8 +4,10 @@ import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { mix, type Theme } from "@cockpit/shared";
+import { mix, type TermInfo, type Theme } from "@cockpit/shared";
+import { api } from "../lib/api";
 import { keep, send, useLive } from "../lib/live";
 import { termPrefs } from "../lib/termPrefs";
 import { themeStore } from "../lib/theme";
@@ -38,6 +40,13 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
   const [query, setQuery] = useState("");
   const [note, setNote] = useState<string>();
   const [ownHistory, setOwnHistory] = useState(true);
+  // a terminal on a node whose link dropped: still running there, but typing would go nowhere, or worse, land in
+  // whatever prompt is up by the time it came back, so it waits until the node is back
+  const terms = useQuery({ queryKey: ["terms"], queryFn: () => api.get<TermInfo[]>("/code/terms") });
+  const info = terms.data?.find((t) => t.id === id);
+  const offline = info?.state === "disconnected";
+  const blocked = useRef(false);
+  blocked.current = offline;
 
   useEffect(() => {
     const t = new XTerm({
@@ -156,7 +165,11 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
       return false;
     });
 
-    const sub = t.onData((data) => send({ type: "pty.input", id, data }));
+    const sub = t.onData((data) => {
+      if (!blocked.current) return send({ type: "pty.input", id, data });
+      setNote("Not sent: this terminal's machine is disconnected");
+      setTimeout(() => setNote(undefined), 2500);
+    });
     keep(`pty:${id}`, { type: "pty.attach", id });
     setTimeout(resize, 50);
     t.focus();
@@ -188,6 +201,8 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
   useLive(
     (ev) => {
       if (ev.type === "pty.data" && ev.id === id) term.current?.write(ev.data);
+      // the whole scrollback follows, so the screen starts clean instead of showing it twice
+      if (ev.type === "pty.reset" && ev.id === id) term.current?.reset();
       if (ev.type === "pty.mode" && ev.id === id) {
         tmux.current = !!ev.tmux;
         // tmux (or the full-screen app inside it) holds the history, so xterm's own scrollback and bar would only scroll nothing
@@ -226,6 +241,12 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
       <div className={`h-full w-full px-2 py-1 bg-panel ${ownHistory ? "" : "term-no-scrollbar"}`}>
         <div ref={box} className="h-full w-full" />
       </div>
+      {offline && (
+        <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-amber-soft/90 border-b border-amber/50 px-3 py-1.5 text-[12px] text-amber">
+          <span className="size-2 rounded-full bg-amber animate-pulse" />
+          {info?.node ?? "Its machine"} is disconnected. It keeps running there, and this reconnects by itself. Typing is paused until then.
+        </div>
+      )}
       {note && <div className="absolute bottom-3 right-4 z-10 bg-raised border border-line rounded-md shadow-lg px-2.5 py-1 text-[12px] text-muted">{note}</div>}
       {searching && (
         <form

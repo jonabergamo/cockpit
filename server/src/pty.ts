@@ -27,9 +27,46 @@ interface Term extends Meta {
   scrolled?: boolean;
   pid?: number;
   scrollback: string;
+  // each tmux client attached is a new epoch; offsets count the characters it has produced, and start is the
+  // offset of the first one still in the scrollback, so a viewer that was away can ask for exactly what it missed
+  epoch: number;
+  start: number;
+  end: number;
   exited?: number;
   sockets: Set<WebSocket>;
+  sinks: Set<Sink>;
 }
+
+// what a terminal sends to whoever follows it besides the browsers on this machine, like a hub over its link
+export interface PtyFrame {
+  id: string;
+  epoch: number;
+  offset: number;
+  data: string;
+}
+export type Sink = (f: PtyFrame) => void;
+
+// Terminals on other machines, which the hub shows next to its own; set once nodes can be reached
+export interface RemoteTerms {
+  list(): TermInfo[];
+  owns(id: string): boolean;
+  attach(ws: WebSocket, id: string): void;
+  detachAll(ws: WebSocket): void;
+  input(id: string, data: string): void;
+  resize(id: string, cols: number, rows: number): void;
+  scroll(id: string, lines: number): void;
+  search(id: string, query: string, step: "find" | "next" | "prev" | "close"): void;
+  kill(id: string): void;
+  cwd(id: string): string | undefined;
+}
+let remote: RemoteTerms | undefined;
+export const useRemoteTerms = (r: RemoteTerms) => void (remote = r);
+
+const changed = new Set<() => void>();
+const exits = new Set<(id: string, code: number) => void>();
+// for a node passing its terminals on: the list changed, or one ended
+export const onTermsChanged = (fn: () => void) => (changed.add(fn), () => void changed.delete(fn));
+export const onTermExit = (fn: (id: string, code: number) => void) => (exits.add(fn), () => void exits.delete(fn));
 
 const MAX_SCROLLBACK = 256 * 1024;
 const terms = new Map<string, Term>();
@@ -96,19 +133,29 @@ if (hasTmux) startTmux();
 const name = (id: string) => `cockpit-${id}`;
 const panePid = (id: string) => Number(tmux("display-message", "-p", "-t", name(id), "#{pane_pid}").trim()) || undefined;
 
+let epochs = 0;
 function connect(meta: Meta, proc: pty.IPty, pid?: number) {
-  const t: Term = { ...meta, proc, pid, scrollback: "", sockets: new Set() };
+  const t: Term = { ...meta, proc, pid, scrollback: "", epoch: ++epochs, start: 0, end: 0, sockets: new Set(), sinks: new Set() };
   proc.onData((data) => {
+    const offset = t.end;
+    t.end += data.length;
     t.scrollback += data;
-    if (t.scrollback.length > MAX_SCROLLBACK) t.scrollback = t.scrollback.slice(-MAX_SCROLLBACK);
+    if (t.scrollback.length > MAX_SCROLLBACK) {
+      t.start += t.scrollback.length - MAX_SCROLLBACK;
+      t.scrollback = t.scrollback.slice(-MAX_SCROLLBACK);
+    }
     for (const ws of t.sockets) send(ws, { type: "pty.data", id: t.id, data });
+    for (const sink of t.sinks) sink({ id: t.id, epoch: t.epoch, offset, data });
   });
   proc.onExit(({ exitCode }) => {
     // the tmux client can drop while the session lives on, so only give up once the session is really gone
     if (hasTmux && spawnSync("tmux", ["-L", SOCKET, "has-session", "-t", name(t.id)]).status === 0) {
       if (terms.get(t.id) === t) terms.delete(t.id);
       const again = connect(meta, attachClient(meta), t.pid);
+      // a new client repaints the screen from scratch, so the viewers start over with it
       again.sockets = t.sockets;
+      for (const ws of again.sockets) send(ws, { type: "pty.reset", id: t.id });
+      for (const sink of t.sinks) again.sinks.add(sink);
       return;
     }
     // through tmux the exit code is the client's, so a run's command leaves its own in a file; no file means it
@@ -117,6 +164,7 @@ function connect(meta: Meta, proc: pty.IPty, pid?: number) {
     const code = own ?? exitCode;
     t.exited = code;
     for (const ws of t.sockets) send(ws, { type: "pty.exit", id: t.id, code });
+    for (const fn of exits) fn(t.id, code);
     emit("terminal.exited", { id: t.id, code, run: t.run, killed: !!t.run && own === undefined, output: t.run ? t.scrollback : undefined });
     // an ended terminal has nothing left to show, so it closes itself
     if (terms.get(t.id) === t) {
@@ -226,6 +274,7 @@ const info = (t: Term): TermInfo => ({ id: t.id, title: t.title, cwd: t.cwd, com
 
 // Where the terminal is now, so a `cd` in a shell moves the changes panel with it.
 export function currentCwd(id: string) {
+  if (remote?.owns(id)) return remote.cwd(id);
   const t = terms.get(id);
   if (!t) return;
   try {
@@ -235,25 +284,49 @@ export function currentCwd(id: string) {
   }
 }
 
-export const listTerms = () => [...terms.values()].map(info);
+// this machine's terminals only, what a node tells its hub
+export const localTerms = () => [...terms.values()].map(info);
+// every terminal, this machine's and its nodes'
+export const listTerms = () => [...localTerms(), ...(remote?.list() ?? [])];
 
 // every client keeps its tab list from this push instead of polling
-const announce = () => broadcast({ type: "terms", terms: listTerms() });
+export function announce() {
+  broadcast({ type: "terms", terms: listTerms() });
+  for (const fn of changed) fn();
+}
 
+// The browser starts from a clean screen and gets the whole scrollback, so a reconnect never shows output twice
 export function attach(ws: WebSocket, id: string) {
+  if (remote?.owns(id)) return remote.attach(ws, id);
   const t = terms.get(id);
   if (!t) return send(ws, { type: "pty.exit", id, code: -1 });
   t.sockets.add(ws);
   send(ws, { type: "pty.mode", id, tmux: hasTmux });
+  send(ws, { type: "pty.reset", id });
   if (t.scrollback) send(ws, { type: "pty.data", id, data: t.scrollback });
   if (t.exited !== undefined) send(ws, { type: "pty.exit", id, code: t.exited });
 }
 
+// Follows a terminal from where a viewer left off: the same epoch with its offset still in the scrollback gets
+// only what came after it; anything else starts over with the whole scrollback
+export function subscribe(id: string, from: { epoch: number; offset: number } | undefined, sink: Sink) {
+  const t = terms.get(id);
+  if (!t) return;
+  const resume = !!from && from.epoch === t.epoch && from.offset >= t.start && from.offset <= t.end;
+  const at = resume ? from!.offset : t.start;
+  const rest = t.scrollback.slice(at - t.start);
+  t.sinks.add(sink);
+  if (rest) sink({ id, epoch: t.epoch, offset: at, data: rest });
+  return { mode: resume ? ("resume" as const) : ("reset" as const), epoch: t.epoch, start: at, tmux: hasTmux, off: () => void terms.get(id)?.sinks.delete(sink) };
+}
+
 export function detachAll(ws: WebSocket) {
   for (const t of terms.values()) t.sockets.delete(ws);
+  remote?.detachAll(ws);
 }
 
 export function input(id: string, data: string) {
+  if (remote?.owns(id)) return remote.input(id, data);
   const t = terms.get(id);
   if (!t) return;
   // typing while scrolled back would land in tmux's copy mode, so jump back to the live screen first
@@ -270,6 +343,7 @@ export function input(id: string, data: string) {
 
 // Search the tmux history: the first query starts copy mode and searches up, next/prev repeat it, close leaves.
 export function search(id: string, query: string, step: "find" | "next" | "prev" | "close") {
+  if (remote?.owns(id)) return remote.search(id, query, step);
   const t = terms.get(id);
   if (!t || !hasTmux) return;
   const target = name(id);
@@ -288,6 +362,7 @@ export function search(id: string, query: string, step: "find" | "next" | "prev"
 // history, so the wheel goes to the app: as wheel events when it listens to the mouse, else as arrow keys.
 // Everything else scrolls tmux's own history.
 export function scroll(id: string, lines: number) {
+  if (remote?.owns(id)) return remote.scroll(id, lines);
   const t = terms.get(id);
   if (!t || !hasTmux || !lines) return;
   const target = name(id);
@@ -309,11 +384,13 @@ export function scroll(id: string, lines: number) {
 }
 
 export function resize(id: string, cols: number, rows: number) {
+  if (remote?.owns(id)) return remote.resize(id, cols, rows);
   const t = terms.get(id);
   if (t && t.exited === undefined && cols > 0 && rows > 0) t.proc.resize(cols, rows);
 }
 
 export function kill(id: string) {
+  if (remote?.owns(id)) return remote.kill(id);
   const t = terms.get(id);
   if (!t) return;
   if (hasTmux) {

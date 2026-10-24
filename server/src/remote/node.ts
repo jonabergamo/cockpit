@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { config, paths } from "../config.ts";
 import { slugify } from "../util.ts";
+import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
+import type { SpawnOpts } from "./host.ts";
 import { localHost } from "./local.ts";
 import { Channel, keyOf, macOk, newNonce, PROTOCOL, type Frame, type NodeInfo, type Wire } from "./protocol.ts";
 
@@ -103,9 +105,35 @@ export const wsWire = (ws: WebSocket): Wire => ({
   onClose: (fn) => ws.on("close", (code, why) => fn(code, why.toString())),
 });
 
-// what a node answers once a hub is in
+// what a node answers once a hub is in: about itself, and its terminals, which the hub shows as its own
 export function serve(c: Channel) {
   c.handle("info", () => nodeInfo());
+  c.handle("term.list", () => localTerms());
+  c.handle("term.spawn", (o: SpawnOpts) => spawnTerm(o));
+  c.handle("term.kill", ({ id }: { id: string }) => kill(id));
+  c.handle("term.resize", ({ id, cols, rows }: { id: string; cols: number; rows: number }) => resize(id, cols, rows));
+  c.handle("term.scroll", ({ id, lines }: { id: string; lines: number }) => scroll(id, lines));
+  c.handle("term.search", ({ id, query, step }: { id: string; query: string; step: "find" | "next" | "prev" | "close" }) => search(id, query, step));
+  c.handle("term.cwd", ({ id }: { id: string }) => currentCwd(id) ?? null);
+  // typing has no answer to wait for
+  c.on("pty.in", ({ id, data }: { id: string; data: string }) => input(id, data));
+  // following a terminal: from where the hub left off when it can, else from the start of the scrollback
+  const subs = new Map<string, () => void>();
+  c.handle("pty.sub", ({ id, from }: { id: string; from?: { epoch: number; offset: number } }) => {
+    subs.get(id)?.();
+    const s = subscribe(id, from, (f) => c.emit("pty", f));
+    if (!s) return { gone: true };
+    subs.set(id, s.off);
+    return { mode: s.mode, epoch: s.epoch, start: s.start, tmux: s.tmux };
+  });
+  c.on("pty.unsub", ({ id }: { id: string }) => (subs.get(id)?.(), subs.delete(id)));
+  const offTerms = onTermsChanged(() => c.emit("terms", localTerms()));
+  const offExit = onTermExit((id, code) => c.emit("pty.exit", { id, code }));
+  c.onClose(() => {
+    for (const off of subs.values()) off();
+    offTerms();
+    offExit();
+  });
 }
 
 // the hubs connected right now, for pushing events to them

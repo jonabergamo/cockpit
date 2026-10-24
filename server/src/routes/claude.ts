@@ -13,6 +13,7 @@ import { claudeArgs, promptFor, templateFor, templateOf } from "../templates.ts"
 import { statusesOf } from "../providers.ts";
 import { ask } from "../ask.ts";
 import { fill } from "../util.ts";
+import { spawnRemote } from "../remote/terminals.ts";
 
 export const claude = new Hono()
   .get("/files", async (c) => c.json(await listFiles()))
@@ -37,7 +38,17 @@ export const claude = new Hono()
   // Starts an interactive claude in a terminal, optionally resuming a session or with a first prompt
   // Starts an interactive claude in a terminal: resuming a given session, the resume picker, or a fresh one
   .post("/launch", async (c) => {
-    const { cwd, resume, picker, prompt, title, ticket } = await c.req.json<{ cwd?: string; resume?: string; picker?: boolean; prompt?: string; title?: string; ticket?: string }>();
+    const { cwd, resume, picker, prompt, title, ticket, node } = await c.req.json<{ cwd?: string; resume?: string; picker?: boolean; prompt?: string; title?: string; ticket?: string; node?: string }>();
+
+    // on a node: the folder is that machine's, so it's the node that knows whether it exists
+    if (node && node !== "local") {
+      if (!cwd) return c.json({ error: "say which folder on that machine" }, 400);
+      try {
+        return c.json(await spawnRemote(node, { cwd, command: "claude", args: picker ? ["--resume"] : prompt ? [prompt] : [], title: title ?? (picker ? "claude --resume" : "claude") }));
+      } catch (e) {
+        return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 500) as 500);
+      }
+    }
 
     if (resume) {
       // claude only finds a session from the folder it ran in, so use the one we indexed

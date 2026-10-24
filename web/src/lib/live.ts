@@ -24,6 +24,7 @@ function connect() {
     retry = 500;
     setConnected(true);
     for (const w of watches.values()) ws!.send(JSON.stringify(w));
+    flushHeld();
   };
   ws.onmessage = (m) => {
     const ev: ServerEvent = JSON.parse(m.data);
@@ -50,8 +51,22 @@ export function listen(fn: Listener) {
   return () => void listeners.delete(fn);
 }
 
+// Typing during a short drop of the browser's own connection is held a moment and sent once it's back; anything
+// older or bigger is let go, since by then it could land somewhere it wasn't meant for
+const held: { at: number; ev: ClientEvent }[] = [];
+const HOLD_MS = 2000;
+const HOLD_CHARS = 4096;
+
 export function send(ev: ClientEvent) {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(ev));
+  if (ws?.readyState === WebSocket.OPEN) return ws.send(JSON.stringify(ev));
+  if (ev.type !== "pty.input") return;
+  const size = held.reduce((n, h) => n + (h.ev.type === "pty.input" ? h.ev.data.length : 0), 0);
+  if (size + ev.data.length <= HOLD_CHARS) held.push({ at: Date.now(), ev });
+}
+
+function flushHeld() {
+  const fresh = held.splice(0).filter((h) => Date.now() - h.at <= HOLD_MS);
+  for (const h of fresh) ws?.send(JSON.stringify(h.ev));
 }
 
 // Watches are replayed after a reconnect so live views keep streaming.

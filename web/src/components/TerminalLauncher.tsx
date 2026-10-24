@@ -2,10 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Command } from "cmdk";
 import { useDeferredValue, useEffect, useState } from "react";
-import type { Session } from "@cockpit/shared";
+import type { Machine, Session } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { shortPath } from "../lib/format";
-import { launch, launcher, MODES, useLauncher, type LaunchMode } from "../lib/launcher";
+import { launch, launcher, MODES, recentOn, useLauncher, type LaunchMode } from "../lib/launcher";
 import { group, item } from "./CommandPalette";
 import { useRoots } from "./RootPicker";
 
@@ -30,7 +30,12 @@ const modeLabel: Record<LaunchMode, string> = { claude: "Claude", resume: "Resum
 
 // Pick a folder, or type any path in your home, and start Claude, the resume picker or a shell there.
 export function TerminalLauncher() {
-  const { open, mode } = useLauncher();
+  const { open, mode, node: picked } = useLauncher();
+  const machines = useQuery({ queryKey: ["machines"], queryFn: () => api.get<{ machines: Machine[] }>("/machines"), enabled: open });
+  const others = machines.data?.machines ?? [];
+  // a node that was removed since falls back to this machine
+  const node = picked !== "local" && others.some((m) => m.id === picked) ? picked : "local";
+  const remote = others.find((m) => m.id === node);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const roots = useRoots();
@@ -39,7 +44,7 @@ export function TerminalLauncher() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const typed = useDeferredValue(search.trim());
-  const pathMode = typed.startsWith("/") || typed.startsWith("~");
+  const pathMode = node === "local" && (typed.startsWith("/") || typed.startsWith("~"));
   const base = pathMode ? typed.slice(0, typed.lastIndexOf("/") + 1) || "~/" : "";
   const dirs = useQuery({ queryKey: ["dirs", base], queryFn: () => api.get<{ path: string; dirs: string[] }>(`/code/dirs?path=${encodeURIComponent(base)}`), enabled: open && pathMode });
 
@@ -56,6 +61,11 @@ export function TerminalLauncher() {
     setBusy(true);
     setErr(undefined);
     try {
+      if (node !== "local") {
+        const id = await launch(qc, cwd, m, cwd.split("/").filter(Boolean).pop() ?? cwd, node);
+        launcher.close();
+        return navigate({ to: "/terminals", search: { id } });
+      }
       // anything outside the known roots gets saved first, which is what lets the server open it
       if (!all.includes(cwd)) await api.post("/code/folders", { path: cwd });
       await qc.invalidateQueries({ queryKey: ["roots"] });
@@ -140,11 +150,33 @@ export function TerminalLauncher() {
           ))}
           <span className="ml-auto text-[12px] text-faint">{busy ? "Starting" : "Tab switches · ⏎ starts"}</span>
         </div>
-        <Command.Input value={search} onValueChange={setSearch} autoFocus placeholder="Folder name, or a path like ~/work/app" className="w-full h-12 px-4 bg-transparent border-b border-line outline-none" />
+        {others.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 px-3 pt-2 text-[12px]">
+            <span className="text-faint mr-1">On</span>
+            {[{ id: "local", name: "this machine", state: "up" as const }, ...others].map((m) => (
+              <button
+                key={m.id}
+                onClick={() => launcher.setNode(m.id)}
+                disabled={m.state !== "up"}
+                title={m.state !== "up" ? `${m.name} isn't connected` : undefined}
+                className={`flex items-center gap-1.5 px-2 h-6 rounded ${node === m.id ? "bg-raised text-ink shadow-[0_0_0_1px_var(--line)]" : "text-muted hover:text-ink"} disabled:opacity-40`}
+              >
+                <span className={`size-1.5 rounded-full ${m.state === "up" ? "bg-green" : "bg-line"}`} />
+                {m.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <Command.Input value={search} onValueChange={setSearch} autoFocus placeholder={remote ? `A folder on ${remote.name}, like ~/code/app` : "Folder name, or a path like ~/work/app"} className="w-full h-12 px-4 bg-transparent border-b border-line outline-none" />
         {err && <div className="px-4 py-2 text-[13px] text-red border-b border-line">{err}</div>}
         <Command.List className="max-h-[55vh] overflow-y-auto p-1.5">
-          <Command.Empty className="px-3 py-6 text-muted text-center">{pathMode ? (dirs.isLoading ? "Reading folders" : "No folders there.") : "Nothing matches. Type a path starting with ~ or /."}</Command.Empty>
-          {pathMode ? (
+          <Command.Empty className="px-3 py-6 text-muted text-center">{remote ? `Type the path of a folder on ${remote.name}.` : pathMode ? (dirs.isLoading ? "Reading folders" : "No folders there.") : "Nothing matches. Type a path starting with ~ or /."}</Command.Empty>
+          {remote ? (
+            <Command.Group heading={`On ${remote.name}`} className={group}>
+              {typed && row("typed", typed, typed.split("/").filter(Boolean).pop() ?? typed, `${typed} · on ${remote.name}`)}
+              {recentOn(node).map((p) => row("node", p, p.split("/").filter(Boolean).pop() ?? p, `${p} · on ${remote.name}`))}
+            </Command.Group>
+          ) : pathMode ? (
             <Command.Group heading="Path" className={group}>
               {baseFull && typed.endsWith("/") && row("here", baseFull, shortPath(baseFull).split("/").pop() || "~", `${shortPath(baseFull)} · this folder`)}
               {matches.map((d) => row("dir", d, d.split("/").pop()!, shortPath(d)))}

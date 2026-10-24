@@ -271,6 +271,8 @@ export type ServerEvent =
   | { type: "workflow"; run: WorkflowRun }
   | { type: "job"; id: string; chunk?: string; done?: boolean; code?: number }
   | { type: "pty.data"; id: string; data: string }
+  // start over from a clean screen: the whole scrollback follows
+  | { type: "pty.reset"; id: string }
   | { type: "pty.exit"; id: string; code: number }
   | { type: "pty.mode"; id: string; tmux: boolean }
   | { type: "terms"; terms: TermInfo[] }

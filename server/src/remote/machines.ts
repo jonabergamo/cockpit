@@ -8,6 +8,7 @@ import { readRow, writeRow } from "../settings.ts";
 import { slugify } from "../util.ts";
 import { RemoteLink } from "./link.ts";
 import { newToken } from "./protocol.ts";
+import { addLink, startRemoteTerms, unlinked } from "./terminals.ts";
 
 db.exec(`
   create table if not exists machines (
@@ -55,6 +56,7 @@ function open(row: Row) {
   const link = new RemoteLink({ url: row.url, token: row.token, hub: hubId() });
   link.onStatus(announce);
   links.set(row.id, { row, link });
+  addLink(row.id, link);
   link.start();
 }
 
@@ -82,6 +84,7 @@ export function removeMachine(id: string) {
   if (!l) throw Object.assign(new Error("No such machine"), { status: 404 });
   l.link.stop();
   links.delete(id);
+  unlinked(id);
   db.prepare("delete from machines where id = ?").run(id);
   announce();
 }
@@ -89,5 +92,6 @@ export function removeMachine(id: string) {
 export const retryMachine = (id: string) => linkOf(id)?.retry();
 
 export function startMachines() {
+  startRemoteTerms([]);
   for (const row of db.prepare<[], Row>("select * from machines order by added_at").all()) open(row);
 }

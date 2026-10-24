@@ -8,6 +8,8 @@ export const MODES: LaunchMode[] = ["claude", "resume", "shell"];
 
 const LAST = "cockpit.lastClaudeCwd";
 const MODE = "cockpit.launchMode";
+const NODE = "cockpit.launchNode";
+const nodeFolders = (node: string) => `cockpit.nodeFolders.${node}`;
 
 const read = (k: string) => {
   try {
@@ -23,7 +25,8 @@ const write = (k: string, v: string) => {
 };
 
 // The launcher is opened from the Terminals page and from Cmd+K, so its state lives outside both.
-let state = { open: false, last: read(LAST), mode: (MODES.find((m) => m === read(MODE)) ?? "claude") as LaunchMode };
+// node: the machine it opens on, "local" for this one
+let state = { open: false, last: read(LAST), mode: (MODES.find((m) => m === read(MODE)) ?? "claude") as LaunchMode, node: read(NODE) ?? "local" };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<typeof state>) => {
   state = { ...state, ...patch };
@@ -43,18 +46,36 @@ export const launcher = {
     write(MODE, mode);
     set({ mode });
   },
+  setNode(node: string) {
+    write(NODE, node);
+    set({ node });
+  },
 };
+
+// the folders used on a node, newest first; its folders can't be listed from here yet, so they're remembered
+export const recentOn = (node: string): string[] => {
+  try {
+    return JSON.parse(read(nodeFolders(node)) ?? "[]");
+  } catch {
+    return [];
+  }
+};
+const rememberOn = (node: string, cwd: string) => write(nodeFolders(node), JSON.stringify([cwd, ...recentOn(node).filter((p) => p !== cwd)].slice(0, 12)));
 
 export const useLauncher = () => useSyncExternalStore(launcher.subscribe, launcher.get);
 
 // "resume" opens claude's own picker of past sessions in that folder
-export async function launch(qc: QueryClient, cwd: string, mode: LaunchMode, label = shortPath(cwd).split("/").pop()!) {
+export async function launch(qc: QueryClient, cwd: string, mode: LaunchMode, label = shortPath(cwd).split("/").pop()!, node = "local") {
+  const on = node === "local" ? undefined : node;
   const t =
     mode === "shell"
-      ? await api.post<{ id: string }>("/code/terms", { cwd, title: label })
-      : await api.post<{ id: string }>("/claude/launch", { cwd, picker: mode === "resume", title: `${mode} · ${label}` });
-  write(LAST, cwd);
-  set({ last: cwd });
+      ? await api.post<{ id: string }>("/code/terms", { cwd, title: label, node: on })
+      : await api.post<{ id: string }>("/claude/launch", { cwd, picker: mode === "resume", title: `${mode} · ${label}`, node: on });
+  if (on) rememberOn(on, cwd);
+  else {
+    write(LAST, cwd);
+    set({ last: cwd });
+  }
   await qc.invalidateQueries({ queryKey: ["terms"] });
   return t.id;
 }
