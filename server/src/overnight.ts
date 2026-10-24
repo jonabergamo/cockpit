@@ -22,8 +22,19 @@ export interface Night {
   why?: string;
 }
 
-const KEY = "overnight";
+// its own row: "overnight" is the settings' row for the cap and the hours, and sharing it let each wipe the other
+const KEY = "overnight-night";
 export const night = (): Night => readRow<Night>(KEY) ?? { on: false };
+
+// once: a night kept in the settings' row moves to its own, and the settings keep what's theirs
+export function moveNight() {
+  const old = readRow<Record<string, unknown>>("overnight");
+  if (!old || !("on" in old)) return;
+  const { on, since, endedAt, by, why, ...rest } = old;
+  if (!readRow(KEY)) writeRow(KEY, { on, since, endedAt, by, why });
+  writeRow("overnight", rest);
+}
+moveNight();
 export const nightOn = () => night().on;
 
 export function capOf(unit = unitOf()) {
