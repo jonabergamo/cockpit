@@ -12,7 +12,7 @@ import { broadcast } from "../hub.ts";
 import { getRun } from "../runs.ts";
 import type { RemoteLink } from "./link.ts";
 import { findOwner } from "./work.ts";
-import { where } from "../placement/where.ts";
+import { pluginOn, where } from "../placement/where.ts";
 
 export interface ApiReq {
   op: string;
@@ -113,6 +113,12 @@ const worktreeOf = async (c: Context) => {
 
 // Which machine answers a request: this one, or a node. Only a hub hands work out; a single machine does it all.
 async function target(c: Context, path: string): Promise<string | undefined> {
+  // a plugin put on a node answers its own routes there
+  const plugin = path.match(/^\/plugins\/([\w-]+)\/x(\/|$)/)?.[1];
+  if (plugin) {
+    const on = pluginOn(plugin);
+    return on && links.has(on) ? on : undefined;
+  }
   const auto = automationsNode();
   if (config.role !== "hub" || !auto) return;
   // the hooks and `cockpit run` of this machine record its own runs

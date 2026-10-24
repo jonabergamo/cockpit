@@ -23,17 +23,24 @@ const clean = (b: Omit<Badge, "title">, parts: (string | number | false | undefi
 // set by plugins with k.badge, by nav id (plugin:<id>/<screen>)
 const fromPlugins = new Map<string, Badge>();
 const count = (n: unknown) => (typeof n === "number" && n > 0 ? Math.floor(n) : undefined);
+// a node passes its plugins' badges on to its hub
+const badgeWatchers = new Set<(plugin: string) => void>();
+export const onPluginBadges = (fn: (plugin: string) => void) => (badgeWatchers.add(fn), () => void badgeWatchers.delete(fn));
+export const pluginBadges = (plugin: string) => Object.fromEntries([...fromPlugins].filter(([id]) => id.startsWith(`plugin:${plugin}/`)).map(([id, b]) => [id.slice(`plugin:${plugin}/`.length), b]));
+
 export function setPluginBadge(plugin: string, screen: string, b: Badge | null) {
   const id = `plugin:${plugin}/${screen}`;
   const shown = b && clean({ live: count(b.live), attention: count(b.attention), failed: count(b.failed), count: count(b.count) }, [String(b.title ?? "")]);
   if (shown) fromPlugins.set(id, { ...shown, untilSeen: b.untilSeen === true || undefined });
   else fromPlugins.delete(id);
   badgesChanged();
+  for (const fn of badgeWatchers) fn(plugin);
 }
 export function clearPluginBadges(plugin: string) {
   const mine = [...fromPlugins.keys()].filter((id) => id.startsWith(`plugin:${plugin}/`));
   mine.forEach((id) => fromPlugins.delete(id));
   if (mine.length) badgesChanged();
+  if (mine.length) for (const fn of badgeWatchers) fn(plugin);
 }
 
 // when each screen with a "since you last looked" count was last opened

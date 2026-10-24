@@ -99,6 +99,71 @@ export function PlacementSection({ machines }: { machines: Machine[] }) {
   );
 }
 
+interface PluginPlace {
+  id: string;
+  name: string;
+  bundled: boolean;
+  value: string;
+  machine?: string;
+}
+
+// Each plugin that's on, and the machine it runs on: one put on a node runs only there, and this hub shows its
+// screens and passes its requests on. For plugins that work with that machine's tools, like Docker.
+export function PluginPlacement({ machines }: { machines: Machine[] }) {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["plugin-placement"],
+    queryFn: () => api.get<PluginPlace[]>("/machines/plugins"),
+  });
+  const set = useMutation({
+    mutationFn: (b: { id: string; value: string }) =>
+      api.put("/machines/plugins", b),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["plugin-placement"] }),
+  });
+  if (!q.data?.length) return <ErrorNote error={q.error} />;
+  return (
+    <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
+      <div>
+        <h2 className="font-semibold">Where plugins run</h2>
+        <p className="text-[13px] text-muted mt-0.5">
+          A plugin put on another machine runs only there, with that machine's
+          tools (its Docker, its CLIs). Its screens still show here.
+        </p>
+      </div>
+      <div className="divide-y divide-line border border-line rounded-md">
+        {q.data.map((p) => (
+          <div
+            key={p.id}
+            className="flex flex-wrap items-center gap-3 px-3 py-2 text-[13px]"
+          >
+            <div className="flex-1 min-w-[200px]">
+              <span className="font-medium">{p.name}</span>{" "}
+              {p.bundled && (
+                <span className="text-[12px] text-faint">bundled</span>
+              )}
+            </div>
+            <select
+              value={p.value}
+              onChange={(e) => set.mutate({ id: p.id, value: e.target.value })}
+              disabled={set.isPending}
+              className={`${inputClass} w-56`}
+              aria-label={`Where ${p.name} runs`}
+            >
+              <option value="here">This machine</option>
+              {machines.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+      <ErrorNote error={set.error} />
+    </section>
+  );
+}
+
 // The nodes this hub works with: add one, pair it with the command shown, and see whether each can be reached
 export function MachinesSection() {
   const qc = useQueryClient();
@@ -280,6 +345,9 @@ export function MachinesSection() {
         <ErrorNote error={add.error ?? remove.error ?? show.error} />
       </section>
       {!!d?.machines.length && <PlacementSection machines={d.machines} />}
+      {!!d?.machines.length && d.role === "hub" && (
+        <PluginPlacement machines={d.machines} />
+      )}
     </div>
   );
 }

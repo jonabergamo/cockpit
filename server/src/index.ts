@@ -9,8 +9,10 @@ import { placementView, type Cap } from "./placement/where.ts";
 import { startAutomations, startHostServices, startHubServices } from "./startup.ts";
 import { addMachine, hubId, listMachines, pairCommandOf, removeMachine, retryMachine, startMachines } from "./remote/machines.ts";
 import { startNodeServer } from "./remote/node.ts";
+import { resendSettings } from "./remote/sync.ts";
 import { config, demo, paths } from "./config.ts";
 import { mountDemo } from "./demo.ts";
+import { reload as reloadPlugin } from "./plugins.ts";
 import { activeCodeHost, activeTracker, callRoute, listPlugins, movedScreens, pluginFile, pluginLog, pluginScreens, pluginThemes, startPlugins, updatePlugin } from "./plugins.ts";
 import { migrateLegacy, statusConfig } from "./providers.ts";
 import { install, installSkill, login, setupStatus } from "./requirements.ts";
@@ -130,8 +132,25 @@ const machines = new Hono()
     const { cap, value } = await c.req.json<{ cap: Cap; value: string }>();
     if (!placementView().some((p) => p.id === cap)) return c.json({ error: "not a kind of work" }, 400);
     if (value !== "auto" && value !== "here" && !listMachines().some((m) => m.id === value)) return c.json({ error: "auto, here or a machine's id" }, 400);
-    putSettings({ machines: { placement: { ...getSettings().machines.placement, [cap]: value } } });
+    putSettings({ machines: { ...getSettings().machines, placement: { ...getSettings().machines.placement, [cap]: value } } });
     return c.json(placementView());
+  })
+  // where each plugin runs: here, or on a node, which then runs it alone
+  .get("/plugins", (c) => {
+    const set = getSettings().machines.plugins;
+    return c.json(listPlugins().plugins.filter((p) => p.on).map((p) => ({ id: p.manifest.id, name: p.manifest.name, bundled: p.bundled, value: set[p.manifest.id] ?? "here", machine: p.machine })));
+  })
+  .put("/plugins", async (c) => {
+    const { id, value } = await c.req.json<{ id: string; value: string }>();
+    if (!listPlugins().plugins.some((p) => p.manifest.id === id)) return c.json({ error: "no such plugin" }, 404);
+    if (value !== "here" && !listMachines().some((m) => m.id === value)) return c.json({ error: "here or a machine's id" }, 400);
+    const plugins = { ...getSettings().machines.plugins };
+    if (value === "here") delete plugins[id];
+    else plugins[id] = value;
+    putSettings({ machines: { ...getSettings().machines, plugins } });
+    await reloadPlugin(id);
+    resendSettings();
+    return c.json({ ok: true });
   })
   .get("/:id/pair", (c) => {
     try {
@@ -239,17 +258,18 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 if (!demo) migrateLegacy();
-startPlugins().catch((e) => console.error("plugins failed to start", e));
+// a hub knows its machines before its plugins load, since a plugin put on a node doesn't load here
+if (!demo && config.role !== "node") startMachines();
+startPlugins()
+  .then(() => config.role === "hub" && resendSettings())
+  .catch((e) => console.error("plugins failed to start", e));
 
 // all: everything here. node: what the machine does by itself, for a hub to show. hub: the screens and what's
 // about you, with its nodes doing the work (automations move to the nodes; until then a hub doesn't run them)
 if (!demo) {
   startHostServices();
   if (config.role !== "hub") startAutomations();
-  if (config.role !== "node") {
-    startHubServices();
-    startMachines();
-  }
+  if (config.role !== "node") startHubServices();
   if (config.role === "node") startNodeServer().catch((e) => console.error("node: couldn't start", e));
 }
 

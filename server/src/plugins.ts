@@ -19,7 +19,7 @@ import { kill, listTerms, spawnTerm } from "./pty.ts";
 import { appendRun, getRun, listRuns, recordRun, startRun, terminalRun } from "./runs.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { getSettings, readRow, writeRow } from "./settings.ts";
-import { where } from "./placement/where.ts";
+import { pluginOn, where } from "./placement/where.ts";
 import { run, setKeyPattern, ticketOf } from "./util.ts";
 
 // Plugins are folders with a plugin.json, from plugins/ in the repo (bundled) and from pluginsDir (yours).
@@ -114,6 +114,8 @@ interface Plugin {
   runStarts: ((run: Run, body: Record<string, unknown>) => Record<string, unknown> | void)[];
   runPanels: { kinds?: RunKind[]; url: string; steps?: boolean }[];
   runOptions: Parameters<Cockpit["runOptions"]>[0][];
+  // the node it runs on instead of here: its code isn't loaded here, its screens come from there
+  remote?: string;
 }
 
 const plugins = new Map<string, Plugin>();
@@ -344,6 +346,15 @@ async function load(p: Plugin) {
     p.state = "off";
     return;
   }
+  // on a node: nothing of it runs here, so nothing happens twice; the node says what screens it has
+  const on = pluginOn(p.manifest.id);
+  p.remote = on;
+  if (on) {
+    p.screens = remoteScreens.get(p.manifest.id) ?? [];
+    p.state = "on";
+    say(p, `runs on ${on}`);
+    return;
+  }
   p.state = "loading";
   const errors: string[] = [];
 
@@ -480,6 +491,7 @@ function info(p: Plugin): PluginInfo {
     source: p.bundled ? undefined : sourceOf(p.dir),
     settings,
     screens: p.screens,
+    machine: p.remote,
     themes: p.themes.map((t) => t.name),
     provides: [
       ...(p.tracker ? (["tracker"] as const) : []),
@@ -650,7 +662,7 @@ export function pluginFile(id: string, rel: string) {
 export function workPluginSetup(): Record<string, Saved> {
   const ids = new Set(readRow<string[]>("workPlugins") ?? []);
   const before = ids.size;
-  for (const p of plugins.values()) if (p.tracker || p.codeHost || p.reviewSource || p.manifest.nodes) ids.add(p.manifest.id);
+  for (const p of plugins.values()) if (p.tracker || p.codeHost || p.reviewSource || p.manifest.nodes || p.remote) ids.add(p.manifest.id);
   if (ids.size !== before) writeRow("workPlugins", [...ids]);
   return Object.fromEntries([...ids].map((id) => [id, saved(id)]));
 }
@@ -668,3 +680,18 @@ export async function callExposed(id: string, name: string, args: unknown, files
   if (!fn) throw Object.assign(new Error(`${id} isn't on here, or doesn't offer ${name}`), { status: 404 });
   return fn(args, Object.fromEntries(Object.entries(files ?? {}).map(([k, key]) => [k, fileOf(id, key)])));
 }
+
+// What a node says its plugins have: their screens, for the ones this hub has put there
+const remoteScreens = new Map<string, ScreenInfo[]>();
+export function adoptRemotePlugins(machine: string, list: { id: string; screens: ScreenInfo[] }[]) {
+  let changed = false;
+  for (const r of list) {
+    remoteScreens.set(r.id, r.screens);
+    const p = plugins.get(r.id);
+    if (p?.remote === machine && JSON.stringify(p.screens) !== JSON.stringify(r.screens)) (p.screens = r.screens), (changed = true);
+  }
+  if (changed) afterChange();
+}
+
+// the ids placed on a node, which take their set up from this hub
+export const placedPlugins = () => [...plugins.values()].filter((p) => p.remote).map((p) => p.manifest.id);

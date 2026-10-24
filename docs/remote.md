@@ -77,6 +77,8 @@ Claude and transcription run here instead if the machine they're set to isn't co
 
 Some things always follow the folder they work on. A terminal, a worktree, the code view and `claude -p` started in a folder all run on the machine that has that folder. The Board shows each node's cards, built by that node, with the node's name on them.
 
+Plugins run on the hub by default. Under "Where plugins run" in Settings → Machines, you can put one on a node instead. It then runs only there, with that machine's tools, such as its Docker or its CLIs. The hub doesn't load its code, so nothing it does in the background happens twice. Its screens and sidebar badges still show on the hub, and its requests go to the node.
+
 To open a node's worktree in your editor, the hub runs `repo.openRemoteCommand`. By default that is `code --remote ssh-remote+{host} {path}`, so VS Code on the hub works on the node over ssh.
 
 ## When a machine goes away

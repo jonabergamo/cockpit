@@ -14,6 +14,7 @@ import { addWorkLink, removeWorkLink } from "./work.ts";
 import { logEvent, notify } from "../notify.ts";
 import { addApiLink, removeApiLink, startRemoteBoards } from "./forward.ts";
 import { addInboxLink } from "./outbox.ts";
+import { addPluginLink } from "./plugins.ts";
 import { useMachines } from "../placement/where.ts";
 import { addSyncLink, removeSyncLink, startSync } from "./sync.ts";
 
@@ -69,6 +70,7 @@ function open(row: Row) {
   addInboxLink(row.id, link, { notify, log: logEvent });
   addSyncLink(row.id, link);
   addApiLink(row.id, link);
+  addPluginLink(row.id, link);
   link.start();
 }
 

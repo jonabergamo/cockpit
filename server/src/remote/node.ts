@@ -27,7 +27,8 @@ import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
 import { hasGpu } from "../placement/where.ts";
 import { headlessHere, type Headless } from "../placement/headless.ts";
-import { callExposed } from "../plugins.ts";
+import { callExposed, listPlugins } from "../plugins.ts";
+import { onPluginBadges, pluginBadges } from "../badges.ts";
 import { fileOf, receiveFile } from "./plugincalls.ts";
 import { ack, onEnqueue, since } from "./outbox.ts";
 import { adopt, type Synced } from "./sync.ts";
@@ -186,11 +187,15 @@ export function serve(c: Channel) {
   // its automations' screens, answered by its own API, and its board
   c.handle("api", (r: ApiReq) => handleApi(r));
   c.handle("board", ({ offline }: { offline?: boolean }) => localBoard({ offline }));
+  // its plugins' screens and badges, for the ones the hub has put here
+  c.handle("plugins.info", () => listPlugins().plugins.map((p) => ({ id: p.manifest.id, screens: p.screens, badges: pluginBadges(p.manifest.id) })));
+  const offBadges = onPluginBadges((plugin) => c.emit("plugin.badges", { plugin, badges: pluginBadges(plugin) }));
   // the live ones as they change, which is what the hub's lists and badges follow
   const offSessions = tap((ev) => {
     if (ev.type === "sessions") c.emit("sessions", ev.sessions);
     if (ev.type === "job") c.emit("job", ev);
     if (ev.type === "board" || ev.type === "run") c.emit("relay", ev);
+    if (ev.type === "plugins") c.emit("plugins.changed");
   });
   const offTerms = onTermsChanged(() => c.emit("terms", localTerms()));
   const offExit = onTermExit((id, code) => c.emit("pty.exit", { id, code }));
@@ -201,6 +206,7 @@ export function serve(c: Channel) {
     offSessions();
     offJobs();
     offOutbox();
+    offBadges();
   });
 }
 

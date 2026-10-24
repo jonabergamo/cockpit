@@ -79,3 +79,10 @@ export function placementView(): CapView[] {
     return { ...c, value: set[c.id], runs: r.machine ?? "here", why: r.why, options };
   });
 }
+
+// the node a plugin runs on, when it's put on one; only a hub hands plugins out
+export function pluginOn(id: string, list = machines()): string | undefined {
+  if (config.role !== "hub") return;
+  const value = getSettings().machines.plugins[id];
+  return value && value !== "here" && list.some((m) => m.id === value) ? value : undefined;
+}

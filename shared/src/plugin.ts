@@ -82,6 +82,8 @@ export interface PluginInfo {
   source?: { url: string; ref?: string; path?: string; commit: string; installedAt: number };
   settings: Record<string, SettingValue>;
   screens: ScreenInfo[];
+  // the node it runs on, when this hub has put it on one
+  machine?: string;
   themes: string[];
   provides: ("tracker" | "codeHost" | "reviewSource" | "access")[];
 }

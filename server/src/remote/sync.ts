@@ -29,6 +29,11 @@ export function addSyncLink(machine: string, link: RemoteLink) {
 
 export const removeSyncLink = (machine: string) => void links.delete(machine);
 
+// once the plugins have loaded, so the nodes get the set up of the ones they run
+export const resendSettings = () => {
+  for (const link of links.values()) if (link.status.state === "up") void send(link);
+};
+
 // changes come in bursts (a form saves several rows), so they go out together a moment later
 export function startSync() {
   onSettingsChanged(() => {

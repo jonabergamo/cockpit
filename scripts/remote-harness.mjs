@@ -52,9 +52,13 @@ import { readFileSync } from "node:fs";
 export default function setup(k) {
   k.expose("digest", (args, files) => ({ where: args.who, bytes: readFileSync(files.f).length, sha: createHash("sha1").update(readFileSync(files.f)).digest("hex") }));
   k.route("POST", "/send", ({ body }) => k.remote(k.where("whisper")).call("digest", { who: "node" }, { files: { f: body.path } }));
+  k.route("GET", "/where", () => ({ role: process.env.COCKPIT_ROLE }));
+  k.screen({ id: "echo", title: "Echo", page: "echo.html" });
+  k.badge("echo", { count: 2, title: "two" });
 }
 `,
   );
+  writeFileSync(join(dir, "echo.html"), "<!doctype html><title>Echo</title>");
 }
 const configs = {};
 for (const role of ["hub", "node"]) {
@@ -256,6 +260,15 @@ try {
   got = await send();
   if (got.sha !== sha(readFileSync(audio))) throw new Error("the rewritten file didn't arrive whole");
   console.log("a plugin's work ran on the node, its file copied over, only the new part when it grew");
+
+  // a plugin put on the node runs only there: its routes answer from the node, its screen and badge show here
+  if ((await api("hub", "/plugins/harness-echo/x/where")).role !== "hub") throw new Error("the plugin should run on the hub until it's put on the node");
+  await api("hub", "/machines/plugins", { method: "PUT", body: JSON.stringify({ id: "harness-echo", value: "devbox" }) });
+  if ((await api("hub", "/plugins/harness-echo/x/where")).role !== "node") throw new Error("the plugin's route didn't answer from the node");
+  if (!(await api("hub", "/plugins/harness-echo/log")).some((l) => /runs on devbox/.test(l))) throw new Error("the plugin's code still loaded on the hub");
+  await until("the node's plugin screen on the hub", async () => (await api("hub", "/plugins")).plugins.find((p) => p.manifest.id === "harness-echo")?.screens.some((x) => x.id === "echo"));
+  await until("the node's plugin badge on the hub", async () => (await api("hub", "/badges"))["plugin:harness-echo/echo"]?.count === 2);
+  console.log("a plugin put on the node runs only there, with its screen and badge on the hub");
   console.log("remote harness ok");
 } catch (e) {
   failed = true;

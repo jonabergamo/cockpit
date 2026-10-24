@@ -132,6 +132,8 @@ const schema = z.object({
           whisper: z.string().max(40).default("auto"),
         })
         .prefault({}),
+      // plugins that run on a node instead of here, by id: the hub shows their screens and passes their routes on
+      plugins: z.record(z.string(), z.string().max(40)).default({}),
     })
     .prefault({}),
   notes: z
