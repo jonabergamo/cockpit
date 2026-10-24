@@ -81,5 +81,7 @@ export const codex: AgentProvider = {
     return out;
   },
   terminal: (resume, model) => [...(resume ? ["resume", resume] : []), ...(model ? ["-m", model] : [])],
-  login: ["login"],
+  // by a code typed in the browser: the usual login waits for the browser on this machine's localhost, which a
+  // node's browser isn't
+  login: ["login", "--device-auth"],
 };

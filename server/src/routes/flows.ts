@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Flow } from "@cockpit/shared";
-import { answerStep, cancelFlow, checkFlow, getFlowRun, listFlowRuns, type NewFlowRun, startFlow } from "../flows.ts";
+import { answerStep, cancelFlow, retryFlow, checkFlow, getFlowRun, listFlowRuns, type NewFlowRun, startFlow } from "../flows.ts";
 import { getSettings } from "../settings.ts";
 
 const fail = (e: unknown) => Response.json({ error: (e as Error).message }, { status: (e as { status?: number }).status ?? 500 });
@@ -21,6 +21,13 @@ export const flows = new Hono()
     return r ? c.json(r) : c.notFound();
   })
   .post("/runs/:id/cancel", (c) => c.json(cancelFlow(c.req.param("id")) ?? null))
+  .post("/runs/:id/retry", async (c) => {
+    try {
+      return c.json(await retryFlow(c.req.param("id")));
+    } catch (e) {
+      return fail(e);
+    }
+  })
   .post("/runs/:id/steps/:step/answer", async (c) => {
     const b = await c.req.json<{ verdict: "approve" | "changes"; note?: string }>();
     try {

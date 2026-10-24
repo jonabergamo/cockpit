@@ -320,6 +320,11 @@ export function FlowRunPage() {
             <Button>Open code</Button>
           </Link>
         )}
+        {r.status === "failed" && r.worktree && (
+          <Button variant="primary" onClick={() => api.post(`/flows/runs/${id}/retry`).then(() => q.refetch(), setErr)} title="Runs the failed step again, keeping what the others did">
+            Retry
+          </Button>
+        )}
         {["starting", "running", "waiting"].includes(r.status) && (
           <Button variant="danger" onClick={() => confirm("Stop this flow? The worktree stays.") && api.post(`/flows/runs/${id}/cancel`).then(() => q.refetch(), setErr)}>
             Stop

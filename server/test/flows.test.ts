@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Flow, FlowRun } from "@cockpit/shared";
 import { describe, expect, it } from "vitest";
 import { db } from "../src/db.ts";
-import { advance, checkFlow, getFlowRun, holds, tasksOf, verdictOf } from "../src/flows.ts";
+import { advance, checkFlow, getFlowRun, holds, retryFlow, tasksOf, verdictOf } from "../src/flows.ts";
 import { codex } from "../src/workers/codex.ts";
 import { useExtraAgents } from "../src/workers/index.ts";
 import { agentRow } from "../src/workers/runner.ts";
@@ -91,6 +91,13 @@ describe("running a flow", () => {
     const failed = await settle(insert({ id: "f", name: "F", steps: [{ id: "a", agent: "fake", prompt: "FAIL" }, { id: "b", agent: "fake" }] }));
     expect(failed.status).toBe("failed");
     expect(failed.steps.map((s) => s.status)).toEqual(["failed", "pending"]);
+    // a retry runs the failed step again from scratch, in a new session
+    const first = failed.steps[0].sessionId;
+    await retryFlow(failed.id);
+    const again = await settle(failed.id);
+    expect(again.status).toBe("failed");
+    expect(again.steps[0].sessionId).not.toBe(first);
+    expect(again.steps).toHaveLength(2);
     const waiting = await settle(insert({ id: "f", name: "F", steps: [{ id: "a", agent: "fake" }, { id: "you", kind: "human" }] }));
     expect(waiting.status).toBe("waiting");
     expect(waiting.steps[1].status).toBe("waiting");

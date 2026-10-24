@@ -353,6 +353,24 @@ export async function answerStep(id: string, step: string, verdict: "approve" | 
   return getFlowRun(id);
 }
 
+// After a step failed (a login that ran out, a check that broke for reasons of its own): the failed steps go again,
+// fresh, and the run carries on from there with what the others already did
+export async function retryFlow(id: string) {
+  const run = getFlowRun(id);
+  if (!run || run.status !== "failed") throw Object.assign(new Error("Only a failed flow can be retried"), { status: 400 });
+  if (!run.worktree) throw Object.assign(new Error("It never got a worktree; start it again instead"), { status: 400 });
+  for (const s of run.flow.steps) {
+    const rs = current(run, s.id);
+    if (rs?.status !== "failed") continue;
+    for (const k of ["sessionId", "jobId", "tasks", "output", "verdict", "startedAt", "finishedAt"] as const) delete rs[k];
+    rs.status = "pending";
+  }
+  Object.assign(run, { status: "running", error: undefined, finishedAt: undefined });
+  save(run);
+  await advance(id);
+  return getFlowRun(id);
+}
+
 export function cancelFlow(id: string) {
   const run = getFlowRun(id);
   if (!run || ["done", "failed", "cancelled"].includes(run.status)) return run;
