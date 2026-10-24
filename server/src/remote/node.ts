@@ -12,8 +12,13 @@ import { askOf, sendKeys, sendText } from "../agents.ts";
 import { entriesSince, tailEntries } from "../claude/entries.ts";
 import { searchSessions } from "../claude/search.ts";
 import { listSubagents, localSessions, type ListOpts } from "../claude/sessions.ts";
+import { cleanupPlan } from "../cleaner.ts";
 import { config, paths } from "../config.ts";
+import { allowedRoot, forgetFolder, fsCall, listDirs, roots, saveFolder, savePaste, termChanges } from "../files.ts";
 import { tap } from "../hub.ts";
+import { onJobStart } from "../jobs.ts";
+import { templateFor } from "../templates.ts";
+import { cleanChecked, createWorktree, deleteChecked, listWorktrees, repoState } from "../worktrees.ts";
 import { slugify } from "../util.ts";
 import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
@@ -141,8 +146,29 @@ export function serve(c: Channel) {
   c.handle("session.send", ({ id, text }: { id: string; text: string }) => sendText(id, text));
   c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => sendKeys(id, keys));
   c.handle("sessions.search", ({ q, limit, any }: { q: string; limit?: number; any?: boolean }) => searchSessions(q, limit, any));
+  // its repo: worktrees, the folders the code view opens and what's in them, and the jobs that change them
+  c.handle("worktrees.list", async ({ status }: { status?: boolean }) => ({ state: repoState(), worktrees: await listWorktrees(!!status) }));
+  c.handle("worktrees.create", ({ key, summary, type, template }: { key: string; summary?: string; type?: string; template?: string }) =>
+    createWorktree(key, summary ?? "", { template: templateFor({ summary: summary ?? "", type }, template) }),
+  );
+  c.handle("worktrees.delete", ({ path }: { path: string }) => deleteChecked(path));
+  c.handle("worktrees.cleanPlan", ({ fresh }: { fresh?: boolean }) => cleanupPlan(!!fresh));
+  c.handle("worktrees.clean", ({ paths }: { paths: string[] }) => cleanChecked(paths ?? []));
+  c.handle("code.roots", () => roots());
+  c.handle("code.dirs", ({ path }: { path: string }) => listDirs(path));
+  c.handle("code.folder", ({ path, remove }: { path: string; remove?: boolean }) => (remove ? (forgetFolder(path), { ok: true }) : { path: saveFolder(path) }));
+  c.handle("fs", async ({ method, op, q, body }: { method: string; op: string; q: Record<string, string>; body?: unknown }) => {
+    if (!(await allowedRoot(q.root ?? ""))) throw Object.assign(new Error("root not allowed"), { status: 403 });
+    return fsCall(q.root, method, op, q, body);
+  });
+  c.handle("term.changes", ({ id }: { id: string }) => termChanges(currentCwd(id)));
+  c.handle("term.paste", ({ data, name }: { data: string; name: string }) => savePaste(Buffer.from(data, "base64"), name).then((path) => ({ path })));
+  const offJobs = onJobStart((j) => c.emit("job.start", j));
   // the live ones as they change, which is what the hub's lists and badges follow
-  const offSessions = tap((ev) => ev.type === "sessions" && c.emit("sessions", ev.sessions));
+  const offSessions = tap((ev) => {
+    if (ev.type === "sessions") c.emit("sessions", ev.sessions);
+    if (ev.type === "job") c.emit("job", ev);
+  });
   const offTerms = onTermsChanged(() => c.emit("terms", localTerms()));
   const offExit = onTermExit((id, code) => c.emit("pty.exit", { id, code }));
   c.onClose(() => {
@@ -150,6 +176,7 @@ export function serve(c: Channel) {
     offTerms();
     offExit();
     offSessions();
+    offJobs();
   });
 }
 

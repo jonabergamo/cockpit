@@ -187,6 +187,27 @@ export async function leftoverFolders() {
   return dirs.filter((d) => !known.some((k) => k === d || k.startsWith(d + "/")));
 }
 
+// The checks the screens rely on before removing anything, here so a node runs the same ones for its hub
+export async function deleteChecked(path: string) {
+  const wt = (await listWorktrees(false)).find((w) => w.path === path);
+  if (!wt || wt.main) throw Object.assign(new Error("not a removable worktree"), { status: 400 });
+  return deleteWorktree(path);
+}
+
+export async function cleanChecked(paths: string[]) {
+  const known = new Set((await listWorktrees(false)).filter((w) => !w.main).map((w) => w.path));
+  const stray = new Set(await leftoverFolders());
+  const ok = paths.filter((p) => known.has(p));
+  const left = paths.filter((p) => stray.has(p));
+  if (!ok.length && !left.length) throw Object.assign(new Error("none of those are removable worktrees"), { status: 400 });
+  return deleteWorktrees(ok, left);
+}
+
+// a node's worktree, opened in an editor here that reaches into that machine
+export function openRemote(path: string, host: string) {
+  return startJob(`open ${basename(path)} on ${host}`, fill(repo.openRemoteCommand, { path, host, name: basename(path) }));
+}
+
 export function openInEditor(path: string) {
   return startJob(`open ${nameOf(path)}`, fill(repo.openCommand, { path, repo: repo.path, name: nameOf(path) }));
 }

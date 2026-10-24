@@ -14,7 +14,7 @@ import { useRoots } from "./RootPicker";
 export function useRecentFolders() {
   const roots = useRoots();
   const sessions = useQuery({ queryKey: ["sessions", "recent"], queryFn: () => api.get<Session[]>("/sessions?limit=60") });
-  const all = [...(roots.data?.worktrees.map((w) => w.path) ?? []), ...(roots.data?.projects ?? []), ...(roots.data?.folders ?? [])].sort((a, b) => b.length - a.length);
+  const all = [...(roots.data?.worktrees.filter((w) => !w.node).map((w) => w.path) ?? []), ...(roots.data?.projects ?? []), ...(roots.data?.folders ?? [])].sort((a, b) => b.length - a.length);
   const rootOf = (cwd: string) => all.find((r) => cwd === r || cwd.startsWith(r + "/"));
   const out: string[] = [];
   for (const s of sessions.data ?? []) {
@@ -44,9 +44,9 @@ export function TerminalLauncher() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const typed = useDeferredValue(search.trim());
-  const pathMode = node === "local" && (typed.startsWith("/") || typed.startsWith("~"));
+  const pathMode = typed.startsWith("/") || typed.startsWith("~");
   const base = pathMode ? typed.slice(0, typed.lastIndexOf("/") + 1) || "~/" : "";
-  const dirs = useQuery({ queryKey: ["dirs", base], queryFn: () => api.get<{ path: string; dirs: string[] }>(`/code/dirs?path=${encodeURIComponent(base)}`), enabled: open && pathMode });
+  const dirs = useQuery({ queryKey: ["dirs", node, base], queryFn: () => api.get<{ path: string; dirs: string[] }>(`/code/dirs?path=${encodeURIComponent(base)}&node=${node}`), enabled: open && pathMode });
 
   useEffect(() => {
     if (!open) {
@@ -171,11 +171,23 @@ export function TerminalLauncher() {
         {err && <div className="px-4 py-2 text-[13px] text-red border-b border-line">{err}</div>}
         <Command.List className="max-h-[55vh] overflow-y-auto p-1.5">
           <Command.Empty className="px-3 py-6 text-muted text-center">{remote ? `Type the path of a folder on ${remote.name}.` : pathMode ? (dirs.isLoading ? "Reading folders" : "No folders there.") : "Nothing matches. Type a path starting with ~ or /."}</Command.Empty>
-          {remote ? (
+          {remote && pathMode ? (
             <Command.Group heading={`On ${remote.name}`} className={group}>
-              {typed && row("typed", typed, typed.split("/").filter(Boolean).pop() ?? typed, `${typed} · on ${remote.name}`)}
-              {recentOn(node).map((p) => row("node", p, p.split("/").filter(Boolean).pop() ?? p, `${p} · on ${remote.name}`))}
+              {row("typed", baseFull && typed.endsWith("/") ? baseFull : typed, typed.split("/").filter(Boolean).pop() ?? typed, `${typed} · on ${remote.name}`)}
+              {matches.map((d) => row("dir", d, d.split("/").pop()!, `${d} · on ${remote.name}`))}
             </Command.Group>
+          ) : remote ? (
+            <>
+              <Command.Group heading={`Recent on ${remote.name}`} className={group}>
+                {recentOn(node).map((p) => row("node", p, p.split("/").filter(Boolean).pop() ?? p, `${p} · on ${remote.name}`))}
+              </Command.Group>
+              <Command.Group heading="Worktrees" className={group}>
+                {roots.data?.worktrees.filter((w) => w.node === node).map((w) => row("worktree", w.path, w.name, w.branch))}
+              </Command.Group>
+              <Command.Group heading="Projects and saved folders" className={group}>
+                {roots.data?.remote?.filter((r) => r.node === node).map((r) => row(r.kind, r.path, r.path.split("/").pop() ?? r.path, r.path))}
+              </Command.Group>
+            </>
           ) : pathMode ? (
             <Command.Group heading="Path" className={group}>
               {baseFull && typed.endsWith("/") && row("here", baseFull, shortPath(baseFull).split("/").pop() || "~", `${shortPath(baseFull)} · this folder`)}
@@ -190,7 +202,7 @@ export function TerminalLauncher() {
                 {roots.data?.folders.map((p) => row("saved", p, label(p), undefined, () => forget(p)))}
               </Command.Group>
               <Command.Group heading="Worktrees" className={group}>
-                {roots.data?.worktrees.map((w) => row("worktree", w.path, w.name, w.branch))}
+                {roots.data?.worktrees.filter((w) => !w.node).map((w) => row("worktree", w.path, w.name, w.branch))}
               </Command.Group>
               <Command.Group heading="Projects" className={group}>
                 {roots.data?.projects.map((p) => row("project", p, label(p)))}

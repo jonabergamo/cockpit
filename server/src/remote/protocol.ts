@@ -21,7 +21,7 @@ export type Frame =
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
   | { t: "req"; id: number; m: string; a?: unknown }
-  | { t: "res"; id: number; ok: boolean; v?: unknown; err?: string }
+  | { t: "res"; id: number; ok: boolean; v?: unknown; err?: string; status?: number }
   | { t: "ev"; name: string; data?: unknown };
 
 // what a node says about itself when the link opens
@@ -160,7 +160,8 @@ export class Channel {
       if (!p) return;
       this.pending.delete(f.id);
       clearTimeout(p.timer);
-      return f.ok ? p.ok(f.v) : p.fail(new Error(f.err ?? "failed"));
+      // a status the node gave the error carries over, so a 400 there is a 400 here
+      return f.ok ? p.ok(f.v) : p.fail(Object.assign(new Error(f.err ?? "failed"), f.status ? { status: f.status } : {}));
     }
     if (f.t === "req") {
       const h = this.handlers.get(f.m);
@@ -169,7 +170,7 @@ export class Channel {
         .then(() => h(f.a))
         .then(
           (v) => this.raw({ t: "res", id: f.id, ok: true, v }),
-          (e: Error) => this.raw({ t: "res", id: f.id, ok: false, err: e?.message ?? String(e) }),
+          (e: Error & { status?: number }) => this.raw({ t: "res", id: f.id, ok: false, err: e?.message ?? String(e), status: e?.status }),
         );
       return;
     }

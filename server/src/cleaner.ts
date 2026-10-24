@@ -26,6 +26,8 @@ export interface Candidate {
   blockers: string[];
   verdict: "safe" | "check" | "keep";
   leftover?: boolean;
+  // the machine it's on, when that's a node
+  node?: string;
 }
 
 const within = (cwd: string | undefined, path: string) => !!cwd && (cwd === path || cwd.startsWith(path + "/"));

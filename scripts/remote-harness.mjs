@@ -27,10 +27,24 @@ writeFileSync(
     line({ type: "assistant", uuid: "a1", timestamp: "2026-01-02T10:00:05.000Z", message: { role: "assistant", content: [{ type: "text", text: "The flaky one is the checkout spec." }] } }) +
     line({ type: "ai-title", aiTitle: "Harness session on the node" }),
 );
+// the repo is on the node only, so worktrees and the code view on the hub can only be the node's
+const repo = join(dirs.node, "repo");
+mkdirSync(repo);
+const git = (...a) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+git("init", "-q", "-b", "main");
+writeFileSync(join(repo, "README.md"), "harness\n");
+git("add", ".");
+git("-c", "user.name=harness", "-c", "user.email=harness@example.com", "commit", "-qm", "first");
 const configs = {};
 for (const role of ["hub", "node"]) {
   configs[role] = join(dirs[role], "config.toml");
-  writeFileSync(configs[role], readFileSync(config, "utf8").replace(/^dir = .*$/m, `dir = "${claudeDir(role)}"`));
+  const toml = readFileSync(config, "utf8")
+    .replace(/^dir = .*$/m, `dir = "${claudeDir(role)}"`)
+    .replace(/^extraRoots = .*$/m, "extraRoots = []")
+    .replace(/^path = .*$/m, `path = "${role === "node" ? repo : ""}"`)
+    .replace(/^worktreesDir = .*$/m, `worktreesDir = "${join(dirs[role], "worktrees")}"`)
+    .replace(/^createCommand = .*$/m, 'createCommand = "git -C {repo} worktree add -q -b {branch} {worktreesDir}/{key}/{name}"');
+  writeFileSync(configs[role], toml);
 }
 
 function start(role) {
@@ -148,6 +162,28 @@ try {
   await until("the new line live on the hub", async () => live.entries.some((e) => /wait was too short/.test(e.text ?? "")));
   watcher.close();
   console.log("node's session followed live through the hub");
+
+  // the node's repo: a worktree made, edited, read back and removed, all from the hub
+  await until("the node's repo in the hub's worktrees", async () => (await api("hub", "/worktrees")).some((w) => w.main && w.node === "devbox"));
+  const finished = (id) => until(`job ${id} to finish`, async () => (await api("hub", `/jobs/${id}`)).code !== undefined, 30_000).then(() => api("hub", `/jobs/${id}`));
+  const made = await finished((await api("hub", "/worktrees", { method: "POST", body: JSON.stringify({ key: "ABC-1", summary: "try the node" }) })).id);
+  if (made.code !== 0) throw new Error(`making the worktree failed: ${made.output}`);
+  const wt = (await api("hub", "/worktrees")).find((w) => w.ticket === "ABC-1");
+  if (wt?.node !== "devbox") throw new Error(`the new worktree came back as ${JSON.stringify(wt)}`);
+  if (!(await api("hub", "/code/roots")).worktrees.some((w) => w.path === wt.path && w.node === "devbox")) throw new Error("the code view can't see the new worktree");
+  console.log("worktree made on the node from the hub, its job followed here");
+  const at = (path, q = {}) => `/code/fs/${path}?${new URLSearchParams({ root: wt.path, ...q })}`;
+  await api("hub", at("file"), { method: "PUT", body: JSON.stringify({ path: "notes.txt", content: "written from the hub\n" }) });
+  if (!(await api("hub", at("changes"))).some((ch) => ch.path === "notes.txt")) throw new Error("the change didn't show in the worktree");
+  if ((await api("hub", at("file", { path: "notes.txt" }))).content !== "written from the hub\n") throw new Error("the file didn't read back");
+  if (!(await api("hub", at("tree"))).includes("README.md")) throw new Error("the file tree didn't come over");
+  const outside = await fetch(`http://127.0.0.1:${ports.hub}/api${at("file", { path: "../../../etc/passwd" })}`);
+  if (outside.ok) throw new Error("a path outside the worktree was read");
+  console.log("code view on the node: wrote, listed, read back, and kept inside the worktree");
+  const gone = await finished((await api("hub", "/worktrees/delete", { method: "POST", body: JSON.stringify({ path: wt.path }) })).id);
+  if (gone.code !== 0) throw new Error(`removing the worktree failed: ${gone.output}`);
+  await until("the worktree to leave the list", async () => !(await api("hub", "/worktrees")).some((w) => w.path === wt.path));
+  console.log("worktree removed on the node from the hub");
   console.log("remote harness ok");
 } catch (e) {
   failed = true;

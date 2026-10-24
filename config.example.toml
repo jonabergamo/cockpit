@@ -22,6 +22,8 @@ branchTemplate = "feat/{key}/{slug}"
 createCommand = "git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/main"
 deleteCommand = "git -C {repo} worktree remove {path}"
 openCommand = "code {path}"
+# A worktree on another machine (see Settings → Machines), opened here over ssh. {host} is that machine's address.
+openRemoteCommand = "code --remote ssh-remote+{host} {path}"
 # Optional. Run in a worktree when its Claude session finishes; a failure shows on the Board. e.g. "pnpm lint && pnpm test"
 verifyCommand = ""
 # Optional. Starts a worktree's dev server for a preview; {port} is a free port from 5300. e.g. "pnpm dev --port {port}"

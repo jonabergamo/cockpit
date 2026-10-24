@@ -103,6 +103,8 @@ export interface Worktree {
   lastCommitAt?: number;
   lastCommitSubject?: string;
   sizeBytes?: number;
+  // the machine it's on, when that's a node
+  node?: string;
 }
 
 export interface TermInfo {

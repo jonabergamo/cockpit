@@ -83,6 +83,7 @@ export function WorktreesPage() {
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{w.name}</span>
                   {w.main && <Tag>main checkout</Tag>}
+                  {w.node && <Tag tone="cobalt">on {w.node}</Tag>}
                   {removable(w) && <Tag tone="green">safe to remove</Tag>}
                 </div>
                 <div className="text-[12px] text-muted truncate">
@@ -165,6 +166,7 @@ interface Candidate {
   reasons: string[];
   blockers: string[];
   verdict: "safe" | "check" | "keep";
+  node?: string;
 }
 
 // Lists every worktree that looks done with, ticks the ones with nothing to lose, and removes the ticked ones
@@ -204,6 +206,7 @@ function Cleaner({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-2">
           <span className="font-medium text-[13px]">{c.name}</span>
           {c.branch && <span className="font-mono text-[11px] text-muted truncate">{c.branch}</span>}
+          {c.node && <Tag tone="cobalt">on {c.node}</Tag>}
           <span className="ml-auto text-[12px] text-muted shrink-0">{bytes(c.sizeBytes)}</span>
         </div>
         <div className="flex flex-wrap gap-1 mt-0.5">

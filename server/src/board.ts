@@ -11,7 +11,7 @@ import { readRow, writeRow } from "./settings.ts";
 import { stackRows } from "./stacked.ts";
 import { stuckReason } from "./stuck.ts";
 import { listTasks } from "./tasks.ts";
-import { listWorktrees } from "./worktrees.ts";
+import { allWorktrees } from "./remote/work.ts";
 
 const inside = (root: string, cwd?: string) => !!cwd && (cwd === root || cwd.startsWith(root + "/"));
 const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
@@ -99,7 +99,7 @@ const QUIET_DAYS = 3;
 // offline uses only the PRs already fetched and no ticket titles, so it never waits on the code host or tracker
 export async function board(opts: { offline?: boolean } = {}): Promise<BoardCard[]> {
   const [worktrees, prs, tickets] = await Promise.all([
-    listWorktrees(false),
+    allWorktrees(false),
     opts.offline ? (knownPrs() ?? []) : myPrs().catch(() => [] as PullRequest[]),
     opts.offline ? [] : myTickets().catch(() => []),
   ]);
@@ -124,7 +124,7 @@ export async function board(opts: { offline?: boolean } = {}): Promise<BoardCard
   const taskOf = (t?: Task): BoardCard["task"] => t && { id: t.id, group: t.group, status: t.status, attempt: t.attempt, title: t.title };
 
   for (const wt of worktrees) {
-    if (wt.main || !existsSync(wt.path)) continue;
+    if (wt.main || (!wt.node && !existsSync(wt.path))) continue;
     const { pr, session } = matchWorker(wt, prs, sessions);
     const task = tasks.find((t) => t.worktree === wt.path);
     const v = verify.get(wt.path);

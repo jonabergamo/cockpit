@@ -164,13 +164,13 @@ export async function commitFile(root: string, sha: string, rel: string, from?: 
 const PASTES = join(config.claude.dir, "pastes");
 const MAX_PASTE = 25 * 1024 * 1024;
 
-export async function savePaste(data: ArrayBuffer, name: string) {
+export async function savePaste(data: ArrayBuffer | Buffer, name: string) {
   if (data.byteLength > MAX_PASTE) throw new Error("file too large");
   await mkdir(PASTES, { recursive: true });
   const ext = (name.match(/\.[a-z0-9]{1,8}$/i)?.[0] ?? ".png").toLowerCase();
   const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   const dest = join(PASTES, `${stamp}-${Math.floor(1000 + Math.random() * 9000)}${ext}`);
-  await writeFile(dest, Buffer.from(data));
+  await writeFile(dest, Buffer.isBuffer(data) ? data : Buffer.from(data));
   prunePastes().catch(() => {});
   return dest;
 }
@@ -226,3 +226,40 @@ export const projectRoots = async () => {
   }
   return out;
 };
+
+// One code view operation on a root, by the name its route has: the routes call it for this machine and a node
+// calls it for its hub, so both check and answer the same way. The root has been allowed already.
+export async function fsCall(root: string, method: string, op: string, q: Record<string, string | undefined>, body: any = {}) {
+  const get = method === "GET";
+  if (get && op === "tree") return tree(root);
+  if (get && op === "changes") return changes(root);
+  if (get && op === "info") return branchInfo(root);
+  if (get && op === "history") return history(root, Number(q.limit ?? 50));
+  if (get && op === "commit") return q.path ? commitFile(root, q.sha ?? "", q.path, q.from) : commitFiles(root, q.sha ?? "");
+  if (get && op === "file") return read(root, q.path!);
+  if (method === "PUT" && op === "file") return { mtime: await write(root, body.path, body.content, body.mtime) };
+  if (get && op === "head") return { content: await headVersion(root, q.path!) };
+  if (get && op === "diff") return diff(root, q.path);
+  if (get && op === "search") return search(root, q.q ?? "");
+  if (method === "POST" && op === "stage") return stage(root, body.paths, body.on).then(() => ({ ok: true }));
+  if (method === "POST" && op === "discard") return discard(root, body.path).then(() => ({ ok: true }));
+  if (method === "POST" && op === "commit") return { out: await commit(root, body.message) };
+  if (method === "POST" && op === "push") return { out: await push(root) };
+  throw Object.assign(new Error(`no ${method} ${op}`), { status: 404 });
+}
+
+// what changed in the repo a terminal is in, for the panel next to it
+export async function termChanges(cwd: string | undefined) {
+  const root = cwd && (await gitRoot(cwd));
+  if (!root || !(await allowedRoot(root))) return { root: null, cwd: cwd ?? null, changes: [] as Awaited<ReturnType<typeof changes>> };
+  return { root, cwd, changes: await changes(root) };
+}
+
+// the folders a terminal may open in: a known root, home, a saved folder, or inside a repo cockpit knows
+export const cwdAllowed = async (cwd: string) => (await allowedRoot(cwd)) || cwd === process.env.HOME || insideSaved(cwd) || (await allowedRoot((await gitRoot(cwd)) ?? cwd));
+
+export const roots = async () => ({
+  worktrees: (await listWorktrees(false)).map((w) => ({ path: w.path, name: w.name, branch: w.branch, ticket: w.ticket })),
+  projects: await projectRoots(),
+  folders: savedFolders(),
+});

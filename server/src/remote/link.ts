@@ -139,9 +139,9 @@ export class RemoteLink {
     return () => void this.ups.delete(fn);
   }
 
-  request<T>(m: string, a?: unknown) {
+  request<T>(m: string, a?: unknown, timeoutMs?: number) {
     if (!this.channel?.up) return Promise.reject(Object.assign(new Error(`${this.status.node ?? "the node"} isn't connected`), { status: 503 }));
-    return this.channel.request<T>(m, a);
+    return this.channel.request<T>(m, a, timeoutMs);
   }
 
   private set(patch: Partial<LinkStatus>) {

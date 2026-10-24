@@ -35,6 +35,8 @@ const schema = z.object({
       createCommand: z.string().default("git -C {repo} worktree add -b {branch} {worktreesDir}/{key}/{name} origin/main"),
       deleteCommand: z.string().default("git -C {repo} worktree remove {path}"),
       openCommand: z.string().default("code {path}"),
+      // a worktree on a node, opened from here in an editor that works over ssh; {host} is the node's address
+      openRemoteCommand: z.string().default("code --remote ssh-remote+{host} {path}"),
       // run in a worktree when its session finishes, e.g. "pnpm lint && pnpm test"; empty skips the check
       verifyCommand: z.string().default(""),
       // starts the app for a preview; {port} is a free port cockpit picks

@@ -5,10 +5,10 @@ import { db } from "../db.ts";
 import { fixPlan } from "../fix.ts";
 import { activeSprint, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
 import { ticketOf } from "../util.ts";
-import { getJob, listJobs } from "../jobs.ts";
+import { getJob, listJobs, type Job } from "../jobs.ts";
 import { getReview, lastReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
 import { toolReport, usageReport } from "../usage.ts";
-import { cleanupPlan } from "../cleaner.ts";
+import { cleanupPlan, type Candidate } from "../cleaner.ts";
 import { archive, board, boardChanged } from "../board.ts";
 import { badges, seen } from "../badges.ts";
 import { setAutopilot } from "../autopilot.ts";
@@ -19,7 +19,9 @@ import { templateFor } from "../templates.ts";
 import { weekly, weekStart } from "../weekly.ts";
 import { runVerify, sendFailure } from "../verify.ts";
 import { previewOf, startPreview, stopPreview } from "../preview.ts";
-import { createWorktree, deleteWorktree, deleteWorktrees, leftoverFolders, link, listWorktrees, openInEditor, refreshSizes, unlink } from "../worktrees.ts";
+import { cleanChecked, createWorktree, deleteChecked, link, listWorktrees, openInEditor, openRemote, refreshSizes, unlink } from "../worktrees.ts";
+import { hostOf } from "../remote/machines.ts";
+import { allWorktrees, findOwner, nodesUp, ownerOf, repoNode, requestWork, tracked } from "../remote/work.ts";
 
 // the newest Claude session per ticket comes from the local index, no extra calls
 function lastSessions() {
@@ -128,7 +130,7 @@ export const work = new Hono()
   })
   .get("/tickets", async (c) => {
     const fresh = c.req.query("fresh") === "1";
-    const wtKeys = (await listWorktrees(false)).filter((w) => !w.main && w.ticket).map((w) => w.ticket!);
+    const wtKeys = (await allWorktrees(false)).filter((w) => !w.main && w.ticket).map((w) => w.ticket!);
     const [sprint, tickets, epics] = await Promise.all([activeSprint(), myTickets(fresh), worktreeEpics(wtKeys, fresh)]);
     const last = lastSessions();
     const costs = ticketSpend();
@@ -150,12 +152,15 @@ export const work = new Hono()
     const info = await epicInfo(key);
     if (!info.isEpic) return c.json({ error: `${key} isn't an epic` }, 400);
     // already has a worktree: just make sure it's tied to the epic
-    const existing = (await listWorktrees(false)).find((w) => !w.main && (w.ticket === key || w.path.includes(`/${key}/`)));
-    if (existing) {
+    const existing = (await allWorktrees(false)).find((w) => !w.main && (w.ticket === key || w.path.includes(`/${key}/`)));
+    if (existing && !existing.node) {
       link(key, existing.path);
       return c.json({ existing: existing.path });
     }
+    if (existing) return c.json({ existing: existing.path });
     try {
+      const node = repoNode();
+      if (node) return c.json(tracked(node, await requestWork<Job>(node, "worktrees.create", { key, summary: info.summary, type: "Epic" })));
       return c.json(createWorktree(key, info.summary, { template: templateFor({ summary: info.summary, type: "Epic" }) }));
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
@@ -171,32 +176,50 @@ export const work = new Hono()
   .get("/deploys", async (c) => c.json(await deploys(c.req.query("since") ?? new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10))))
   .get("/worktrees", async (c) => {
     refreshSizes();
-    return c.json(await listWorktrees());
+    return c.json(await allWorktrees(true));
   })
+  // made where the repo is: this machine, or the node that has it when this one doesn't
   .post("/worktrees", async (c) => {
-    const { key, summary, type, template } = await c.req.json<{ key: string; summary: string; type?: string; template?: string }>();
+    const { key, summary, type, template, node: asked } = await c.req.json<{ key: string; summary: string; type?: string; template?: string; node?: string }>();
+    const node = asked && asked !== "local" ? asked : asked ? undefined : repoNode();
     try {
+      if (node) return c.json(tracked(node, await requestWork<Job>(node, "worktrees.create", { key, summary, type, template })));
       return c.json(createWorktree(key, summary ?? "", { template: templateFor({ summary, type }, template) }));
     } catch (e) {
-      return c.json({ error: (e as Error).message }, 400);
+      return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 400) as 400);
     }
   })
-  .post("/worktrees/open", async (c) => c.json(openInEditor((await c.req.json<{ path: string }>()).path)))
-  .get("/worktrees/clean", async (c) => c.json(await cleanupPlan(c.req.query("fresh") === "1")))
+  // a node's worktree opens in an editor here, reaching into the node over ssh
+  .post("/worktrees/open", async (c) => {
+    const { path } = await c.req.json<{ path: string }>();
+    const node = await findOwner(path);
+    return c.json(node ? openRemote(path, hostOf(node)) : openInEditor(path));
+  })
+  .get("/worktrees/clean", async (c) => {
+    const fresh = c.req.query("fresh") === "1";
+    const theirs = await Promise.all(nodesUp().map((node) => requestWork<Candidate[]>(node, "worktrees.cleanPlan", { fresh }, 60_000).then((l) => l.map((x) => ({ ...x, node })), () => [])));
+    return c.json([...(await cleanupPlan(fresh)), ...theirs.flat()]);
+  })
+  // each machine removes its own, one job each; the first one's id is what the screen follows
   .post("/worktrees/clean", async (c) => {
     const { paths } = await c.req.json<{ paths: string[] }>();
-    const known = new Set((await listWorktrees(false)).filter((w) => !w.main).map((w) => w.path));
-    const stray = new Set(await leftoverFolders());
-    const ok = (paths ?? []).filter((p) => known.has(p));
-    const left = (paths ?? []).filter((p) => stray.has(p));
-    if (!ok.length && !left.length) return c.json({ error: "none of those are removable worktrees" }, 400);
-    return c.json(deleteWorktrees(ok, left));
+    const by = new Map<string, string[]>();
+    for (const p of paths ?? []) by.set(ownerOf(p) ?? "", [...(by.get(ownerOf(p) ?? "") ?? []), p]);
+    try {
+      const jobs = await Promise.all([...by].map(([node, list]) => (node ? requestWork<Job>(node, "worktrees.clean", { paths: list }).then((j) => tracked(node, j)) : cleanChecked(list))));
+      return c.json(jobs[0] ?? { error: "nothing to remove" });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 400) as 400);
+    }
   })
   .post("/worktrees/delete", async (c) => {
     const { path } = await c.req.json<{ path: string }>();
-    const wt = (await listWorktrees(false)).find((w) => w.path === path);
-    if (!wt || wt.main) return c.json({ error: "not a removable worktree" }, 400);
-    return c.json(deleteWorktree(path));
+    const node = await findOwner(path);
+    try {
+      return c.json(node ? tracked(node, await requestWork<Job>(node, "worktrees.delete", { path })) : await deleteChecked(path));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 400) as 400);
+    }
   })
   .post("/links", async (c) => {
     const { ticket, worktree, remove } = await c.req.json<{ ticket: string; worktree: string; remove?: boolean }>();

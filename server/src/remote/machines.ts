@@ -10,6 +10,7 @@ import { RemoteLink } from "./link.ts";
 import { newToken } from "./protocol.ts";
 import { addSessionLink, removeSessionLink } from "./sessions.ts";
 import { addLink, startRemoteTerms, unlinked } from "./terminals.ts";
+import { addWorkLink, removeWorkLink } from "./work.ts";
 
 db.exec(`
   create table if not exists machines (
@@ -59,6 +60,7 @@ function open(row: Row) {
   links.set(row.id, { row, link });
   addLink(row.id, link);
   addSessionLink(row.id, link);
+  addWorkLink(row.id, link);
   link.start();
 }
 
@@ -88,8 +90,15 @@ export function removeMachine(id: string) {
   links.delete(id);
   unlinked(id);
   removeSessionLink(id);
+  removeWorkLink(id);
   db.prepare("delete from machines where id = ?").run(id);
   announce();
+}
+
+// the name or address a machine was added with, for reaching it some other way, like an editor over ssh
+export function hostOf(id: string) {
+  const l = links.get(id);
+  return l ? new URL(l.row.url).hostname : id;
 }
 
 export const retryMachine = (id: string) => linkOf(id)?.retry();
