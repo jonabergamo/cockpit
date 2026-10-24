@@ -15,7 +15,7 @@
 // it. --artifact files (a report, a screenshot, a video) are kept with the run once the command ends. The kind is
 // worked out from the command when left out. With cockpit down the command runs just the same.
 // --record makes a video of it for a PR (Linux, with Xvfb, ffmpeg and Chromium): the command runs on a virtual
-// screen (DISPLAY is set, and COCKPIT_RECORDING=1 for a test config to go headed or slower), its output shows
+// screen (DISPLAY is set, and RECORDING=1 for a test config to go headed or slower), its output shows
 // beside it, and the video is kept with the run. Run browser tests headed, e.g. playwright test --headed.
 // COCKPIT_URL points it at a cockpit that isn't on 127.0.0.1:8770. No dependencies.
 const KINDS = ["unit", "lint", "typecheck", "audit", "e2e", "proof", "verify", "other"];
@@ -91,7 +91,7 @@ async function run(argv) {
   // a recording shows the output beside the browser, so it goes sooner
   const timer = setInterval(() => void flush(), opts.record ? 200 : 500);
 
-  const env = display ? { ...process.env, DISPLAY: display, COCKPIT_RECORDING: "1" } : process.env;
+  const env = display ? { ...process.env, DISPLAY: display, RECORDING: "1" } : process.env;
   const child = spawn(shell ? process.env.SHELL || "bash" : cmd[0], shell ? ["-c", cmd[0]] : cmd.slice(1), { stdio: ["inherit", "pipe", "pipe"], env });
   child.stdout.on("data", (d) => (process.stdout.write(d), take(d)));
   child.stderr.on("data", (d) => (process.stderr.write(d), take(d)));
