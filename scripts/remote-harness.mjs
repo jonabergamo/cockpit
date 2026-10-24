@@ -206,6 +206,11 @@ try {
   const outside = await fetch(`http://127.0.0.1:${ports.hub}/api${at("file", { path: "../../../etc/passwd" })}`);
   if (outside.ok) throw new Error("a path outside the worktree was read");
   console.log("code view on the node: wrote, listed, read back, and kept inside the worktree");
+  // a terminal asked for in a folder of the node, without saying where, opens on the node
+  const shell = await api("hub", "/code/terms", { method: "POST", body: JSON.stringify({ cwd: wt.path, title: "shell in the node's worktree" }) });
+  if ((await api("hub", "/code/terms")).find((t) => t.id === shell.id)?.node !== "devbox") throw new Error("a terminal in the node's folder didn't open on the node");
+  await api("hub", `/code/terms/${shell.id}`, { method: "DELETE" });
+  console.log("a terminal in a folder of the node opened there");
   const gone = await finished((await api("hub", "/worktrees/delete", { method: "POST", body: JSON.stringify({ path: wt.path }) })).id);
   if (gone.code !== 0) throw new Error(`removing the worktree failed: ${gone.output}`);
   await until("the worktree to leave the list", async () => !(await api("hub", "/worktrees")).some((w) => w.path === wt.path));

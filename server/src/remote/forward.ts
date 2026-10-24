@@ -11,6 +11,7 @@ import { config } from "../config.ts";
 import { broadcast } from "../hub.ts";
 import { getRun } from "../runs.ts";
 import type { RemoteLink } from "./link.ts";
+import { refreshTerms } from "./terminals.ts";
 import { findOwner } from "./work.ts";
 import { pluginOn, where } from "../placement/where.ts";
 
@@ -72,6 +73,12 @@ export function addApiLink(machine: string, link: RemoteLink) {
 }
 export const removeApiLink = (machine: string) => void links.delete(machine);
 
+// the automations node while it's connected; undefined is this machine
+export const workNode = () => {
+  const m = automationsNode();
+  return m && links.get(m)?.status.state === "up" ? m : undefined;
+};
+
 // the node that runs the automations, from Settings → Machines; undefined is this machine
 export const automationsNode = () => {
   const m = where("automations");
@@ -119,8 +126,18 @@ async function target(c: Context, path: string): Promise<string | undefined> {
     const on = pluginOn(plugin);
     return on && links.has(on) ? on : undefined;
   }
+  if (config.role !== "hub") return;
+  // a terminal or Claude in a folder of a node opens on that node; one given a machine, or resuming a session,
+  // is placed by its own route
+  if ((path === "/claude/launch" || path === "/code/terms") && c.req.method === "POST") {
+    const b = (await c.req.raw.clone().json().catch(() => ({}))) as { cwd?: string; node?: string; resume?: string };
+    return b.node || b.resume || !b.cwd ? undefined : await findOwner(b.cwd);
+  }
+  // work on the repo that isn't in a folder yet (the lead, PR reviews) goes where the automations run while that
+  // machine is connected, and stays here when it isn't
+  if (/^\/(reviews|claude\/lead)(\/|$)/.test(path)) return workNode();
   const auto = automationsNode();
-  if (config.role !== "hub" || !auto) return;
+  if (!auto) return;
   // the hooks and `cockpit run` of this machine record its own runs
   if (path.startsWith("/runs/hook") || (path === "/runs" && c.req.method === "POST")) return;
   if (path.startsWith("/tasks") || path.startsWith("/budgets")) return auto;
@@ -142,7 +159,10 @@ export async function forward(c: Context, next: Next) {
   const url = new URL(c.req.url);
   const body = ["GET", "HEAD"].includes(c.req.method) ? undefined : await c.req.text();
   try {
-    return toResponse(await requestApi(node, { method: c.req.method, path: path + url.search, headers, body }));
+    const res = await requestApi(node, { method: c.req.method, path: path + url.search, headers, body });
+    // a terminal it may have opened is listed here before the screen goes looking for it
+    if (body !== undefined && res.status < 300) await refreshTerms(node).catch(() => {});
+    return toResponse(res);
   } catch (e) {
     return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 502) as 502);
   }

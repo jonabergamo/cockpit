@@ -8,7 +8,6 @@ export const MODES: LaunchMode[] = ["claude", "resume", "shell"];
 
 const LAST = "cockpit.lastClaudeCwd";
 const MODE = "cockpit.launchMode";
-const NODE = "cockpit.launchNode";
 const nodeFolders = (node: string) => `cockpit.nodeFolders.${node}`;
 
 const read = (k: string) => {
@@ -25,8 +24,9 @@ const write = (k: string, v: string) => {
 };
 
 // The launcher is opened from the Terminals page and from Cmd+K, so its state lives outside both.
-// node: the machine it opens on, "local" for this one
-let state = { open: false, last: read(LAST), mode: (MODES.find((m) => m === read(MODE)) ?? "claude") as LaunchMode, node: read(NODE) ?? "local" };
+// node: the machine it opens on, "local" for this one; each time it opens it starts on auto, the first connected
+// node, so picking this machine once for something rare doesn't stick
+let state = { open: false, last: read(LAST), mode: (MODES.find((m) => m === read(MODE)) ?? "claude") as LaunchMode, node: "auto" };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<typeof state>) => {
   state = { ...state, ...patch };
@@ -40,16 +40,13 @@ export const launcher = {
     return () => void listeners.delete(l);
   },
   // a mode given starts there instead of on the last one used, like the Terminals page's + always opening on Claude
-  open: (mode?: LaunchMode) => set(mode ? { open: true, mode } : { open: true }),
+  open: (mode?: LaunchMode) => set(mode ? { open: true, mode, node: "auto" } : { open: true, node: "auto" }),
   close: () => set({ open: false }),
   setMode(mode: LaunchMode) {
     write(MODE, mode);
     set({ mode });
   },
-  setNode(node: string) {
-    write(NODE, node);
-    set({ node });
-  },
+  setNode: (node: string) => set({ node }),
 };
 
 // the folders used on a node, newest first; its folders can't be listed from here yet, so they're remembered

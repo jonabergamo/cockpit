@@ -196,3 +196,9 @@ export async function spawnRemote(machine: string, opts: SpawnOpts) {
   sync(machine, await n.link.request<TermInfo[]>("term.list"));
   return owner.get(info.id)?.info ?? { ...info, node: machine };
 }
+
+// the node's list now, rather than when it next says it changed
+export async function refreshTerms(machine: string) {
+  const n = nodes.get(machine);
+  if (n && up(n)) sync(machine, await n.link.request<TermInfo[]>("term.list"));
+}

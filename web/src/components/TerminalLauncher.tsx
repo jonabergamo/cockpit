@@ -33,8 +33,10 @@ export function TerminalLauncher() {
   const { open, mode, node: picked } = useLauncher();
   const machines = useQuery({ queryKey: ["machines"], queryFn: () => api.get<{ machines: Machine[] }>("/machines"), enabled: open });
   const others = machines.data?.machines ?? [];
-  // a node that was removed since falls back to this machine
-  const node = picked !== "local" && others.some((m) => m.id === picked) ? picked : "local";
+  // auto is the first connected node, so work goes where the repo and the tools are; this machine stands in when
+  // none is connected, or when picked
+  const up = others.filter((m) => m.state === "up");
+  const node = picked === "local" ? "local" : up.some((m) => m.id === picked) ? picked : (up[0]?.id ?? "local");
   const remote = others.find((m) => m.id === node);
   const navigate = useNavigate();
   const qc = useQueryClient();
