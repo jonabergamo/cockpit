@@ -24,8 +24,8 @@
     <h1>Machines</h1>
     <p class="muted">The machines on your tailnet. Add one as a node to keep terminals, Claude sessions, the repo and the automations there, then pick below what runs where.</p>
     <div id="pairing"></div>
-    <div class="card"><h2>On your tailnet</h2><div id="peers" class="sdk-loading">Asking Tailscale</div></div>
-    <div class="card"><h2>Where things run</h2><div id="placement" class="sdk-loading">Loading</div></div>
+    <div class="card"><h2>On your tailnet</h2><div id="peers" class="sdk-loading" role="status" aria-label="Asking Tailscale"><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div></div></div>
+    <div class="card"><h2>Where things run</h2><div id="placement" class="sdk-loading" role="status" aria-label="Loading"><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div></div></div>
     <script src="machines.js"></script>
   </body>
 </html>

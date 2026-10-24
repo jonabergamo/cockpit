@@ -317,8 +317,11 @@ A few helpers keep plugin screens consistent with each other. Use them rather th
 |---|---|
 | `cockpit.esc(text)` | Escapes text so it's safe to put in `innerHTML`. |
 | `cockpit.fail(el, err)` | Replaces what `el` holds with the error in a red `.error` box. `el` is an element or a selector. |
-| `cockpit.loading(el, text)` | Puts a loading line in `el` until you draw into it. `text` defaults to "Loading…". |
-| `cockpit.refreshButton(btn, fn)` | Runs `fn` when the button is clicked. The button is disabled while `fn` runs, and if it throws, the error shows next to the button until the next try. Returns the run, so you can call it yourself with the same handling. |
+| `cockpit.loading(el, text, rows)` | Puts skeleton lines in `el`, with `text` above them, until you draw into it. `text` defaults to "Loading" and `rows` to 3. |
+| `cockpit.wave(el, on)` | Runs a wave over `el` while what it shows is about to change, during a save or a refresh for example. Pass `false` to stop it. |
+| `cockpit.refreshButton(btn, fn)` | Runs `fn` when the button is clicked. The button is disabled and waves while `fn` runs, and if it throws, the error shows next to the button until the next try. Returns the run, so you can call it yourself with the same handling. |
+
+For your own placeholders, `<div class="sk line"></div>` draws a skeleton line (add `big` or `short` for other sizes) and `<span class="sk chip"></span>` draws a chip. Shape them like what's coming, so the screen doesn't jump when the data arrives. `class="wave"` on any element runs the same wave as `cockpit.wave`.
 
 For tabs, use `<nav class="tabbar">` with a `<button>` per tab, and mark the selected one with `class="on"` or `aria-selected="true"`.
 

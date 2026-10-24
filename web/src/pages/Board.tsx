@@ -140,7 +140,7 @@ export function BoardPage() {
       {filter === "tasks" ? (
         <TasksList />
       ) : q.isLoading ? (
-        <Loading what="Gathering sessions, worktrees and PRs" />
+        <Loading what="Gathering sessions, worktrees and PRs" shape="cards" rows={6} />
       ) : !cards.length ? (
         <Empty>Nothing in flight. Start Claude in a worktree, or queue a task.</Empty>
       ) : (

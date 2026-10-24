@@ -166,7 +166,7 @@ function Workspace({ root, initialFile, initialDiff }: { root: string; initialFi
           <div className="flex-1 min-h-0 overflow-y-auto">
             {side === "files" &&
               (tree.isLoading ? (
-                <Loading />
+                <Loading shape="lines" rows={8} />
               ) : fq ? (
                 names.map((p) => (
                   <button key={p} onClick={() => open(p)} className="w-full text-left px-3 h-6 text-[13px] truncate hover:bg-ground" title={p}>

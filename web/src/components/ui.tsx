@@ -50,9 +50,24 @@ export function Button({ variant = "default", size = "md", className = "", ...re
   );
 }
 
-export function Panel({ title, actions, children, className = "", bodyClass = "" }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClass?: string }) {
+export function Panel({
+  title,
+  actions,
+  children,
+  className = "",
+  bodyClass = "",
+  busy,
+}: {
+  title?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  bodyClass?: string;
+  // a wave over it while what it shows is about to change
+  busy?: boolean;
+}) {
   return (
-    <section className={`bg-panel border border-line rounded-lg flex flex-col min-h-0 ${className}`}>
+    <section className={`bg-panel border border-line rounded-lg flex flex-col min-h-0 ${busy ? "wave" : ""} ${className}`}>
       {(title || actions) && (
         <header className="flex items-center gap-2 px-3 h-10 border-b border-line shrink-0">
           <h2 className="font-semibold text-[14px] flex-1 truncate">{title}</h2>
@@ -82,10 +97,46 @@ export const Spinner = ({ className = "" }: { className?: string }) => (
   <span className={`inline-block size-3.5 rounded-full border-2 border-line border-t-cobalt animate-spin ${className}`} />
 );
 
-export function Loading({ what }: { what?: string }) {
+export const Skeleton = ({ className = "" }: { className?: string }) => <div className={`sk ${className}`} />;
+
+// a few widths so the placeholder rows don't line up like a grid
+const widths = ["w-[62%]", "w-[48%]", "w-[71%]", "w-[55%]", "w-[66%]", "w-[40%]"];
+
+// placeholders shaped like what's coming: rows of a list, cards on a board, or short lines in a narrow column
+export function Loading({ what, rows = 3, shape = "rows" }: { what?: string; rows?: number; shape?: "rows" | "cards" | "lines" }) {
+  const n = Array.from({ length: rows }, (_, i) => i);
   return (
-    <div className="flex items-center gap-2 text-muted px-4 py-6">
-      <Spinner /> {what ?? "Loading"}
+    <div role="status" aria-busy="true" aria-label={what ?? "Loading"} className={shape === "lines" ? "px-3 py-2" : "px-4 py-4"}>
+      {what && <div className="text-[12px] text-faint mb-3">{what}</div>}
+      {shape === "cards" ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {n.map((i) => (
+            <div key={i} className="bg-panel border border-line rounded-lg p-4 space-y-2.5">
+              <Skeleton className={`h-3.5 ${widths[i % widths.length]}`} />
+              <Skeleton className="h-2.5 w-[35%]" />
+              <div className="flex gap-1.5 pt-1">
+                <Skeleton className="h-5 w-16 rounded-full" />
+                <Skeleton className="h-5 w-12 rounded-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : shape === "lines" ? (
+        <div className="space-y-2.5">
+          {n.map((i) => (
+            <Skeleton key={i} className={`h-2.5 ${widths[i % widths.length]}`} />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {n.map((i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className={`h-3 ${widths[i % widths.length]}`} />
+              <Skeleton className={`h-2.5 ${widths[(i + 3) % widths.length]} opacity-70`} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

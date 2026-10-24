@@ -245,3 +245,45 @@ body {
 /* lines with a review note in DiffReview */
 .review-note-line { background: color-mix(in srgb, var(--amber) 12%, transparent); }
 .review-note-glyph { background: var(--amber); border-radius: 99px; width: 6px !important; height: 6px !important; margin: 7px 0 0 6px; }
+
+/* skeletons while the first answer comes, and a wave over what's loading or about to change */
+@keyframes wave {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.sk {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--ground);
+}
+
+.wave {
+  position: relative;
+  overflow: hidden;
+}
+
+.sk::after,
+.wave::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cobalt) 14%, transparent), transparent);
+  animation: wave 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk::after,
+  .wave::after {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
+  }
+}

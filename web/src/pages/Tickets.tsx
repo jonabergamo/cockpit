@@ -6,7 +6,7 @@ import { JobLog } from "../components/JobLog";
 import { PrFix } from "../components/PrFix";
 import { newTask } from "../components/NewTask";
 import { useOpenEditor } from "../components/OpenEditor";
-import { RefreshButton } from "../components/RefreshButton";
+import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { Button, ErrorNote, inputClass, Loading, Modal, PageHeader, StatusTag, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago } from "../lib/format";
@@ -33,6 +33,7 @@ export function TicketsPage() {
   const { key } = useSearch({ from: "/tickets" });
   const tickets = useTickets();
   const prs = usePrs();
+  const refreshing = useRefreshing(["tickets"], ["prs"]);
   const wts = useWorktrees();
   const cfg = useAppConfig();
   const [filter, setFilter] = useState("");
@@ -90,7 +91,7 @@ export function TicketsPage() {
       {tickets.isLoading && <Loading what={`Asking ${cfg.data?.tracker?.name ?? "the tracker"}`} />}
       <ErrorNote error={tickets.error} />
       {tickets.data && (
-        <>
+        <div className={`space-y-4 rounded-lg ${refreshing ? "wave" : ""}`}>
           {epics
             // an epic with nothing of mine left open is just an old worktree
             .filter((e) => shown.some((t) => t.epic === e.key))
@@ -99,7 +100,7 @@ export function TicketsPage() {
             ))}
           {group("This sprint", sprint)}
           {group("Other open tickets", other)}
-        </>
+        </div>
       )}
       {addingEpic && <NewEpic onClose={() => setAddingEpic(false)} />}
     </div>

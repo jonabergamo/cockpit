@@ -4,7 +4,7 @@ import type { BoardCard, Session } from "@cockpit/shared";
 import { AwayDigest } from "../components/AwayDigest";
 import { Overnight } from "../components/Overnight";
 import { SetupBanner } from "../components/SetupSection";
-import { RefreshButton } from "../components/RefreshButton";
+import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { ErrorNote, Loading } from "../components/ui";
 import { api } from "../lib/api";
 import { shortPath, time, today, usd } from "../lib/format";
@@ -74,6 +74,7 @@ const SHOWN = 4;
 function WorkSummary() {
   const board = useBoard();
   const prs = usePrs();
+  const refreshing = useRefreshing(["board"], ["prs"]);
   const codeHost = useAppConfig().data?.codeHost;
   const cards = board.data ?? [];
   const count = (col: BoardCard["column"]) => cards.filter((c) => c.column === col).length;
@@ -88,14 +89,14 @@ function WorkSummary() {
   ];
 
   return (
-    <section className="bg-panel border border-line rounded-lg">
+    <section className={`bg-panel border border-line rounded-lg ${refreshing ? "wave" : ""}`}>
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
         <h2 className="font-semibold flex-1">In flight</h2>
         <Link to="/board" className="text-[13px] text-cobalt hover:underline">
           Open Work
         </Link>
       </div>
-      {board.isLoading && <Loading what="Gathering sessions, worktrees and PRs" />}
+      {board.isLoading && <Loading what="Gathering sessions, worktrees and PRs" rows={2} />}
       {board.error && (
         <div className="px-4 pb-3">
           <ErrorNote error={board.error} />
@@ -146,6 +147,7 @@ export function TodayPage() {
   const cost = useCost();
   const tickets = useTickets();
   const day = useQuery({ queryKey: ["day", today()], queryFn: () => api.get<DayRes>("/report/day") });
+  const refreshing = useRefreshing(["day"], ["tickets"]);
   const cfg = useAppConfig();
   const tracker = cfg.data?.tracker;
   const codeHost = cfg.data?.codeHost;
@@ -197,13 +199,13 @@ export function TodayPage() {
       <WorkSummary />
 
       <div className={`grid gap-5 items-start ${next.length ? "lg:grid-cols-[1fr_380px]" : ""}`}>
-        <section className="bg-panel border border-line rounded-lg p-4 min-w-0">
+        <section className={`bg-panel border border-line rounded-lg p-4 min-w-0 ${refreshing ? "wave" : ""}`}>
           <h2 className="font-semibold mb-2">My day</h2>
           {day.data ? <DayStrip day={day.data} /> : day.isLoading ? <Loading /> : <ErrorNote error={day.error} />}
         </section>
 
         {next.length > 0 && (
-          <section className="bg-panel border border-line rounded-lg">
+          <section className={`bg-panel border border-line rounded-lg ${refreshing ? "wave" : ""}`}>
             <h2 className="font-semibold px-4 pt-3 pb-2">Up next in the sprint</h2>
             <div className="divide-y divide-line">
               {next.map((t) => (

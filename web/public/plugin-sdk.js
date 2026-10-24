@@ -79,10 +79,17 @@
       box.innerHTML = `<div class="error" role="alert">${esc(message(err))}</div>`;
       return box;
     },
-    // a loading line in place of what an element held, until you draw into it
-    loading: (target, text = "Loading…") => {
+    // skeleton lines in place of what an element held, until you draw into it; text says what's coming
+    loading: (target, text = "Loading", rows = 3) => {
       const box = el(target);
-      if (box) box.innerHTML = `<p class="muted sdk-loading" aria-busy="true">${esc(text)}</p>`;
+      if (box)
+        box.innerHTML = `<div class="sdk-loading" role="status" aria-busy="true" aria-label="${esc(text)}"><p class="faint" style="font-size:12px">${esc(text)}</p>${'<div class="sk line"></div>'.repeat(rows)}</div>`;
+      return box;
+    },
+    // a wave over an element while what it shows is about to change; returns it, and on=false stops it
+    wave: (target, on = true) => {
+      const box = el(target);
+      box?.classList.toggle("wave", on);
       return box;
     },
     // Wires a button to fn: it's disabled while fn runs, and a failure shows next to it until the next try.
@@ -93,6 +100,7 @@
         if (btn.disabled) return;
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
+        btn.classList.add("wave");
         try {
           const out = await fn(...args);
           btn.nextElementSibling?.classList.contains("sdk-fail") && btn.nextElementSibling.remove();
@@ -104,6 +112,7 @@
         } finally {
           btn.disabled = false;
           btn.removeAttribute("aria-busy");
+          btn.classList.remove("wave");
         }
       };
       btn.onclick = () => run();

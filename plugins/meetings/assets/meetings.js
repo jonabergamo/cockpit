@@ -197,7 +197,7 @@ function drawLeft() {
     </div>`;
   $("#listbox").innerHTML = `
     <section class="card"><h2>${query ? `Matching “${esc(query)}”` : seriesFilter ? `${esc(seriesFilter)} <button class="small ghost" id="unseries" title="Show every meeting">✕</button>` : "Meetings"}</h2><div class="list">
-      ${list.filter((m) => !seriesFilter || m.series === seriesFilter).map((m) => `<button class="item ${m.id === selected ? "sel" : ""}" data-mid="${m.id}">
+      ${list.filter((m) => !seriesFilter || m.series === seriesFilter).map((m) => `<button class="item ${m.id === selected ? "sel" : ""} ${busy(m) ? "wave" : ""}" data-mid="${m.id}">
           <div class="t"><span>${esc(m.title)}</span>${STATUS[m.status] ?? ""}</div>
           <div class="s">${[m.series && !seriesFilter ? m.series : "", when(m.startedAt), m.duration ? clock(m.duration) : "", m.summary?.actions?.length ? `${m.summary.actions.filter((a) => !a.done).length} to do` : ""].filter(Boolean).join(" · ")}</div>
           ${m.hit ? `<div class="hit faint">${clock(m.hit.at)} ${hl(m.hit.text)}</div>` : ""}
@@ -344,9 +344,9 @@ function drawDetail() {
       ${s.topics.length ? `<div class="sec"><h3>Topics</h3>${s.topics.map((t) => `<div class="topic">${m.mode === "paste" ? "" : `<button class="time" data-seek="${t.at}">${clock(t.at)}</button>`}<div><strong style="font-weight:500">${esc(t.title)}</strong> ${esc(t.summary)}</div></div>`).join("")}</div>` : ""}
       ${m.marks?.length ? `<div class="sec"><h3>Marked moments</h3>${m.marks.map((x) => `<div class="topic"><button class="time" data-seek="${x.at}">${clock(x.at)}</button><div>${esc(x.text || "Marked")}</div></div>`).join("")}</div>` : ""}`
     : m.status === "summarising"
-      ? '<p class="muted">Claude is writing it up.</p>'
+      ? '<p class="muted">Claude is writing it up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
       : m.status === "transcribing"
-        ? '<p class="muted">Transcribing the rest of the recording, then Claude writes it up.</p>'
+        ? '<p class="muted">Transcribing the rest of the recording, then Claude writes it up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
         : '<p class="muted">No write-up yet.</p>';
 
   // while recording only the captions move, so notes being typed keep their place

@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Worktree } from "@cockpit/shared";
 import { JobLog } from "../components/JobLog";
-import { RefreshButton } from "../components/RefreshButton";
+import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { Button, ErrorNote, inputClass, Loading, Modal, PageHeader, StatusTag, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago, bytes } from "../lib/format";
@@ -175,6 +175,7 @@ function Cleaner({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const jobs = useJobs();
   const plan = useQuery({ queryKey: ["worktree-clean"], queryFn: () => api.get<Candidate[]>("/worktrees/clean") });
+  const refreshing = useRefreshing(["worktree-clean"]);
   const [picked, setPicked] = useState<Set<string>>();
   const [sure, setSure] = useState(false);
   const [jobId, setJobId] = useState<string>();
@@ -239,7 +240,7 @@ function Cleaner({ onClose }: { onClose: () => void }) {
         {plan.isLoading && <Loading what="Checking every worktree" />}
         <ErrorNote error={plan.error} />
         {plan.data && (
-          <div className="max-h-[52vh] overflow-y-auto border border-line rounded-md divide-y divide-line">
+          <div className={`max-h-[52vh] overflow-y-auto border border-line rounded-md divide-y divide-line ${refreshing ? "wave" : ""}`}>
             <div className="px-3 py-1.5 text-[12px] text-faint bg-panel sticky top-0">Nothing to lose · {safe.length}</div>
             {safe.map(row)}
             {!safe.length && <div className="px-3 py-2 text-[13px] text-muted">Nothing is clearly finished.</div>}

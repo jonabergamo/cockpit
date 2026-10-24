@@ -3,7 +3,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { LastReview } from "@cockpit/shared";
 import { useEffect, useState } from "react";
 import { newTask } from "../components/NewTask";
-import { RefreshButton } from "../components/RefreshButton";
+import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { Terminal } from "../components/Terminal";
 import { Button, Empty, ErrorNote, inputClass, Loading, PageHeader, Tag } from "../components/ui";
 import { api } from "../lib/api";
@@ -60,6 +60,7 @@ export function ReviewsPage() {
     refetchInterval: (q) => (q.state.data?.some((r) => r.status === "running" || r.status === "waiting") ? 4000 : false),
   });
   const prs = usePrs();
+  const refreshing = useRefreshing(["prs"], ["reviews"]);
   const [input, setInput] = useState("");
   const [backend, setBackend] = useState(false);
   const cfg = useAppConfig();
@@ -169,7 +170,7 @@ export function ReviewsPage() {
           )}
         </form>
 
-        <section className="bg-panel border border-line rounded-lg">
+        <section className={`bg-panel border border-line rounded-lg ${refreshing ? "wave" : ""}`}>
           <h2 className="font-semibold px-3 pt-2.5 pb-1.5">Waiting for your review</h2>
           {prs.isLoading && <Loading what="Asking for review requests" />}
           {prs.error && (
@@ -201,7 +202,7 @@ export function ReviewsPage() {
           </div>
         </section>
 
-        <section className="bg-panel border border-line rounded-lg">
+        <section className={`bg-panel border border-line rounded-lg ${refreshing ? "wave" : ""}`}>
           <h2 className="font-semibold px-3 pt-2.5 pb-1.5">Reviews</h2>
           {reviews.isLoading && <Loading />}
           {reviews.error && (

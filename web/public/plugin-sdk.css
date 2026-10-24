@@ -5,6 +5,8 @@
   --red-soft: #3c1f1e; --on-accent: #ffffff; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+/* hidden wins over a display set in a class, so a hidden grid or flex row stays hidden */
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--ground); color: var(--ink); }
 body { font: 14px/1.45 var(--font-sans, "Schibsted Grotesk Variable", system-ui, sans-serif); padding: 20px 24px; }
 h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
@@ -29,9 +31,21 @@ input, select, textarea {
 textarea { height: auto; padding: 8px 10px; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--cobalt); }
 .error { color: var(--red); background: var(--red-soft); border-radius: 6px; padding: 8px 12px; font-size: 13px; }
-.sdk-loading { animation: sdk-pulse 1.4s ease-in-out infinite; }
-@keyframes sdk-pulse { 50% { opacity: 0.55; } }
-@media (prefers-reduced-motion: reduce) { .sdk-loading { animation: none; } }
+/* skeletons while the first answer comes, and a wave over what's loading or about to change:
+   <div class="sk line"></div>, <span class="sk chip"></span>, or class="wave" on anything busy */
+@keyframes sdk-wave { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.sk { position: relative; overflow: hidden; border-radius: 6px; background: var(--raised); }
+.sk.line { height: 10px; margin: 8px 0; }
+.sk.line.big { height: 18px; width: 40%; }
+.sk.line.short { width: 55%; }
+.sk.chip { display: inline-block; width: 74px; height: 20px; border-radius: 99px; margin: 8px 5px 0 0; }
+.wave { position: relative; overflow: hidden; }
+.sk::after, .wave::after { content: ""; position: absolute; inset: 0; pointer-events: none; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cobalt) 14%, transparent), transparent); animation: sdk-wave 1.4s ease-in-out infinite; }
+.sdk-loading .sk:nth-child(3n + 1) { width: 62%; }
+.sdk-loading .sk:nth-child(3n + 2) { width: 46%; }
+.sdk-loading .sk:nth-child(3n) { width: 70%; }
+@media (prefers-reduced-motion: reduce) { .sk::after, .wave::after { animation: none; opacity: 0.6; transform: none; } }
 .sdk-fail { color: var(--red); font-size: 12px; margin-left: 8px; }
 /* tabs: <nav class="tabbar"><button class="on">One</button><button>Two</button></nav>, or aria-selected="true" */
 .tabbar { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; gap: 2px; }

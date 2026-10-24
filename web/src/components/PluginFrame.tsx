@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 import { useAppConfig } from "../lib/queries";
 import { Empty, Loading } from "./ui";
@@ -20,6 +20,8 @@ export function PluginFrame() {
   const moved = s ? undefined : cfg.data?.moved?.find((x) => x.plugin === plugin && x.id === screen);
   // once: while the router moves, this still renders with the old params and the new query
   const went = useRef("");
+  // skeletons over the frame until its page has loaded, so a slow plugin isn't a blank screen
+  const [loaded, setLoaded] = useState("");
   useEffect(() => {
     if (!moved || went.current === `${plugin}/${screen}`) return;
     went.current = `${plugin}/${screen}`;
@@ -28,5 +30,21 @@ export function PluginFrame() {
   if (cfg.isLoading || moved) return <Loading />;
   if (!s) return <Empty>This screen's plugin is off or removed. Plugins are in Settings.</Empty>;
   const src = withQuery(s.url, query);
-  return <iframe key={src} src={src} title={s.title} className="w-full h-full border-0 block" allow="clipboard-write; fullscreen; microphone; display-capture" />;
+  return (
+    <div className="relative w-full h-full">
+      {loaded !== src && (
+        <div className="absolute inset-0 bg-ground px-2 py-3">
+          <Loading rows={4} />
+        </div>
+      )}
+      <iframe
+        key={src}
+        src={src}
+        title={s.title}
+        onLoad={() => setLoaded(src)}
+        className="w-full h-full border-0 block"
+        allow="clipboard-write; fullscreen; microphone; display-capture"
+      />
+    </div>
+  );
 }

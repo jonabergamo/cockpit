@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { RefreshButton } from "../components/RefreshButton";
+import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { ErrorNote, Loading, PageHeader, Tag } from "../components/ui";
 import { api } from "../lib/api";
 import { ago, until, usd } from "../lib/format";
@@ -177,6 +177,7 @@ export function UsagePage() {
   const t = useTokens();
   const cost = useCost();
   const u = q.data;
+  const refreshing = useRefreshing(["usage"]);
 
   const tooltip = { background: t.raised, border: `1px solid ${t.line}`, borderRadius: 6, color: t.ink, fontSize: 13 };
 
@@ -203,7 +204,7 @@ export function UsagePage() {
 
       {u && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className={`grid grid-cols-2 lg:grid-cols-5 gap-3 rounded-lg ${refreshing ? "wave" : ""}`}>
             <Gauge label="of the 5 hour window" limit={u.limits.latest?.five} />
             <Gauge label="of the weekly limit" limit={u.limits.latest?.seven} />
             <Stat label="Today" cost={u.totals.today.costUSD} tokens={u.totals.today.tokens} />
