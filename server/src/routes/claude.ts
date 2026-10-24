@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { headless } from "../placement/headless.ts";
 import { where } from "../placement/where.ts";
 import { findOwner } from "../remote/work.ts";
+import { findSession } from "../remote/sessions.ts";
 import { backups, createMemory, doctor, listFiles, memories, readBackup, readConfig, writeConfig } from "../claude/memory.ts";
 import { getSession, projectsDir } from "../claude/sessions.ts";
 import { getRun, listRuns } from "../claude/workflows.ts";
@@ -53,6 +54,7 @@ export const claude = new Hono()
 
     if (resume) {
       // claude only finds a session from the folder it ran in, so use the one we indexed
+      await findSession(resume);
       const s = getSession(resume);
       // a prompt rides along as the first new message of the resumed session
       const args = ["--resume", resume, ...(prompt ? [prompt] : [])];

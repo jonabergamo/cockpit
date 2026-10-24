@@ -159,7 +159,7 @@ const migrate = (argv) => server("src/migrate.ts", argv);
 // claude and the plugins' CLIs are found the way they are here). One role per machine: installing one stops the others.
 async function service(argv) {
   const { execFileSync } = await import("node:child_process");
-  const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+  const { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = await import("node:fs");
   const { homedir } = await import("node:os");
   const { join } = await import("node:path");
   const [action = "status"] = argv;
@@ -213,7 +213,11 @@ async function service(argv) {
     for (const r of action === "install" ? roles : [role]) {
       if (!existsSync(file(r))) continue;
       sh("launchctl", ["bootout", target(r)]);
-      if (action === "uninstall" && readFileSync(file(r), "utf8").includes(MARK)) rmSync(file(r));
+      // launchd loads every plist here at login, so another role's has to go or both start; one written by hand
+      // is set aside rather than deleted
+      if (action === "install" && r === role) continue;
+      if (readFileSync(file(r), "utf8").includes(MARK)) rmSync(file(r));
+      else if (action === "install") renameSync(file(r), `${file(r)}.disabled`), process.stdout.write(`Set aside ${file(r)} (now .disabled), so it doesn't start too.\n`);
     }
     if (action === "install") {
       mkdirSync(join(homedir(), "Library/LaunchAgents"), { recursive: true });

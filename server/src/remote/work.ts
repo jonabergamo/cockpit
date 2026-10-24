@@ -2,6 +2,7 @@
 // the last time each node answered, so a node that's down still shows what it had. A path says which machine
 // it's on: anything inside one of a node's roots goes to that node, so the screens keep sending just the path.
 import type { Worktree } from "@cockpit/shared";
+import { broadcast } from "../hub.ts";
 import { mirrorChunk, mirrorJob, type Job } from "../jobs.ts";
 import { listWorktrees, repoState } from "../worktrees.ts";
 import { where } from "../placement/where.ts";
@@ -48,8 +49,7 @@ export function addWorkLink(machine: string, link: RemoteLink) {
     // the node's jobs show here as they run: worktrees being made, checks, anything its automations start
     c.on("job.start", (j: Job) => mirrorJob(machine, j));
     c.on("job", (ev: { id: string; chunk?: string; done?: boolean; code?: number }) => mirrorChunk(ev));
-    void fetchWorktrees(machine, n, false);
-    void fetchRoots(n);
+    void Promise.all([fetchWorktrees(machine, n, false), fetchRoots(n)]).then(() => broadcast({ type: "node.ready", node: machine }));
   });
 }
 

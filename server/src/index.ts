@@ -5,20 +5,21 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { auth } from "./auth.ts";
 import { forward, serveApi } from "./remote/forward.ts";
-import { placementView, type Cap } from "./placement/where.ts";
+import { placementView, pluginOn, type Cap } from "./placement/where.ts";
 import { startAutomations, startHostServices, startHubServices } from "./startup.ts";
 import { addMachine, hubId, listMachines, pairCommandOf, removeMachine, retryMachine, startMachines } from "./remote/machines.ts";
 import { startNodeServer } from "./remote/node.ts";
 import { resendSettings } from "./remote/sync.ts";
+import { refreshPlugins } from "./remote/plugins.ts";
 import { config, demo, paths } from "./config.ts";
 import { mountDemo } from "./demo.ts";
-import { reload as reloadPlugin } from "./plugins.ts";
+import { placeable, reload as reloadPlugin } from "./plugins.ts";
 import { activeCodeHost, activeTracker, callRoute, listPlugins, movedScreens, pluginFile, pluginLog, pluginScreens, pluginThemes, startPlugins, updatePlugin } from "./plugins.ts";
 import { migrateLegacy, statusConfig } from "./providers.ts";
 import { install, installSkill, login, setupStatus } from "./requirements.ts";
 import { detectBilling, getSettings, putSettings } from "./settings.ts";
 import { repoState } from "./worktrees.ts";
-import { repoNode } from "./remote/work.ts";
+import { repoNode, requestWork } from "./remote/work.ts";
 import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
 import { tasks } from "./routes/tasks.ts";
 import { claude } from "./routes/claude.ts";
@@ -140,18 +141,26 @@ const machines = new Hono()
   // where each plugin runs: here, or on a node, which then runs it alone
   .get("/plugins", (c) => {
     const set = getSettings().machines.plugins;
-    return c.json(listPlugins().plugins.filter((p) => p.on).map((p) => ({ id: p.manifest.id, name: p.manifest.name, bundled: p.bundled, value: set[p.manifest.id] ?? "here", machine: p.machine })));
+    return c.json(listPlugins().plugins.filter((p) => p.on && (p.machine || placeable(p.manifest.id))).map((p) => ({ id: p.manifest.id, name: p.manifest.name, bundled: p.bundled, value: set[p.manifest.id] ?? "here", machine: p.machine })));
   })
   .put("/plugins", async (c) => {
     const { id, value } = await c.req.json<{ id: string; value: string }>();
     if (!listPlugins().plugins.some((p) => p.manifest.id === id)) return c.json({ error: "no such plugin" }, 404);
     if (value !== "here" && !listMachines().some((m) => m.id === value)) return c.json({ error: "here or a machine's id" }, 400);
+    if (value !== "here") {
+      // what this hub's own screens use stays here, and the node has to have the plugin to run it
+      if (!placeable(id)) return c.json({ error: "This plugin gives this machine a tracker, code host, review queue or login, so it stays here. The node runs it too, for the automations." }, 400);
+      const has = await requestWork<{ id: string }[]>(value, "plugins.info").then((l) => l.some((p) => p.id === id), () => undefined);
+      if (has === undefined) return c.json({ error: `${value} isn't connected, so it can't say whether it has this plugin` }, 503);
+      if (!has) return c.json({ error: `${value} doesn't have this plugin. Install it there first.` }, 400);
+    }
     const plugins = { ...getSettings().machines.plugins };
     if (value === "here") delete plugins[id];
     else plugins[id] = value;
     putSettings({ machines: { ...getSettings().machines, plugins } });
     await reloadPlugin(id);
     resendSettings();
+    if (value !== "here") await refreshPlugins(value);
     return c.json({ ok: true });
   })
   .get("/:id/pair", (c) => {
@@ -222,9 +231,15 @@ serveApi((req) => api.fetch(req));
 
 // files for plugin screens; the page loads /plugin-sdk.js from the app itself
 const types: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2", ".map": "application/json" };
-app.get("/plugins/:id/*", (c) => {
+app.get("/plugins/:id/*", async (c) => {
   const id = c.req.param("id");
   const rel = decodeURIComponent(c.req.path.slice(`/plugins/${id}/`.length));
+  // a plugin running on a node shows its screens as that node has them, which may be newer than this copy
+  const on = pluginOn(id);
+  if (on) {
+    const f = await requestWork<{ ext: string; data: string } | null>(on, "plugin.asset", { id, rel }).catch(() => null);
+    if (f) return new Response(Buffer.from(f.data, "base64"), { headers: { "content-type": types[f.ext] ?? "application/octet-stream", "cache-control": "no-cache" } });
+  }
   let file: string | undefined;
   try {
     file = pluginFile(id, rel);

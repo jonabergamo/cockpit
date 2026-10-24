@@ -13,16 +13,18 @@ const relay = config.role === "node";
 const shortPath = (p: string) => (process.env.HOME ? p.replace(process.env.HOME, "~") : p);
 
 // Everything worth telling you also goes in a log, for "while you were away"
-export function logEvent(kind: string, title: string, body?: string, link?: string, ref?: string) {
+// at is when it happened, for what a node did while the hub was away
+export function logEvent(kind: string, title: string, body?: string, link?: string, ref?: string, at = Date.now()) {
   if (relay) return enqueue("log", { kind, title, body, link, ref });
-  db.prepare("insert into events_log (at, kind, title, body, link, ref) values (?, ?, ?, ?, ?, ?)").run(Date.now(), kind, title, body ?? null, link ?? null, ref ?? null);
+  db.prepare("insert into events_log (at, kind, title, body, link, ref) values (?, ?, ?, ?, ?, ?)").run(at, kind || "notify", title || "(untitled)", body ?? null, link ?? null, ref ?? null);
 }
 
 let seq = 0;
 // urgent ones are a second nudge for something that has waited a long time; push plugins send them loudly
 // node is the machine it happened on, when that's not this one
 export function notify(n: { title: string; body: string; link: string; urgent?: boolean; kind?: string; node?: string }) {
-  if (relay) return enqueue("notify", n);
+  // a plugin put here (a phone push, say) still hears it, so it can go out while the hub sleeps
+  if (relay) return enqueue("notify", n), emit("notify", n);
   broadcast({ type: "notify", id: ++seq, title: n.title, body: n.node ? `${n.body} · on ${n.node}` : n.body, link: n.link });
   emit("notify", n);
   logEvent(n.kind ?? "notify", n.title, n.body, n.link);

@@ -77,6 +77,40 @@ describe("link", () => {
     await until(() => other.link.status.state === "refused");
   });
 
+  it("refuses something at the node's address that can't show it has the key", async () => {
+    const link = new RemoteLink({
+      url: "mem://node",
+      token: TOKEN,
+      hub: "hub-test",
+      maxBackoffMs: 50,
+      dial: () => {
+        const p = wirePair();
+        // says hello like a node and welcomes any hub, without knowing the key
+        p.node.onMessage((raw) => JSON.parse(raw).t === "auth" && p.node.send(JSON.stringify({ t: "welcome", node: "devbox", info: {}, mac: "00".repeat(32) })));
+        setTimeout(() => p.node.send(JSON.stringify({ t: "hello", node: "devbox", name: "devbox", nonce: "n", protocol: 2, version: "0" })), 0);
+        return p.hub;
+      },
+    });
+    links.push(link.start());
+    await until(() => link.status.state === "refused");
+    expect(link.status.error).toMatch(/isn't the node this hub paired with/);
+  });
+
+  it("dials once however often it's told to try again while dialing", async () => {
+    let dials = 0;
+    const link = new RemoteLink({
+      url: "mem://node",
+      token: TOKEN,
+      hub: "hub-test",
+      dial: () => (dials++, wirePair().hub),
+    });
+    links.push(link.start());
+    link.retry();
+    link.retry();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(dials).toBe(1);
+  });
+
   it("goes down when the link drops and comes back by itself", async () => {
     const { link, pairs } = connect();
     await until(() => link.status.state === "up");

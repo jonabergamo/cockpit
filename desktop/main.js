@@ -86,7 +86,8 @@ function icon(size) {
   return nativeImage.createFromPath(path.join(__dirname, 'icon.png')).resize({ width: size, height: size })
 }
 
-async function show(route = '') {
+// setup opens the page for picking a server, without looking for the current one first (it would just come back)
+async function show(route = '', setup = false) {
   if (!win) {
     win = new BrowserWindow({ width: 1440, height: 900, minWidth: 420, minHeight: 500, title: 'cockpit', icon: icon(256), ...FRAME })
     win.on('close', (e) => {
@@ -107,6 +108,7 @@ async function show(route = '') {
   if (process.platform === 'darwin') app.dock.show()
   win.show()
   win.focus()
+  if (setup) return win.loadURL(setupPage(false))
 
   if (!base) base = await findServer()
   if (!base) return win.loadURL(setupPage(true))
@@ -183,7 +185,7 @@ function trayMenu(busy = [], waiting = []) {
     { label: 'Tickets', click: () => open('/tickets') },
     { label: 'Sprint report', click: () => open('/report') },
     { type: 'separator' },
-    { label: 'Change server…', click: () => (base = null, show(), win.loadURL(setupPage(false))) },
+    { label: 'Change server…', click: () => ((base = null), show('', true)) },
     { label: 'Quit cockpit', accelerator: 'CommandOrControl+Q', click: quit },
   ])
 }

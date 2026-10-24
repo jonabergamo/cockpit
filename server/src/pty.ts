@@ -58,6 +58,9 @@ export interface RemoteTerms {
   search(id: string, query: string, step: "find" | "next" | "prev" | "close"): void;
   kill(id: string): void;
   cwd(id: string): string | undefined;
+  // a terminal it doesn't know yet but may, once a node it hasn't heard from since starting answers: true when it
+  // will attach the socket itself, or tell it the terminal is gone, later
+  wait(ws: WebSocket, id: string): boolean;
 }
 let remote: RemoteTerms | undefined;
 export const useRemoteTerms = (r: RemoteTerms) => void (remote = r);
@@ -133,7 +136,8 @@ if (hasTmux) startTmux();
 const name = (id: string) => `cockpit-${id}`;
 const panePid = (id: string) => Number(tmux("display-message", "-p", "-t", name(id), "#{pane_pid}").trim()) || undefined;
 
-let epochs = 0;
+// from the clock, so a restart never hands a terminal an epoch it had before and a hub mistakes new output for old
+let epochs = Date.now();
 function connect(meta: Meta, proc: pty.IPty, pid?: number) {
   const t: Term = { ...meta, proc, pid, scrollback: "", epoch: ++epochs, start: 0, end: 0, sockets: new Set(), sinks: new Set() };
   proc.onData((data) => {
@@ -299,7 +303,7 @@ export function announce() {
 export function attach(ws: WebSocket, id: string) {
   if (remote?.owns(id)) return remote.attach(ws, id);
   const t = terms.get(id);
-  if (!t) return send(ws, { type: "pty.exit", id, code: -1 });
+  if (!t) return remote?.wait(ws, id) ? undefined : send(ws, { type: "pty.exit", id, code: -1 });
   t.sockets.add(ws);
   send(ws, { type: "pty.mode", id, tmux: hasTmux });
   send(ws, { type: "pty.reset", id });

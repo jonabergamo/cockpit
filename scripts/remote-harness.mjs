@@ -44,7 +44,7 @@ writeFileSync(join(fakeBin, "claude"), '#!/bin/sh\necho "answered on the node"\n
 for (const role of ["hub", "node"]) {
   const dir = join(dirs[role], "plugins", "harness-echo");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "plugin.json"), JSON.stringify({ id: "harness-echo", name: "Harness echo", api: 1 }));
+  writeFileSync(join(dir, "plugin.json"), JSON.stringify({ id: "harness-echo", name: "Harness echo", api: 1, nodes: true }));
   writeFileSync(
     join(dir, "server.ts"),
     `import { createHash } from "node:crypto";

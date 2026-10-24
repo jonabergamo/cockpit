@@ -290,7 +290,9 @@ export type ServerEvent =
   // what the sidebar shows next to each screen, by its nav id
   | { type: "badges"; badges: Record<string, Badge> }
   // the machines this hub works with and whether each one can be reached
-  | { type: "machines"; machines: Machine[] };
+  | { type: "machines"; machines: Machine[] }
+  // a node connected and this hub has its worktrees and folders: what lists them is worth asking again
+  | { type: "node.ready"; node: string };
 
 // A node this hub dials. state: up, connecting, down (the link dropped, it's dialing again), or refused (the
 // node turned it away: not paired with this hub, or a different link version)

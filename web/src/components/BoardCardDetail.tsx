@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import type { BoardCard, Reviewer } from "@cockpit/shared";
+import type { BoardCard, Machine, Reviewer } from "@cockpit/shared";
 import { api, qs } from "../lib/api";
 import { ago, shortPath } from "../lib/format";
 import { useOpenSession } from "../lib/openSession";
@@ -275,14 +275,18 @@ function Verify({ c }: { c: BoardCard }) {
   );
 }
 
-function Preview({ root }: { root: string }) {
+// node: the machine the worktree is on, whose address the dev server answers at
+function Preview({ root, node }: { root: string; node?: string }) {
   const qc = useQueryClient();
   const cfg = useAppConfig();
+  const machines = useQuery({ queryKey: ["machines"], queryFn: () => api.get<{ machines: Machine[] }>("/machines"), enabled: !!node });
+  const nodeUrl = machines.data?.machines.find((m) => m.id === node)?.url;
+  const host = node && nodeUrl ? new URL(nodeUrl.replace(/^ws/, "http")).hostname : location.hostname;
   const [err, setErr] = useState<unknown>();
   const q = useQuery({ queryKey: ["preview", root], queryFn: () => api.get<{ port: number; term: string; running: boolean } | null>(`/preview${qs({ worktree: root })}`), enabled: !!cfg.data?.preview, refetchInterval: 10_000 });
   if (!cfg.data?.preview) return null;
   const p = q.data;
-  const url = p ? `${location.protocol}//${location.hostname}:${p.port}` : "";
+  const url = p ? `${node ? "http:" : location.protocol}//${host}:${p.port}` : "";
   const go = async (stop = false) => {
     setErr(undefined);
     try {
@@ -379,7 +383,8 @@ export function BoardCardDetail({ c, onClose }: { c: BoardCard; onClose: () => v
   const pr = asPr(c);
   const live = !!s && s.status !== "ended";
   const archive = async () => {
-    await api.post("/board/archive", { id: c.id });
+    // node: the card came from that machine's board, which is where it's archived
+    await api.post("/board/archive", { id: c.id, node: c.node });
     await qc.invalidateQueries({ queryKey: ["board"] });
     onClose();
   };
@@ -458,7 +463,7 @@ export function BoardCardDetail({ c, onClose }: { c: BoardCard; onClose: () => v
       {c.kind === "worktree" && c.path && c.pr?.state === "OPEN" && c.pr.checks === "fail" && <CiHere c={c} />}
       {c.kind === "worktree" && c.path && <Verify c={c} />}
       {c.kind === "worktree" && c.path && c.pr && <Autopilot c={c} />}
-      {c.kind === "worktree" && c.path && <Preview root={c.path} />}
+      {c.kind === "worktree" && c.path && <Preview root={c.path} node={c.node} />}
       {c.path && c.kind === "worktree" && <Changes root={c.path} sessionId={live ? s?.id : undefined} />}
       {c.path && c.kind !== "worktree" && <div className="text-[12px] text-faint">{shortPath(c.path)}</div>}
     </div>

@@ -13,7 +13,7 @@ import { addLink, startRemoteTerms, unlinked } from "./terminals.ts";
 import { addWorkLink, removeWorkLink } from "./work.ts";
 import { logEvent, notify } from "../notify.ts";
 import { addApiLink, removeApiLink, startRemoteBoards } from "./forward.ts";
-import { addInboxLink } from "./outbox.ts";
+import { addInboxLink, forgetInbox } from "./outbox.ts";
 import { addPluginLink } from "./plugins.ts";
 import { useMachines } from "../placement/where.ts";
 import { addSyncLink, removeSyncLink, startSync } from "./sync.ts";
@@ -101,6 +101,9 @@ export function removeMachine(id: string) {
   unlinked(id);
   removeSessionLink(id);
   removeWorkLink(id);
+  forgetInbox(id);
+  // the plugins it ran come back here
+  void import("../plugins.ts").then((m) => m.reloadPlaced(id));
   removeSyncLink(id);
   removeApiLink(id);
   db.prepare("delete from machines where id = ?").run(id);

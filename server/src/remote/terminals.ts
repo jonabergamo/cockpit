@@ -22,11 +22,17 @@ interface RemoteTerm {
   tmux: boolean;
   sockets: Set<WebSocket>;
   following: boolean;
+  // its end was passed on already, so the list dropping it doesn't say so again
+  ended?: boolean;
 }
 
 interface Node {
   link: RemoteLink;
   terms: Map<string, RemoteTerm>;
+  // whether its list has been heard since this hub started
+  synced?: boolean;
+  // closed here while it couldn't be reached: ended on the node once it can
+  killed: Set<string>;
 }
 
 const nodes = new Map<string, Node>();
@@ -38,7 +44,34 @@ const view = (rt: RemoteTerm): TermInfo => rt.info;
 function forget(rt: RemoteTerm, code?: number) {
   owner.delete(rt.info.id);
   nodes.get(rt.machine)?.terms.delete(rt.info.id);
-  if (code !== undefined) for (const ws of rt.sockets) send(ws, { type: "pty.exit", id: rt.info.id, code });
+  if (code !== undefined && !rt.ended) for (const ws of rt.sockets) send(ws, { type: "pty.exit", id: rt.info.id, code });
+}
+
+// Browsers that asked for a terminal before its node was heard from (right after this hub restarts, say): each
+// is attached once a list has it, or told it's gone once every node has answered without it, or after a while
+const waiting = new Map<string, { sockets: Set<WebSocket>; at: number }>();
+const WAIT_MS = 60_000;
+
+function settle() {
+  const everyone = [...nodes.values()].every((n) => n.synced);
+  for (const [id, w] of waiting) {
+    const rt = owner.get(id);
+    if (rt) {
+      waiting.delete(id);
+      for (const ws of w.sockets) attachTo(ws, rt);
+    } else if (everyone || Date.now() - w.at > WAIT_MS) {
+      waiting.delete(id);
+      for (const ws of w.sockets) send(ws, { type: "pty.exit", id, code: -1 });
+    }
+  }
+}
+
+function attachTo(ws: WebSocket, rt: RemoteTerm) {
+  rt.sockets.add(ws);
+  send(ws, { type: "pty.mode", id: rt.info.id, tmux: rt.tmux });
+  send(ws, { type: "pty.reset", id: rt.info.id });
+  if (rt.buf) send(ws, { type: "pty.data", id: rt.info.id, data: rt.buf });
+  void follow(rt);
 }
 
 // the node's list, as it is now; what's missing from it ended while the hub wasn't looking
@@ -46,7 +79,13 @@ function sync(machine: string, list: TermInfo[]) {
   const n = nodes.get(machine);
   if (!n) return;
   const seen = new Set<string>();
+  n.synced = true;
   for (const i of list) {
+    // closed here while the node was away: end it there now instead of listing it again
+    if (n.killed.has(i.id)) {
+      n.link.request("term.kill", { id: i.id }).then(() => n.killed.delete(i.id), () => {});
+      continue;
+    }
     seen.add(i.id);
     const info: TermInfo = { ...i, node: machine, state: i.exited === undefined ? "running" : "exited" };
     const rt = n.terms.get(i.id);
@@ -58,7 +97,9 @@ function sync(machine: string, list: TermInfo[]) {
     }
   }
   for (const rt of [...n.terms.values()]) if (!seen.has(rt.info.id)) forget(rt, -1);
+  for (const id of n.killed) if (!list.some((i) => i.id === id)) n.killed.delete(id);
   announce();
+  settle();
 }
 
 function reset(rt: RemoteTerm, f: PtyFrame) {
@@ -100,7 +141,7 @@ async function follow(rt: RemoteTerm) {
 
 // a link that drops leaves its terminals listed, marked disconnected; one that comes back lists them again
 function linked(machine: string, link: RemoteLink) {
-  const n: Node = { link, terms: nodes.get(machine)?.terms ?? new Map() };
+  const n: Node = { link, terms: nodes.get(machine)?.terms ?? new Map(), killed: nodes.get(machine)?.killed ?? new Set() };
   nodes.set(machine, n);
   link.onStatus((s) => {
     if (s.state === "up") return;
@@ -119,7 +160,9 @@ function linked(machine: string, link: RemoteLink) {
     });
     c.on("pty.exit", ({ id, code }: { id: string; code: number }) => {
       const rt = n.terms.get(id);
-      if (rt) for (const ws of rt.sockets) send(ws, { type: "pty.exit", id, code });
+      if (!rt) return;
+      for (const ws of rt.sockets) send(ws, { type: "pty.exit", id, code });
+      rt.ended = true;
     });
     try {
       sync(machine, await c.request<TermInfo[]>("term.list"));
@@ -137,6 +180,7 @@ export function unlinked(machine: string) {
   for (const rt of [...n.terms.values()]) forget(rt, -1);
   nodes.delete(machine);
   announce();
+  settle();
 }
 
 const call = (rt: RemoteTerm | undefined, m: string, a: unknown) => {
@@ -149,15 +193,17 @@ export function startRemoteTerms(links: Map<string, RemoteLink> | Iterable<[stri
   useRemoteTerms({
     list: () => [...owner.values()].map(view),
     owns: (id) => owner.has(id),
-    attach(ws, id) {
-      const rt = owner.get(id)!;
-      rt.sockets.add(ws);
-      send(ws, { type: "pty.mode", id, tmux: rt.tmux });
-      send(ws, { type: "pty.reset", id });
-      if (rt.buf) send(ws, { type: "pty.data", id, data: rt.buf });
-      void follow(rt);
+    attach: (ws, id) => attachTo(ws, owner.get(id)!),
+    wait(ws, id) {
+      if ([...nodes.values()].every((n) => n.synced)) return false;
+      const w = waiting.get(id) ?? { sockets: new Set<WebSocket>(), at: Date.now() };
+      w.sockets.add(ws);
+      waiting.set(id, w);
+      setTimeout(settle, WAIT_MS + 1000).unref?.();
+      return true;
     },
     detachAll(ws) {
+      for (const [id, w] of waiting) if (w.sockets.delete(ws) && !w.sockets.size) waiting.delete(id);
       for (const rt of owner.values()) {
         if (!rt.sockets.delete(ws) || rt.sockets.size) continue;
         // nobody's watching any more: stop streaming it, the copy stays for next time
@@ -177,7 +223,10 @@ export function startRemoteTerms(links: Map<string, RemoteLink> | Iterable<[stri
     search: (id, query, step) => call(owner.get(id), "term.search", { id, query, step }),
     kill(id) {
       const rt = owner.get(id);
-      call(rt, "term.kill", { id });
+      const n = rt && nodes.get(rt.machine);
+      // a node that can't hear it now ends it when it's back, so a closed terminal doesn't come back
+      if (n && !up(n)) n.killed.add(id);
+      else call(rt, "term.kill", { id });
       if (rt) forget(rt);
       announce();
     },

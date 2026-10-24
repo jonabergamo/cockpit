@@ -177,7 +177,8 @@ export function cached<T>(key: string, maxAgeMs: number, fn: () => Promise<T>, f
   if (running) return running as Promise<T>;
   const p = fn()
     .then((v) => {
-      db.prepare("insert or replace into cache (key, value, updated_at) values (?, ?, ?)").run(key, JSON.stringify(v), Date.now());
+      // nothing to keep (no active sprint, say) isn't kept, and asks again next time
+      if (v !== undefined) db.prepare("insert or replace into cache (key, value, updated_at) values (?, ?, ?)").run(key, JSON.stringify(v), Date.now());
       return v;
     })
     .finally(() => inflight.delete(key));

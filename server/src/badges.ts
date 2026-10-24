@@ -36,6 +36,12 @@ export function setPluginBadge(plugin: string, screen: string, b: Badge | null) 
   badgesChanged();
   for (const fn of badgeWatchers) fn(plugin);
 }
+// a plugin's whole set, as the node it runs on has it: the screens it no longer marks lose theirs here too
+export function replacePluginBadges(plugin: string, set: Record<string, Badge>) {
+  for (const id of [...fromPlugins.keys()]) if (id.startsWith(`plugin:${plugin}/`) && !(id.slice(`plugin:${plugin}/`.length) in set)) setPluginBadge(plugin, id.slice(`plugin:${plugin}/`.length), null);
+  for (const [screen, b] of Object.entries(set)) setPluginBadge(plugin, screen, b);
+}
+
 export function clearPluginBadges(plugin: string) {
   const mine = [...fromPlugins.keys()].filter((id) => id.startsWith(`plugin:${plugin}/`));
   mine.forEach((id) => fromPlugins.delete(id));
@@ -106,12 +112,19 @@ export function badgesOf(i: BadgeInput): Record<string, Badge> {
   return Object.fromEntries(Object.entries(out).filter((e): e is [string, Badge] => !!e[1]));
 }
 
+// on a hub, the runs its nodes have going and the ones that failed lately, which the Runs badge counts too
+let remoteRuns: () => Run[] = () => [];
+let remoteReviews: () => ReturnType<typeof reviewStates> | undefined = () => undefined;
+export const useRemoteReviews = (fn: typeof remoteReviews) => void (remoteReviews = fn);
+export const useRemoteRuns = (fn: () => Run[]) => void (remoteRuns = fn);
+
 export async function computeBadges(now = Date.now()): Promise<Record<string, Badge>> {
   let runsSeen = seenAt("/runs");
   // a first look counts nothing that failed before badges existed
   if (runsSeen === undefined) markSeen("/runs", (runsSeen = now));
-  const runs = [...listRuns({ status: "running" }), ...listRuns({ status: "fail", since: runsSeen - DAY, limit: 500 })];
-  const [cards, reviews] = await Promise.all([board({ offline: true }).catch(() => []), reviewStates().catch(() => [])]);
+  const theirs = remoteRuns().filter((r) => r.status === "running" || (r.status === "fail" && r.startedAt >= runsSeen! - DAY));
+  const runs = [...listRuns({ status: "running" }), ...listRuns({ status: "fail", since: runsSeen - DAY, limit: 500 }), ...theirs];
+  const [cards, reviews] = await Promise.all([board({ offline: true }).catch(() => []), (remoteReviews() ?? reviewStates()).catch(() => [])]);
   return badgesOf({
     runs,
     runsSeen,

@@ -76,7 +76,8 @@ export function TerminalsPage() {
     setSplitErr(undefined);
     setShowSplit(true);
     try {
-      await api.post<TermInfo>("/code/terms", { cwd: cur.cwd, parent: cur.id, title: `shell · ${shortPath(cur.cwd).split("/").pop()}` });
+      // on the machine the terminal runs on, wherever its folder is
+      await api.post<TermInfo>("/code/terms", { cwd: cur.cwd, parent: cur.id, title: `shell · ${shortPath(cur.cwd).split("/").pop()}`, node: cur.node });
       await qc.invalidateQueries({ queryKey: ["terms"] });
     } catch (e) {
       setSplitErr(e);

@@ -28,8 +28,8 @@ const CAPS: { id: Cap; label: string; help: string }[] = [
 
 // whether this machine has an NVIDIA GPU, found once at start
 let gpu = false;
-run("nvidia-smi", ["-L"], { timeout: 5000 }).then(
-  (out) => (gpu = /GPU \d/.test(out)),
+export const gpuProbed = run("nvidia-smi", ["-L"], { timeout: 5000 }).then(
+  (out) => void (gpu = /GPU \d/.test(out)),
   () => {},
 );
 export const hasGpu = () => gpu;

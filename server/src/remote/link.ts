@@ -1,7 +1,7 @@
 // The hub side of a link to one node: dial it, prove the pairing, keep the heartbeat, and dial again when it
 // drops, sooner after this machine wakes from sleep (a timer that fires far too late means it slept).
 import { WebSocket } from "ws";
-import { Channel, keyOf, macOf, PROTOCOL, type Frame, type NodeInfo, type Wire } from "./protocol.ts";
+import { Channel, keyOf, macOf, macOk, newNonce, PROTOCOL, type Frame, type NodeInfo, type Wire } from "./protocol.ts";
 import { wsWire } from "./node.ts";
 
 export type LinkState = "connecting" | "up" | "down" | "refused";
@@ -41,6 +41,7 @@ const dialWs = (url: string): Wire => {
 export function handshake(wire: Wire, o: { token: string; hub: string; heartbeatMs?: number; deadMs?: number }) {
   return new Promise<{ channel: Channel; node: string; info: NodeInfo }>((ok, fail) => {
     let stage: "hello" | "welcome" | "done" = "hello";
+    const mine = newNonce();
     const timer = setTimeout(() => {
       stage = "done";
       wire.close(4000, "handshake timed out");
@@ -73,12 +74,17 @@ export function handshake(wire: Wire, o: { token: string; hub: string; heartbeat
           return fail(Object.assign(new Error(`the node speaks link version ${f.protocol} and this hub ${PROTOCOL}; update the older one`), { refused: true }));
         }
         stage = "welcome";
-        wire.send(JSON.stringify({ t: "auth", hub: o.hub, mac: macOf(keyOf(o.token), f.nonce, o.hub), protocol: PROTOCOL } satisfies Frame));
+        wire.send(JSON.stringify({ t: "auth", hub: o.hub, mac: macOf(keyOf(o.token), f.nonce, o.hub), protocol: PROTOCOL, nonce: mine } satisfies Frame));
         return;
       }
       if (stage === "welcome" && f.t === "welcome") {
         stage = "done";
         clearTimeout(timer);
+        // whatever answers at this address has to show it has the key too, before it's sent settings or requests
+        if (typeof f.mac !== "string" || !macOk(keyOf(o.token), mine, f.node, f.mac)) {
+          wire.close(4001, "not the paired node");
+          return fail(Object.assign(new Error("the machine at this address isn't the node this hub paired with; pair it again"), { refused: true }));
+        }
         ok({ channel: new Channel(wire, { heartbeatMs: o.heartbeatMs, deadMs: o.deadMs }), node: f.node, info: f.info });
       }
     });
@@ -92,6 +98,8 @@ export class RemoteLink {
   private timer?: NodeJS.Timeout;
   private wake?: NodeJS.Timeout;
   private stopped = false;
+  // a handshake under way; another dial waits for it rather than racing it
+  private dialing = false;
   private watchers = new Set<(s: LinkStatus) => void>();
   private ups = new Set<(c: Channel) => void>();
 
@@ -124,7 +132,7 @@ export class RemoteLink {
     this.tries = 0;
     clearTimeout(this.timer);
     if (this.channel?.up) this.channel.kill("woke up");
-    else this.dial();
+    else if (!this.dialing) this.dial();
   }
 
   onStatus(fn: (s: LinkStatus) => void) {
@@ -151,7 +159,7 @@ export class RemoteLink {
   }
 
   private dial() {
-    if (this.stopped) return;
+    if (this.stopped || this.dialing) return;
     this.set({ state: this.status.state === "up" ? "down" : this.status.state === "refused" ? "refused" : "connecting" });
     let wire: Wire;
     try {
@@ -159,8 +167,13 @@ export class RemoteLink {
     } catch (e) {
       return this.later((e as Error).message);
     }
+    this.dialing = true;
     handshake(wire, this.o).then(
       ({ channel, node, info }) => {
+        this.dialing = false;
+        // removed while it was dialing: nothing of this machine is wanted any more
+        if (this.stopped) return channel.kill("removed");
+        if (this.channel?.up) this.channel.kill("replaced");
         this.tries = 0;
         this.channel = channel;
         this.set({ state: "up", node, info, error: undefined, rtt: undefined });
@@ -168,7 +181,9 @@ export class RemoteLink {
         rtt.unref?.();
         channel.onClose((why) => {
           clearInterval(rtt);
-          if (this.channel === channel) this.channel = undefined;
+          // one that was replaced says nothing about the link
+          if (this.channel !== channel) return;
+          this.channel = undefined;
           if (this.stopped) return;
           this.set({ state: "down", error: why });
           this.later();
@@ -176,6 +191,7 @@ export class RemoteLink {
         for (const fn of this.ups) fn(channel);
       },
       (e: Error & { refused?: boolean }) => {
+        this.dialing = false;
         // a refusal (wrong token, other version) won't fix itself quickly, so it's tried far less often
         if (e.refused) this.set({ state: "refused", error: e.message });
         this.later(e.message, e.refused);
@@ -185,6 +201,7 @@ export class RemoteLink {
 
   private later(error?: string, slow = false) {
     if (this.stopped) return;
+    clearTimeout(this.timer);
     if (error && this.status.state !== "refused") this.set({ state: this.status.state === "up" ? "down" : this.status.state, error });
     const max = this.o.maxBackoffMs ?? 30_000;
     const base = slow ? max : Math.min(max, 1000 * 2 ** this.tries++);

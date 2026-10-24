@@ -55,6 +55,8 @@ export const work = new Hono()
   .post("/autopilot", async (c) => {
     const { worktree, on } = await c.req.json<{ worktree: string; on: boolean }>();
     if (!(await listWorktrees(false)).some((w) => w.path === worktree && !w.main)) return c.json({ error: "not a worktree" }, 400);
+    // a hub doesn't run the automations, so autopilot would try once and then never again
+    if (on && config.role === "hub") return c.json({ error: "Autopilot runs where the automations do, on the node. This worktree is on this machine, so it can't have it." }, 400);
     setAutopilot(worktree, on);
     return c.json({ ok: true });
   })

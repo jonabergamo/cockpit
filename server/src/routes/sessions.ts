@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getSession, listSessions, listSubagents } from "../claude/sessions.ts";
 import { tailEntries } from "../claude/entries.ts";
-import { onNode, searchEverywhere } from "../remote/sessions.ts";
+import { findSession, onNode, searchEverywhere } from "../remote/sessions.ts";
 import { searchHistory } from "../claude/history.ts";
 import { askOf, sendKeys, sendText } from "../agents.ts";
 
@@ -12,7 +12,8 @@ export const sessions = new Hono()
   })
   .get("/search", async (c) => c.json(await searchEverywhere(c.req.query("q") ?? "")))
   .get("/history", async (c) => c.json(await searchHistory(c.req.query("q") ?? "", Number(c.req.query("limit")) || 100)))
-  .get("/:id", (c) => {
+  .get("/:id", async (c) => {
+    await findSession(c.req.param("id"));
     const s = getSession(c.req.param("id"));
     return s ? c.json(s) : c.notFound();
   })

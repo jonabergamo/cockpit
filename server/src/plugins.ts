@@ -283,7 +283,7 @@ function makeApi(p: Plugin): Cockpit {
     sessions: (o) => listSessions(o ?? {}),
     terminals: () => listTerms(),
     claude: (c) => spawnTerm({ cwd: c.cwd, command: "claude", args: c.prompt ? [c.prompt] : [], title: c.title ?? "claude" }),
-    notify: (n) => notify({ title: n.title, body: n.body ?? "", link: n.link ?? "/", urgent: n.urgent }),
+    notify: (n) => void (speaks(id) && notify({ title: n.title, body: n.body ?? "", link: n.link ?? "/", urgent: n.urgent })),
     sendToSession: (sessionId, text) => sendText(sessionId, text),
     task: (t) => createTasks(t),
     job: (label, command, cwd) => new Promise((resolve) => startJob(label, command, cwd, (j) => resolve({ code: j.code ?? 1, output: j.output }))),
@@ -332,7 +332,7 @@ function makeApi(p: Plugin): Cockpit {
       if (live()) p.runOptions.push(o);
     },
     badge(screenId, b) {
-      if (!live()) return;
+      if (!live() || !speaks(id)) return;
       setPluginBadge(id, screenId, b);
     },
     providers: { tracker: () => activeTracker()?.tracker, codeHost: () => activeCodeHost()?.codeHost },
@@ -505,7 +505,8 @@ function info(p: Plugin): PluginInfo {
 // What each plugin that's on needs installed, with the env its settings give its commands
 export const pluginRequirements = () =>
   [...plugins.values()]
-    .filter((p) => isOn(p))
+    // one running on a node needs its tools there, not here
+    .filter((p) => isOn(p) && !p.remote)
     .map((p) => ({ plugin: p.manifest.id, name: p.manifest.name, dir: p.dir, requires: p.manifest.requires ?? [], skills: p.manifest.skills ?? [], env: envOf(p), settings: info(p).settings, specs: p.manifest.settings ?? [] }));
 
 export const listPlugins = () => ({ plugins: [...plugins.values()].map(info), broken: [...broken], dirs: { bundled: bundledDir, user: userDir } });
@@ -657,20 +658,41 @@ export function pluginFile(id: string, rel: string) {
   return full;
 }
 
-// The plugins the automations lean on (a tracker, a code host, review sources), and those that say they run on
-// nodes too, with how each is set up, for a hub to pass on to its nodes. One that offered any of those once stays in the set, so turning it off passes on too.
-export function workPluginSetup(): Record<string, Saved> {
-  const ids = new Set(readRow<string[]>("workPlugins") ?? []);
-  const before = ids.size;
-  for (const p of plugins.values()) if (p.tracker || p.codeHost || p.reviewSource || p.manifest.nodes || p.remote) ids.add(p.manifest.id);
-  if (ids.size !== before) writeRow("workPlugins", [...ids]);
-  return Object.fromEntries([...ids].map((id) => [id, saved(id)]));
+// What a node runs, as this hub has it set up: the plugins put on that node, and the ones the automations lean on
+// (a tracker, a code host, review sources) or that say they run on nodes too, each with its settings. Every other
+// plugin this hub knows is turned off there, so nothing runs on both machines.
+export function pluginSetupFor(machine: string): Record<string, Saved> {
+  return Object.fromEntries(
+    [...plugins.values()].map((p) => {
+      const id = p.manifest.id;
+      const wanted = p.remote === machine || !!(p.tracker || p.codeHost || p.reviewSource || p.manifest.nodes);
+      return [id, wanted ? saved(id) : { ...saved(id), on: false }];
+    }),
+  );
 }
 
-// a node sets those up the way its hub has them; one this node doesn't have is skipped until it does
+// a node sets them up the way its hub has them, reloading only the ones that changed, so a setting changed on the
+// hub doesn't restart a recording or a transcription in the middle
 export async function adoptPluginSetup(setup: Record<string, Saved>) {
-  writeRow("plugins", { ...savedAll(), ...setup });
-  for (const id of Object.keys(setup)) await reload(id);
+  const before = savedAll();
+  writeRow("plugins", { ...before, ...setup });
+  for (const id of Object.keys(setup)) if (JSON.stringify(before[id] ?? {}) !== JSON.stringify(setup[id])) await reload(id);
+}
+
+// On a node, the plugins the hub put here, and the ones that run on nodes for work the hub sends them. The others
+// also run on the hub (a tracker, say), whose copy is the one that tells you things.
+const placedHere = () => new Set(readRow<string[]>("placedHere") ?? []);
+const speaks = (id: string) => config.role !== "node" || placedHere().has(id) || !!plugins.get(id)?.manifest.nodes;
+
+// Plugins that give the hub what its own screens use (a tracker, a code host, review sources, a login) stay on it
+export const placeable = (id: string) => {
+  const p = plugins.get(id);
+  return !!p && !(p.tracker || p.codeHost || p.reviewSource || p.access);
+};
+
+// the ones on a machine that's gone come back here
+export function reloadPlaced(machine: string) {
+  return Promise.all([...plugins.values()].filter((p) => p.remote === machine).map((p) => reload(p.manifest.id)));
 }
 
 // a plugin's exposed function, called by the same plugin on another machine; files arrive as keys of copies here
@@ -693,5 +715,5 @@ export function adoptRemotePlugins(machine: string, list: { id: string; screens:
   if (changed) afterChange();
 }
 
-// the ids placed on a node, which take their set up from this hub
-export const placedPlugins = () => [...plugins.values()].filter((p) => p.remote).map((p) => p.manifest.id);
+// the ids this hub has put on a machine
+export const placedOn = (machine: string) => [...plugins.values()].filter((p) => p.remote === machine).map((p) => p.manifest.id);

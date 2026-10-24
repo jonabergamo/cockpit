@@ -8,7 +8,7 @@ import { agentFile, listSessions, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readFrom } from "./claude/transcript.ts";
 import { clients, send } from "./hub.ts";
 import * as term from "./pty.ts";
-import { machineOf, requestOn } from "./remote/sessions.ts";
+import { findSession, machineOf, requestOn } from "./remote/sessions.ts";
 
 interface Sub {
   sessionId: string;
@@ -44,6 +44,7 @@ wss.on("connection", (ws) => {
     const mine = subs.get(ws)!;
     switch (ev.type) {
       case "watch": {
+        await findSession(ev.sessionId);
         const node = machineOf(ev.sessionId);
         if (node) {
           mine.set(`${ev.sessionId}/${ev.agentId ?? ""}`, { sessionId: ev.sessionId, agentId: ev.agentId, file: "", offset: ev.offset, busy: false, node });

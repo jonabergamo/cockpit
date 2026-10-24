@@ -3,7 +3,7 @@
 // state of things. Claude only reads that context, it doesn't go looking, so answers are quick and stay local.
 import { board } from "./board.ts";
 import { listSessions } from "./claude/sessions.ts";
-import { searchSessions } from "./claude/search.ts";
+import { searchEverywhere } from "./remote/sessions.ts";
 import { headless } from "./placement/headless.ts";
 import { myTickets } from "./providers.ts";
 import { day } from "./util.ts";
@@ -25,7 +25,8 @@ export async function context(question: string) {
   const parts: string[] = [];
   const terms = searchTerms(question);
   // any word may match; the index ranks the sessions that match more of them first
-  const hits = terms.length ? searchSessions(terms.join(" "), 10, true) : [];
+  // every machine's transcripts: the work mostly happens on a node
+  const hits = terms.length ? await searchEverywhere(terms.join(" "), 10, true) : [];
   if (hits.length) {
     parts.push("## Sessions whose transcripts mention it");
     for (const h of hits) parts.push(`- [${h.title ?? h.id.slice(0, 8)}](/sessions/${h.id}) in ${h.cwd ?? "?"}, last ${h.lastTs ? day(h.lastTs) : "?"}\n${h.hits.map((x) => `  - ${x.role} on ${day(x.ts)}: ${x.snippet.replace(/\s+/g, " ")}`).join("\n")}`);

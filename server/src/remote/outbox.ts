@@ -54,8 +54,11 @@ export const lastApplied = (machine: string) => readRow<number>(lastKey(machine)
 
 export interface Apply {
   notify: (n: { title: string; body: string; link: string; urgent?: boolean; kind?: string; node?: string }) => void;
-  log: (kind: string, title: string, body?: string, link?: string, ref?: string) => void;
+  log: (kind: string, title: string, body?: string, link?: string, ref?: string, at?: number) => void;
 }
+
+// a row as a plugin may have sent it, with the parts every row needs filled in
+const tidy = (d: any) => ({ ...d, title: String(d?.title ?? "") || "(untitled)", body: String(d?.body ?? ""), link: String(d?.link ?? "/"), kind: d?.kind ? String(d.kind) : undefined });
 
 // one page applied in one transaction; returns the notifications that are due now and the ones that went stale
 export function applyRows(machine: string, rows: OutRow[], apply: Apply, now = Date.now()) {
@@ -66,11 +69,12 @@ export function applyRows(machine: string, rows: OutRow[], apply: Apply, now = D
     for (const r of rows) {
       if (r.seq <= last) continue;
       last = r.seq;
-      if (r.kind === "log") apply.log(r.data.kind, r.data.title, r.data.body, r.data.link, r.data.ref);
+      const d = tidy(r.data);
+      if (r.kind === "log") apply.log(d.kind ?? "notify", d.title, d.body, d.link, r.data?.ref, r.at);
       else if (now - r.at > STALE_MS) {
-        stale.push(r);
-        apply.log(r.data.kind ?? "notify", r.data.title, r.data.body, r.data.link);
-      } else due.push(r);
+        stale.push({ ...r, data: d });
+        apply.log(d.kind ?? "notify", d.title, d.body, d.link, undefined, r.at);
+      } else due.push({ ...r, data: d });
     }
     writeRow(lastKey(machine), last);
   })();
@@ -84,6 +88,9 @@ export function addInboxLink(machine: string, link: RemoteLink, apply: Apply) {
     if (pulling) return void (again = true);
     pulling = (async () => {
       const stale: OutRow[] = [];
+      // a node whose outbox starts again (its data was reset) is read from its start
+      const head = await link.request<number>("outbox.head").catch(() => undefined);
+      if (head !== undefined && head < lastApplied(machine)) writeRow(lastKey(machine), 0);
       for (;;) {
         again = false;
         const rows = await link.request<OutRow[]>("outbox.since", { seq: lastApplied(machine) }).catch(() => [] as OutRow[]);
@@ -98,7 +105,9 @@ export function addInboxLink(machine: string, link: RemoteLink, apply: Apply) {
         const titles = [...new Set(stale.map((r) => r.data.title as string))].slice(0, 3).join(", ");
         apply.notify({ title: `While you were away, on ${machine}`, body: `${stale.length} ${stale.length === 1 ? "thing" : "things"}: ${titles}${stale.length > 3 ? "…" : ""}`, link: "/", kind: "away" });
       }
-    })().finally(() => {
+    })()
+      .catch((e) => console.error(`outbox from ${machine}:`, (e as Error).message))
+      .finally(() => {
       pulling = undefined;
       if (again) void pull();
     });
@@ -110,3 +119,9 @@ export function addInboxLink(machine: string, link: RemoteLink, apply: Apply) {
   });
   return pull;
 }
+
+// the newest row this node has written, kept or not
+export const head = () => (db.prepare("select seq from sqlite_sequence where name = 'outbox'").get() as { seq: number } | undefined)?.seq ?? 0;
+
+// a machine that's removed starts from the beginning if it's added again
+export const forgetInbox = (machine: string) => db.prepare("delete from settings where key = ?").run(lastKey(machine));

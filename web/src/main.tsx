@@ -20,7 +20,8 @@ import { ReportScreen, SessionsScreen, TicketsScreen, UsageScreen, WeekScreen } 
 import { listen } from "./lib/live";
 import { show } from "./lib/notifications";
 import { installPluginHost } from "./lib/pluginHost";
-import type { AppConfig, Job } from "./lib/queries";
+import type { Job } from "./lib/queries";
+import type { Machine } from "@cockpit/shared";
 import "./lib/theme";
 import "./index.css";
 
@@ -85,8 +86,10 @@ listen((ev) => {
   if (ev.type === "terms") queryClient.setQueryData(["terms"], ev.terms);
   if (ev.type === "badges") queryClient.setQueryData(["badges"], ev.badges);
   if (ev.type === "plugins") queryClient.invalidateQueries({ queryKey: ["config"] }), queryClient.invalidateQueries({ queryKey: ["plugins"] });
-  // the repo can be on a node that has only just connected
-  if (ev.type === "machines" && queryClient.getQueryData<AppConfig>(["config"])?.repo?.state !== "ok") queryClient.invalidateQueries({ queryKey: ["config"] });
+  // whether each machine can be reached, for every screen that picks one (the terminal launcher, say)
+  if (ev.type === "machines") queryClient.setQueryData<{ machines: Machine[] }>(["machines"], (d) => d && { ...d, machines: ev.machines });
+  // a node that connected brings its repo, worktrees, folders and tickets with it
+  if (ev.type === "node.ready") for (const key of ["config", "worktrees", "roots", "tickets", "board", "badges"]) queryClient.invalidateQueries({ queryKey: [key] });
   if (ev.type === "notify") show(ev, (link) => router.history.push(link));
   if (ev.type === "run") queryClient.invalidateQueries({ queryKey: ["runs"] }), queryClient.invalidateQueries({ queryKey: ["run", ev.run.id] });
   if (ev.type === "job") {

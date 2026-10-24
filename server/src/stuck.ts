@@ -36,7 +36,8 @@ export const alertKey = (id: string, reason: string) => `${id}:${reason.replace(
 async function check() {
   const minutes = getSettings().alerts.stuckMinutes;
   const now = Date.now();
-  const live = listSessions({ liveOnly: true });
+  // a node's sessions are watched by the node
+  const live = listSessions({ liveOnly: true }).filter((s) => !s.node);
   for (const id of flags.keys()) if (!live.some((s) => s.id === id)) flags.delete(id);
   for (const s of live) {
     const g = grew.get(s.id);

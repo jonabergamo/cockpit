@@ -5,7 +5,9 @@
 // hub asks again with the same id, and the node answers from what it already did instead of doing it twice.
 import { randomUUID } from "node:crypto";
 import type { Context, Next } from "hono";
-import type { BoardCard, ServerEvent } from "@cockpit/shared";
+import type { BoardCard, Run, ServerEvent } from "@cockpit/shared";
+import { useRemoteReviews, useRemoteRuns } from "../badges.ts";
+import type { reviewStates } from "../reviews.ts";
 import { useRemoteBoards } from "../board.ts";
 import { config } from "../config.ts";
 import { broadcast } from "../hub.ts";
@@ -66,12 +68,32 @@ export function handleApi(r: ApiReq) {
 // ---- the hub's side
 
 const links = new Map<string, RemoteLink>();
+// each node's recent runs, for the Runs badge: fetched when the link comes up, then kept current by its events
+const nodeRuns = new Map<string, Map<string, Run>>();
+
 export function addApiLink(machine: string, link: RemoteLink) {
   links.set(machine, link);
+  const runs = new Map<string, Run>();
+  nodeRuns.set(machine, runs);
   // what the node's own screens would hear about its board and runs, heard here instead
-  link.onUp((c) => c.on("relay", (ev: ServerEvent) => broadcast(ev.type === "run" ? { ...ev, run: { ...ev.run, node: machine } } : ev)));
+  link.onUp((c) => {
+    c.on("relay", (ev: ServerEvent) => {
+      if (ev.type === "run") runs.set(ev.run.id, { ...ev.run, node: machine });
+      // only the recent ones matter for the badge
+      if (runs.size > 300) runs.delete(runs.keys().next().value!);
+      broadcast(ev.type === "run" ? { ...ev, run: { ...ev.run, node: machine } } : ev);
+    });
+    void requestApi(machine, { method: "GET", path: "/runs?limit=200", headers: {} }).then(
+      (r) => {
+        if (r.status !== 200) return;
+        runs.clear();
+        for (const x of JSON.parse(r.body) as Run[]) runs.set(x.id, { ...x, node: machine });
+      },
+      () => {},
+    );
+  });
 }
-export const removeApiLink = (machine: string) => void links.delete(machine);
+export const removeApiLink = (machine: string) => void (links.delete(machine), nodeRuns.delete(machine));
 
 // the automations node while it's connected; undefined is this machine
 export const workNode = () => {
@@ -101,9 +123,10 @@ export async function requestApi(machine: string, r: Omit<ApiReq, "op">, timeout
     try {
       return await link.request<ApiRes>("api", req, timeoutMs);
     } catch (e) {
-      // only a dropped link is worth asking again for, and only while it comes back soon
+      // only a change is worth waiting to ask again for, and only while the link comes back soon; a read says now
+      // that the machine isn't there
       const down = (e as { status?: number }).status === 503;
-      if (!down || attempt >= 2 || !(await waitUp(link, 20_000))) throw e;
+      if (!down || r.method === "GET" || attempt >= 2 || !(await waitUp(link, 20_000))) throw e;
     }
   }
 }
@@ -127,24 +150,32 @@ async function target(c: Context, path: string): Promise<string | undefined> {
     return on && links.has(on) ? on : undefined;
   }
   if (config.role !== "hub") return;
+  const body = async () => (c.req.method === "GET" ? {} : ((await c.req.raw.clone().json().catch(() => ({}))) as Record<string, string | undefined>));
   // a terminal or Claude in a folder of a node opens on that node; one given a machine, or resuming a session,
   // is placed by its own route
   if ((path === "/claude/launch" || path === "/code/terms") && c.req.method === "POST") {
-    const b = (await c.req.raw.clone().json().catch(() => ({}))) as { cwd?: string; node?: string; resume?: string };
+    const b = await body();
     return b.node || b.resume || !b.cwd ? undefined : await findOwner(b.cwd);
   }
-  // work on the repo that isn't in a folder yet (the lead, PR reviews) goes where the automations run while that
-  // machine is connected, and stays here when it isn't
-  if (/^\/(reviews|claude\/lead)(\/|$)/.test(path)) return workNode();
+  // a Board card says which machine it came from; a worktree's own work goes to the machine it's on
+  if (path === "/board/archive") {
+    const b = await body();
+    return b.node || (await findOwner(b.id ?? ""));
+  }
+  if (/^\/(autopilot|verify|preview|ci\/compare|stacked|runs\/options)(\/|$)/.test(path)) return await findOwner(await worktreeOf(c));
+  // the lead starts in the repo: where the automations run while that machine is connected, else here
+  if (/^\/claude\/lead(\/|$)/.test(path)) return workNode();
   const auto = automationsNode();
   if (!auto) return;
-  // the hooks and `cockpit run` of this machine record its own runs
+  // what belongs to the machine the automations run on: its tasks, reviews, usage, tickets and budgets, and its
+  // Claude set up (memory, settings, workflows) and Runs hook, since that's where Claude runs
+  if (/^\/(tasks|budgets|reviews|usage|weekly|tickets)(\/|$)/.test(path)) return auto;
+  if (/^\/claude\/(files|file|backups|memories|doctor|workflows)(\/|$)/.test(path)) return auto;
+  if (path === "/runs/hook") return auto;
+  // the hook's events and `cockpit run` of this machine record its own runs
   if (path.startsWith("/runs/hook") || (path === "/runs" && c.req.method === "POST")) return;
-  if (path.startsWith("/tasks") || path.startsWith("/budgets")) return auto;
-  if (path.startsWith("/runs/options")) return await findOwner(await worktreeOf(c));
   const run = path.match(/^\/runs\/([^/]+)/)?.[1];
   if (run) return getRun(run) ? undefined : auto;
-  if (/^\/(autopilot|verify|preview|ci\/compare|stacked|board\/archive)/.test(path)) return await findOwner(await worktreeOf(c));
 }
 
 export async function forward(c: Context, next: Next) {
@@ -171,7 +202,7 @@ export async function forward(c: Context, next: Next) {
 // GET /runs here is this machine's runs and the automations node's, newest first
 export async function runsEverywhere<T extends { startedAt: number }>(mine: T[], search: string, limit: number) {
   const node = config.role === "hub" ? automationsNode() : undefined;
-  if (!node) return mine;
+  if (!node || links.get(node)?.status.state !== "up") return mine;
   const theirs = await requestApi(node, { method: "GET", path: `/runs${search}`, headers: {} })
     .then((r) => (r.status === 200 ? (JSON.parse(r.body) as T[]).map((x) => ({ ...x, node })) : []))
     .catch(() => [] as T[]);
@@ -180,6 +211,12 @@ export async function runsEverywhere<T extends { startedAt: number }>(mine: T[],
 
 // every node's board, each card tagged; a node that's down shows nothing rather than stale cards
 export function startRemoteBoards() {
+  // PR reviews are kept where the automations run, so their states for the badge come from there
+  useRemoteReviews(() => {
+    const node = automationsNode();
+    return node ? links.get(node)!.request<Awaited<ReturnType<typeof reviewStates>>>("reviews.states", undefined, 30_000) : undefined;
+  });
+  useRemoteRuns(() => [...nodeRuns.values()].flatMap((m) => [...m.values()]));
   useRemoteBoards(async (offline) => {
     const up = [...links].filter(([, l]) => l.status.state === "up");
     const boards = await Promise.all(

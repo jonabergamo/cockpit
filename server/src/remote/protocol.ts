@@ -4,7 +4,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 // both ends must speak the same major version; a mismatch is refused with a clear message instead of misbehaving
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 
 export interface Wire {
   send(data: string): void;
@@ -15,8 +15,9 @@ export interface Wire {
 
 export type Frame =
   | { t: "hello"; node: string; name: string; nonce: string; protocol: number; version: string }
-  | { t: "auth"; hub: string; mac: string; protocol: number }
-  | { t: "welcome"; node: string; info: NodeInfo }
+  // nonce is the hub's own challenge, which the node answers in its welcome: each side proves it has the key
+  | { t: "auth"; hub: string; mac: string; protocol: number; nonce: string }
+  | { t: "welcome"; node: string; info: NodeInfo; mac: string }
   | { t: "refuse"; why: string }
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }

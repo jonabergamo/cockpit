@@ -22,3 +22,13 @@ describe("cached", () => {
     expect(await cached("t:force:b", 60_000, async () => "b2")).toBe("b1");
   });
 });
+
+describe("cached, with nothing to keep", () => {
+  it("returns undefined without failing, and asks again next time", async () => {
+    let calls = 0;
+    const fn = async () => (calls++, undefined);
+    expect(await cached("t:nothing", 60_000, fn)).toBeUndefined();
+    expect(await cached("t:nothing", 60_000, fn)).toBeUndefined();
+    expect(calls).toBe(2);
+  });
+});

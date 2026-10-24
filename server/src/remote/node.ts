@@ -6,13 +6,14 @@
 import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { askOf, sendKeys, sendText } from "../agents.ts";
 import { entriesSince, tailEntries } from "../claude/entries.ts";
 import { searchSessions } from "../claude/search.ts";
-import { listSubagents, localSessions, type ListOpts } from "../claude/sessions.ts";
+import { getSession, listSubagents, localSessions, type ListOpts } from "../claude/sessions.ts";
 import { localBoard } from "../board.ts";
+import { reviewStates } from "../reviews.ts";
 import { cleanupPlan } from "../cleaner.ts";
 import { config, paths } from "../config.ts";
 import { allowedRoot, forgetFolder, fsCall, listDirs, roots, saveFolder, savePaste, termChanges } from "../files.ts";
@@ -25,14 +26,14 @@ import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, resize
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
-import { hasGpu } from "../placement/where.ts";
+import { gpuProbed, hasGpu } from "../placement/where.ts";
 import { headlessHere, type Headless } from "../placement/headless.ts";
-import { callExposed, listPlugins } from "../plugins.ts";
+import { callExposed, listPlugins, pluginFile } from "../plugins.ts";
 import { onPluginBadges, pluginBadges } from "../badges.ts";
 import { fileOf, receiveFile } from "./plugincalls.ts";
-import { ack, onEnqueue, since } from "./outbox.ts";
+import { ack, head as outboxHead, onEnqueue, since } from "./outbox.ts";
 import { adopt, type Synced } from "./sync.ts";
-import { Channel, keyOf, macOk, newNonce, PROTOCOL, type Frame, type NodeInfo, type Wire } from "./protocol.ts";
+import { Channel, keyOf, macOf, macOk, newNonce, PROTOCOL, type Frame, type NodeInfo, type Wire } from "./protocol.ts";
 
 export interface Pairing {
   id: string;
@@ -111,7 +112,8 @@ export function accept(wire: Wire, opts: { remote?: string; onChannel: (c: Chann
     const paired = pairing().hubs.find((h) => h.hub === f.hub);
     if (!paired || !macOk(paired.key, nonce, f.hub, f.mac)) return refuse("this node isn't paired with that hub, or the token is wrong; pair it again", 4001);
     done = true;
-    wire.send(JSON.stringify({ t: "welcome", node: me.id, info: nodeInfo() } satisfies Frame));
+    // the hub's challenge, answered with the same key, so it knows this is the node it paired with
+    wire.send(JSON.stringify({ t: "welcome", node: me.id, info: nodeInfo(), mac: macOf(paired.key, String(f.nonce ?? ""), me.id) } satisfies Frame));
     opts.onChannel(new Channel(wire, { heartbeatMs: opts.heartbeatMs, deadMs: opts.deadMs }), f.hub);
   });
   wire.send(JSON.stringify({ t: "hello", node: me.id, name: me.name, nonce, protocol: PROTOCOL, version: VERSION } satisfies Frame));
@@ -148,6 +150,7 @@ export function serve(c: Channel) {
   c.on("pty.unsub", ({ id }: { id: string }) => (subs.get(id)?.(), subs.delete(id)));
   // its Claude sessions: the list, a transcript's end and what came after, subagents, and typing into one
   c.handle("sessions.list", (o: ListOpts) => localSessions(o));
+  c.handle("session.get", ({ id }: { id: string }) => getSession(id) ?? null);
   c.handle("session.entries", ({ id, agent, bytes }: { id: string; agent?: string; bytes?: number }) => tailEntries(id, agent, bytes).then((r) => r ?? null));
   c.handle("session.read", ({ id, agent, offset }: { id: string; agent?: string; offset: number }) => entriesSince(id, agent, offset).then((r) => r ?? null));
   c.handle("session.agents", ({ id }: { id: string }) => listSubagents(id));
@@ -181,13 +184,20 @@ export function serve(c: Channel) {
   // what it has to tell the hub, kept until the hub says it has it
   c.handle("outbox.since", ({ seq }: { seq: number }) => since(seq));
   c.handle("outbox.ack", ({ seq }: { seq: number }) => ack(seq));
+  c.handle("outbox.head", () => outboxHead());
   const offOutbox = onEnqueue(() => c.emit("outbox"));
   // the hub's settings, which it keeps using while the hub is away
   c.handle("settings.sync", (s: Synced) => adopt(s));
   // its automations' screens, answered by its own API, and its board
   c.handle("api", (r: ApiReq) => handleApi(r));
   c.handle("board", ({ offline }: { offline?: boolean }) => localBoard({ offline }));
+  c.handle("reviews.states", () => reviewStates());
   // its plugins' screens and badges, for the ones the hub has put here
+  // a file of a plugin's screens, for a hub that shows a plugin running here
+  c.handle("plugin.asset", ({ id, rel }: { id: string; rel: string }) => {
+    const file = pluginFile(id, rel);
+    return file ? { ext: extname(file), data: readFileSync(file).toString("base64") } : null;
+  });
   c.handle("plugins.info", () => listPlugins().plugins.map((p) => ({ id: p.manifest.id, screens: p.screens, badges: pluginBadges(p.manifest.id) })));
   const offBadges = onPluginBadges((plugin) => c.emit("plugin.badges", { plugin, badges: pluginBadges(plugin) }));
   // the live ones as they change, which is what the hub's lists and badges follow
@@ -222,6 +232,8 @@ async function addresses(listen: string) {
 }
 
 export async function startNodeServer() {
+  // a hub is told about the GPU when it connects, so the answer is in before any hub is
+  await gpuProbed;
   const listen = config.node.listen;
   const wss = new WebSocketServer({ noServer: true });
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
