@@ -97,6 +97,7 @@ describe("running a flow", () => {
     const again = await settle(failed.id);
     expect(again.status).toBe("failed");
     expect(again.steps[0].sessionId).not.toBe(first);
+    expect(agentRow(first!)!.status).toBe("ended");
     expect(again.steps).toHaveLength(2);
     const waiting = await settle(insert({ id: "f", name: "F", steps: [{ id: "a", agent: "fake" }, { id: "you", kind: "human" }] }));
     expect(waiting.status).toBe("waiting");

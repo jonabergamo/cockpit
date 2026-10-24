@@ -20,8 +20,9 @@ import { templateFor } from "./templates.ts";
 import { run as exec, slugify } from "./util.ts";
 import { runVerify } from "./verify.ts";
 import { agentOff } from "./workers/index.ts";
-import { agentRow, sendAgent, startAgent, stopAgent } from "./workers/runner.ts";
+import { agentRow, closeAgent, sendAgent, startAgent, stopAgent } from "./workers/runner.ts";
 import { createWorktree } from "./worktrees.ts";
+import { allowedRoot } from "./files.ts";
 
 interface Row {
   id: string;
@@ -189,7 +190,7 @@ async function start(run: FlowRun, s: FlowStep, rs: FlowRunStep) {
     rs.sessionId = before.sessionId;
     return;
   }
-  rs.sessionId = startAgent({ agent: agentOf(s), cwd: run.worktree!, prompt, model: s.model, access: s.access ?? (kind === "tasks" ? "readonly" : "sandbox"), title: `${run.title} · ${s.name ?? s.id}` });
+  rs.sessionId = startAgent({ agent: agentOf(s), cwd: run.worktree!, prompt, model: s.model, access: s.access ?? (kind === "tasks" ? "readonly" : "sandbox"), title: `${run.title} · ${s.name ?? s.id}`, parent: `flow:${run.id}` });
 }
 
 function finish(run: FlowRun, s: FlowStep, rs: FlowRunStep, r: { status: FlowRunStep["status"]; output?: string; verdict?: FlowRunStep["verdict"] }) {
@@ -291,6 +292,9 @@ export interface NewFlowRun {
   ticket?: string;
   // where to start instead of the base branch: an open PR (link or number) to build on, or a branch on origin
   from?: string;
+  // a worktree (or the repo's own checkout) to run in as it is, instead of making a new one: the flow is more work
+  // on what's already there, like an epic's worktree
+  worktree?: string;
 }
 
 export async function startFlow(input: NewFlowRun) {
@@ -305,11 +309,27 @@ export async function startFlow(input: NewFlowRun) {
   const ticket = input.ticket ? (await statusesOf([input.ticket]).catch(() => []))[0] : undefined;
   if (!prompt && input.ticket) prompt = `Work on ${ticket?.url ?? input.ticket}${ticket?.summary ? ` (${ticket.summary})` : ""}. Read the ticket first.`;
   if (!prompt) throw Object.assign(new Error("Say what to do, or pick a ticket"), { status: 400 });
+  // a folder inside a worktree means the worktree
+  const here = input.worktree?.trim() ? (await exec("git", ["-C", input.worktree.trim(), "rev-parse", "--show-toplevel"]).catch(() => input.worktree!)).trim() : undefined;
+  if (here) {
+    const ok = existsSync(here) && (here === config.repo.path || (await allowedRoot(here)));
+    if (!ok) throw Object.assign(new Error(`${here} isn't a worktree cockpit knows`), { status: 400 });
+    if (inFlow(here)) throw Object.assign(new Error("Another flow is running in that worktree; wait for it or stop it first"), { status: 409 });
+  }
   // checked now, so a closed PR or a branch that isn't there is said straight away
-  const { onPr, base } = await startPoint(input.from?.trim() ?? "");
+  const { onPr, base } = here ? {} : await startPoint(input.from?.trim() ?? "");
   const id = randomUUID().slice(0, 8);
   const run: FlowRun = { id, flow, title, prompt, ticket: input.ticket, status: "starting", steps: flow.steps.map((s) => ({ step: s.id, round: 0, status: "pending" })), createdAt: Date.now() };
   db.prepare("insert into flow_runs (id, flow, title, prompt, ticket, on_pr, base, status, steps, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, JSON.stringify(flow), title, prompt, input.ticket ?? null, onPr ?? null, base ?? null, run.status, JSON.stringify(run.steps), run.createdAt);
+  if (here) {
+    // its branch stays as it is, and so does where its PR goes
+    const branch = (await exec("git", ["-C", here, "rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim() || undefined;
+    db.prepare("update flow_runs set note = ? where id = ?").run(`\n\nStay on the branch that's checked out${branch ? ` (\`${branch}\`)` : ""}: don't switch branches or rewrite what's already committed. Other work may be going on in this folder, so keep to the files this needs.`, id);
+    Object.assign(run, { status: "running", worktree: here, branch });
+    save(run);
+    void advance(id);
+    return getFlowRun(id)!;
+  }
   const key = input.ticket ? `${input.ticket}-flow-${id.slice(0, 4)}` : `flow-${id}`;
   createWorktree(key, slugify(title) || "flow", {
     ticket: input.ticket ?? "",
@@ -362,6 +382,8 @@ export async function retryFlow(id: string) {
   for (const s of run.flow.steps) {
     const rs = current(run, s.id);
     if (rs?.status !== "failed") continue;
+    // its session is done with; the step starts over in a new one
+    if (rs.sessionId) closeAgent(rs.sessionId);
     for (const k of ["sessionId", "jobId", "tasks", "output", "verdict", "startedAt", "finishedAt"] as const) delete rs[k];
     rs.status = "pending";
   }

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Flow, FlowRun, FlowRunStatus, FlowRunStep, FlowStep, FlowStepStatus } from "@cockpit/shared";
 import { Button, Empty, ErrorNote, inputClass, Loading, Markdown, Modal, PageHeader, Panel, Tag } from "../components/ui";
@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import { useSaveSettings, useSettings } from "../lib/cost";
 import { ago, shortPath } from "../lib/format";
 import { useLive } from "../lib/live";
+import { runFlow } from "../components/RunFlow";
 import { useAgents } from "../lib/queries";
 
 type Tone = "plain" | "cobalt" | "green" | "red" | "amber" | "faint";
@@ -116,77 +117,19 @@ function EditFlow({ flow, onClose }: { flow?: Flow; onClose: () => void }) {
   );
 }
 
-function StartRun({ flow, onClose }: { flow: Flow; onClose: () => void }) {
-  const navigate = useNavigate();
-  const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [ticket, setTicket] = useState("");
-  const [from, setFrom] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<unknown>();
-  const go = async () => {
-    setBusy(true);
-    try {
-      const r = await api.post<FlowRun>("/flows/runs", { flow: flow.id, title, prompt, ticket: ticket.trim() || undefined, from: from.trim() || undefined });
-      navigate({ to: "/flows/$id", params: { id: r.id } });
-    } catch (e) {
-      setErr(e);
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal open onClose={onClose} title={`Run ${flow.name}`} wide>
-      <form
-        className="space-y-3 text-[13px]"
-        onSubmit={(e) => {
-          e.preventDefault();
-          go();
-        }}
-      >
-        <p className="text-muted">Cockpit makes a worktree for it and runs the steps there, one agent after another.</p>
-        <label className="block space-y-1">
-          <span className="text-muted">Title</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className={`${inputClass} w-full`} autoFocus />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-muted">What to do {ticket && <span className="text-faint">(empty uses the ticket)</span>}</span>
-          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder="Describe the outcome you want, and how to check it's done." className={`${inputClass} w-full h-auto py-2`} />
-        </label>
-        <div className="flex flex-wrap gap-3">
-          <label className="space-y-1">
-            <span className="block text-muted">Ticket (optional)</span>
-            <input value={ticket} onChange={(e) => setTicket(e.target.value)} placeholder="ABC-123" className={`${inputClass} w-40 font-mono`} />
-          </label>
-          <label className="space-y-1 flex-1 min-w-[220px]">
-            <span className="block text-muted">Start from (optional)</span>
-            <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="The base branch, or a PR to build on, or another branch" className={`${inputClass} w-full`} />
-          </label>
-        </div>
-        <ErrorNote error={err} />
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={busy || !title.trim() || (!prompt.trim() && !ticket.trim())}>
-            {busy ? "Starting" : "Start"}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
 export function FlowsPage() {
   const flows = useFlows();
   const runs = useRuns();
   const agents = useAgents();
   const names = new Map((agents.data ?? []).map((a) => [a.id, a.name]));
   const [editing, setEditing] = useState<Flow | "new" | null>(null);
-  const [starting, setStarting] = useState<Flow | null>(null);
   return (
     <div className="max-w-[1100px] space-y-5">
       <PageHeader title="Flows" sub="Recipes that pass one piece of work between coding agents in one worktree: plan, build, check, review, and back again until it passes.">
         <Button onClick={() => setEditing("new")}>New flow</Button>
+        <Button variant="primary" onClick={() => runFlow.open()}>
+          Run a flow
+        </Button>
       </PageHeader>
       <Panel title="Runs" bodyClass="divide-y divide-line">
         {runs.isLoading && <Loading />}
@@ -211,10 +154,9 @@ export function FlowsPage() {
       <div className="space-y-2">
         <h2 className="font-semibold">Recipes</h2>
         <ErrorNote error={flows.error} />
-        {flows.data?.map((f) => <Recipe key={f.id} f={f} names={names} onEdit={() => setEditing(f)} onRun={() => setStarting(f)} />)}
+        {flows.data?.map((f) => <Recipe key={f.id} f={f} names={names} onEdit={() => setEditing(f)} onRun={() => runFlow.open({ flow: f.id })} />)}
       </div>
       {editing && <EditFlow flow={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />}
-      {starting && <StartRun flow={starting} onClose={() => setStarting(null)} />}
     </div>
   );
 }

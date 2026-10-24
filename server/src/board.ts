@@ -12,7 +12,9 @@ import { stackRows } from "./stacked.ts";
 import { stuckReason } from "./stuck.ts";
 import { listTasks } from "./tasks.ts";
 import { listWorktrees } from "./worktrees.ts";
+import { agentProvider } from "./workers/index.ts";
 
+const agentName = (id?: string) => (id ? (agentProvider(id)?.name ?? id) : "An agent");
 const inside = (root: string, cwd?: string) => !!cwd && (cwd === root || cwd.startsWith(root + "/"));
 const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
@@ -112,8 +114,11 @@ export async function localBoard(opts: { offline?: boolean } = {}): Promise<Boar
     opts.offline ? (knownPrs() ?? []) : myPrs().catch(() => [] as PullRequest[]),
     opts.offline ? [] : myTickets().catch(() => []),
   ]);
-  // a node's sessions are on its own board, which comes in below
-  const sessions = listSessions({ limit: 800 }).filter((s) => !s.node);
+  // a node's sessions are on its own board, which comes in below; agents working in the background for a flow
+  // or a session show on the card of the folder they work in, not as cards of their own
+  const all = listSessions({ limit: 800 }).filter((s) => !s.node);
+  const sessions = all.filter((s) => !s.parent);
+  const helpers = all.filter((s) => s.parent && s.status !== "ended" && Date.now() - s.updatedAt < 6 * 3600_000);
   const titleOf = new Map(tickets.map((t) => [t.key, t.summary]));
   const verify = verifyRows();
   const autopilot = autopilotRows();
@@ -142,7 +147,11 @@ export async function localBoard(opts: { offline?: boolean } = {}): Promise<Boar
     const live = session && session.status !== "ended" ? session : undefined;
     const stuck = live ? stuckReason(live) : undefined;
     const st = stacks.get(wt.path);
-    const placed = columnOf({ session: live, pr, verify: v, autopilot: a && { on: !!a.enabled, gaveUp: !!a.gave_up }, task, stuck, stacked: st });
+    const mine = helpers.filter((h) => inside(wt.path, h.cwd));
+    let placed = columnOf({ session: live, pr, verify: v, autopilot: a && { on: !!a.enabled, gaveUp: !!a.gave_up }, task, stuck, stacked: st });
+    const working = mine.filter((h) => h.status === "busy");
+    // nothing else needs you and something works in the background: it's working
+    if (working.length && !["needs", "working"].includes(placed.column)) placed = { column: "working", reason: working.length > 1 ? `${working.length} agents working in the background` : `${agentName(working[0].agent)} is working in the background` };
     const updatedAt = Math.max(session?.updatedAt ?? 0, pr ? Date.parse(pr.mergedAt ?? pr.createdAt) : 0, v?.at ?? 0, task?.createdAt ?? 0);
     // old worktrees nobody touched lately stay off the board unless you ask for them
     if (placed.column === "quiet" && updatedAt < recent) continue;
@@ -162,6 +171,7 @@ export async function localBoard(opts: { offline?: boolean } = {}): Promise<Boar
       verify: v && { state: v.state as "running" | "pass" | "fail", at: v.at, summary: v.summary ?? undefined, jobId: v.job_id ?? undefined },
       autopilot: a && { on: !!a.enabled, attempts: a.attempts, gaveUp: !!a.gave_up, note: a.note ?? undefined },
       task: taskOf(task),
+      helpers: mine.length ? mine.map((h) => ({ id: h.id, agent: h.agent ?? "agent", title: h.title, status: h.status, flow: h.parent?.startsWith("flow:") ? h.parent.slice(5) : undefined })) : undefined,
       stuck,
       stacked: st && { pr: st.pr, url: st.url, title: st.title ?? undefined, author: st.author ?? undefined, branch: st.branch, target: st.target ?? undefined, state: st.state, note: st.note ?? undefined },
       spend: spendOf(wt.ticket),
@@ -175,7 +185,9 @@ export async function localBoard(opts: { offline?: boolean } = {}): Promise<Boar
     if (s.status === "ended" || inWorktree(s.cwd)) continue;
     if (tasks.some((t) => t.sessionId === s.id && t.worktree)) continue;
     const stuck = stuckReason(s);
-    const placed = columnOf({ session: s, stuck });
+    const mine = helpers.filter((h) => h.parent === `session:${s.id}`);
+    let placed = columnOf({ session: s, stuck });
+    if (mine.some((h) => h.status === "busy") && placed.column === "quiet") placed = { column: "working", reason: "Agents are working in the background" };
     cards.push({
       id: `s:${s.id}`,
       kind: "session",
@@ -186,6 +198,7 @@ export async function localBoard(opts: { offline?: boolean } = {}): Promise<Boar
       branch: s.branch,
       ...placed,
       session: sessionOf(s),
+      helpers: mine.length ? mine.map((h) => ({ id: h.id, agent: h.agent ?? "agent", title: h.title, status: h.status })) : undefined,
       stuck,
       spend: spendOf(s.ticket),
       updatedAt: s.updatedAt,

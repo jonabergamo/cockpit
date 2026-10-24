@@ -73,7 +73,7 @@ describe("fromHook", () => {
     expect(fromHook({ ...base, hook_event_name: "PostToolUse", tool_input: { command: "pnpm test", run_in_background: true }, tool_response: { stdout: "" } })).toBeUndefined();
   });
   it("records the same tool call once", () => {
-    const p = { ...base, tool_use_id: `toolu_${Date.now()}`, hook_event_name: "PostToolUse", tool_input: { command: "pnpm test --run once" }, tool_response: { stdout: "ok" } };
+    const p = { ...base, tool_use_id: `toolu_${Date.now()}`, hook_event_name: "PostToolUse", tool_input: { command: `pnpm vitest run once-${Date.now()}` }, tool_response: { stdout: "ok" } };
     expect(recordHook(p)?.status).toBe("pass");
     expect(recordHook(p)).toBeUndefined();
   });

@@ -8,7 +8,8 @@ import type { AgentAccess, AgentEvent, Entry } from "@cockpit/shared";
 import { getSession } from "../claude/sessions.ts";
 import { paths } from "../config.ts";
 import { db } from "../db.ts";
-import { emit } from "../events.ts";
+import { emit, onEvent } from "../events.ts";
+import { sendText } from "../agents.ts";
 import { notify } from "../notify.ts";
 import { spawnLines } from "../util.ts";
 import { agentBin, agentOff, agentProvider } from "./index.ts";
@@ -27,6 +28,8 @@ export interface AgentRow {
   tokens_out: number;
   cost: number | null;
   error: string | null;
+  // what it works for in the background, see Session.parent
+  parent: string | null;
   started_at: number;
   updated_at: number;
 }
@@ -74,6 +77,7 @@ export interface NewAgentSession {
   model?: string;
   title?: string;
   access?: AgentAccess;
+  parent?: string;
 }
 
 export function startAgent(o: NewAgentSession) {
@@ -85,8 +89,8 @@ export function startAgent(o: NewAgentSession) {
   const id = randomUUID();
   const now = Date.now();
   db.prepare(
-    "insert into agent_sessions (id, agent, model, cwd, access, title, status, file, started_at, updated_at) values (?, ?, ?, ?, ?, ?, 'busy', ?, ?, ?)",
-  ).run(id, p.id, o.model || null, o.cwd, o.access ?? "sandbox", o.title ?? o.prompt.split("\n")[0].slice(0, 80), join(dir, `${id}.jsonl`), now, now);
+    "insert into agent_sessions (id, agent, model, cwd, access, title, status, file, parent, started_at, updated_at) values (?, ?, ?, ?, ?, ?, 'busy', ?, ?, ?, ?)",
+  ).run(id, p.id, o.model || null, o.cwd, o.access ?? "sandbox", o.title ?? o.prompt.split("\n")[0].slice(0, 80), join(dir, `${id}.jsonl`), o.parent ?? null, now, now);
   emit("session.started", getSession(id));
   turn(id, o.prompt);
   return id;
@@ -201,10 +205,37 @@ function finished(id: string, r: { ok?: boolean; last?: string; error?: string }
   update(id, { status: "idle", error: r.ok ? null : r.error ?? null });
   const name = agentProvider(row.agent)?.name ?? row.agent;
   emit("session.idle", getSession(id));
+  // work done for a flow is said by the flow; work a Claude session handed out goes back to that session
+  if (row.parent?.startsWith("session:")) return report(row.parent.slice(8), row, r);
+  if (row.parent) return;
   notify({ title: r.ok === false || r.error ? `${name} stopped with an error` : `${name} finished`, body: r.error ?? r.last?.slice(0, 200) ?? row.title ?? row.cwd, link: `/sessions/${id}`, kind: "session" });
+}
+
+// What an agent working for a Claude session found, typed into that session once it's free, the way Claude Code
+// says one of its own background agents finished. Held while the session is busy or waiting on you.
+const reports = new Map<string, string[]>();
+function report(session: string, row: AgentRow, r: { ok?: boolean; last?: string; error?: string }) {
+  const name = agentProvider(row.agent)?.name ?? row.agent;
+  const said = r.error ? `stopped with an error: ${r.error}` : `finished:\n\n${(r.last ?? "(it said nothing)").slice(0, 3000)}`;
+  reports.set(session, [...(reports.get(session) ?? []), `[${name}, working in the background on "${row.title ?? "your request"}" (agent session ${row.id}), ${said}]`]);
+  void deliver(session);
+}
+
+async function deliver(session: string) {
+  const waiting = reports.get(session);
+  if (!waiting?.length || getSession(session)?.status !== "idle") return;
+  reports.delete(session);
+  if (!(await sendText(session, waiting.join("\n\n")))) reports.set(session, waiting);
 }
 
 // turns cut off by a restart: their sessions are left idle, ready for the next prompt
 export function startAgentRunner() {
   db.prepare("update agent_sessions set status = 'idle', error = 'cockpit restarted during this turn' where status = 'busy'").run();
+  // a session that was busy when its agent finished hears about it when its turn ends
+  onEvent((event, data) => {
+    if (event === "session.idle") void deliver((data as { id: string }).id);
+  });
 }
+
+// the agents working for a session or a flow
+export const helpersOf = (parent: string) => db.prepare<[string], AgentRow>("select * from agent_sessions where parent = ? order by started_at").all(parent);

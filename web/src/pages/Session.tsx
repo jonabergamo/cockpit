@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useRouter, useSearch } from "@tanstack/re
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Entry, Session, Subagent } from "@cockpit/shared";
 import { ReplyPanel } from "../components/ReplyPanel";
+import { runFlow } from "../components/RunFlow";
 import { Timeline } from "../components/Timeline";
 import { Scrubber } from "../components/Scrubber";
 import { Button, copy, ErrorNote, Loading, Tag } from "../components/ui";
@@ -183,6 +184,9 @@ export function SessionPage() {
                   <Button>Open code</Button>
                 </Link>
               )}
+              <Button variant="ghost" onClick={() => runFlow.open({ worktree: s.worktree ?? s.cwd })} title="Run one of your flows in this folder, on its branch, in the background">
+                Run a flow here
+              </Button>
               <Button variant="ghost" onClick={() => copy(`claude --resume ${id}`)}>
                 Copy resume command
               </Button>
@@ -238,8 +242,9 @@ export function SessionPage() {
                 <li key={a.id}>
                   <Link
                     to="/sessions/$id"
-                    params={{ id }}
-                    search={{ agent: a.id }}
+                    // another coding agent it handed work to has a session of its own
+                    params={{ id: a.session ?? id }}
+                    search={{ agent: a.session ? undefined : a.id }}
                     className={`block px-3 py-1.5 hover:bg-ground ${agent === a.id ? "bg-cobalt-soft" : ""}`}
                   >
                     <div className="flex items-center gap-1.5">
