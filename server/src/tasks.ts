@@ -219,30 +219,12 @@ function start(t: Task) {
         }
         void (async () => {
           let prompt = t.prompt + (t.overnight ? NIGHT_NOTE : "");
-          if (!t.onPr) {
-            const target = t.base ?? config.repo.baseBranch;
-            if (t.base) {
-              const git = (...a: string[]) => run("git", ["-C", path, ...a]);
-              try {
-                await git("fetch", "origin", t.base);
-                await git("reset", "--hard", `origin/${t.base}`);
-              } catch (e) {
-                updateTask(t.id, { status: "failed", finishedAt: Date.now(), worktree: path, branch, error: `Couldn't start it on ${t.base}: ${(e as Error).message}` });
-                boardChanged();
-                return;
-              }
-            }
-            prompt += `\n\nThis branch starts from \`${target}\`. When you open the PR, target it: \`--base ${target}\`.`;
-          }
-          if (t.onPr) {
-            try {
-              const s = await stackOnto(path, t.onPr);
-              prompt += stackedNote({ n: s.ref.n, title: s.info.title, author: s.info.author, branch: s.info.headRefName! });
-            } catch (e) {
-              updateTask(t.id, { status: "failed", finishedAt: Date.now(), worktree: path, branch, error: `Couldn't start it on ${t.onPr}: ${(e as Error).message}` });
-              boardChanged();
-              return;
-            }
+          try {
+            prompt += await placeAt(path, t);
+          } catch (e) {
+            updateTask(t.id, { status: "failed", finishedAt: Date.now(), worktree: path, branch, error: (e as Error).message });
+            boardChanged();
+            return;
           }
           const title = `${t.title}${t.attempt > 1 ? ` (${t.attempt})` : ""}`;
           if (t.agent) {
@@ -272,6 +254,30 @@ function start(t: Task) {
   }
   updateTask(t.id, { jobId: job.id });
   boardChanged();
+}
+
+// Puts a new worktree where its work starts: on a PR it builds on, another branch, or the base branch it was made
+// from. What comes back is what the agent is told about it, its PR's target above all.
+export async function placeAt(path: string, at: { onPr?: string; base?: string }) {
+  if (at.onPr) {
+    try {
+      const s = await stackOnto(path, at.onPr);
+      return stackedNote({ n: s.ref.n, title: s.info.title, author: s.info.author, branch: s.info.headRefName! });
+    } catch (e) {
+      throw new Error(`Couldn't start it on ${at.onPr}: ${(e as Error).message}`);
+    }
+  }
+  if (at.base) {
+    const git = (...a: string[]) => run("git", ["-C", path, ...a]);
+    try {
+      await git("fetch", "origin", at.base);
+      await git("reset", "--hard", `origin/${at.base}`);
+    } catch (e) {
+      throw new Error(`Couldn't start it on ${at.base}: ${(e as Error).message}`);
+    }
+  }
+  const target = at.base ?? config.repo.baseBranch;
+  return `\n\nThis branch starts from \`${target}\`. When you open the PR, target it: \`--base ${target}\`.`;
 }
 
 // a session counts as having done something once its worktree differs from where it started

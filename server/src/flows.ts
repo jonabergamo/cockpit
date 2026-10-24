@@ -15,7 +15,7 @@ import { onEvent } from "./events.ts";
 import { notify } from "./notify.ts";
 import { statusesOf } from "./providers.ts";
 import { getSettings } from "./settings.ts";
-import { baseOf, createTasks, groupTasks } from "./tasks.ts";
+import { baseOf, createTasks, groupTasks, placeAt, startPoint } from "./tasks.ts";
 import { templateFor } from "./templates.ts";
 import { run as exec, slugify } from "./util.ts";
 import { runVerify } from "./verify.ts";
@@ -31,6 +31,10 @@ interface Row {
   ticket: string | null;
   worktree: string | null;
   branch: string | null;
+  on_pr: string | null;
+  base: string | null;
+  // what the agents are told about where the branch starts and where its PR goes
+  note: string | null;
   status: FlowRun["status"];
   steps: string;
   created_at: number;
@@ -46,6 +50,8 @@ const toRun = (r: Row): FlowRun => ({
   ticket: r.ticket ?? undefined,
   worktree: r.worktree ?? undefined,
   branch: r.branch ?? undefined,
+  onPr: r.on_pr ?? undefined,
+  base: r.base ?? undefined,
   status: r.status,
   steps: JSON.parse(r.steps),
   createdAt: r.created_at,
@@ -153,7 +159,7 @@ async function promptFor(run: FlowRun, s: FlowStep, round: number) {
   text = text.replace(/\{\{\s*(prompt|title|ticket|base|diff)\s*\}\}/g, (_, k: string) => vars[k] ?? "");
   if (s.kind === "tasks") return text + TASKS_NOTE;
   if (s.output === "verdict") text += VERDICT_NOTE;
-  if (s.access !== "readonly") text += `\n\nYou're working in a worktree on its own branch, which starts from \`${config.repo.baseBranch}\`. Commit your work as you go. Only open a PR when this asks you to, and then target \`${config.repo.baseBranch}\`.`;
+  if (s.access !== "readonly") text += `\n\nYou're working in a worktree on its own branch. Commit your work as you go, and only open a PR when this asks you to.${noteOf(run.id)}`;
   return text;
 }
 
@@ -276,11 +282,15 @@ export async function advance(id: string) {
   }
 }
 
+const noteOf = (id: string) => db.prepare<[string], { note: string | null }>("select note from flow_runs where id = ?").get(id)?.note ?? "";
+
 export interface NewFlowRun {
   flow: string;
   title: string;
   prompt?: string;
   ticket?: string;
+  // where to start instead of the base branch: an open PR (link or number) to build on, or a branch on origin
+  from?: string;
 }
 
 export async function startFlow(input: NewFlowRun) {
@@ -295,9 +305,11 @@ export async function startFlow(input: NewFlowRun) {
   const ticket = input.ticket ? (await statusesOf([input.ticket]).catch(() => []))[0] : undefined;
   if (!prompt && input.ticket) prompt = `Work on ${ticket?.url ?? input.ticket}${ticket?.summary ? ` (${ticket.summary})` : ""}. Read the ticket first.`;
   if (!prompt) throw Object.assign(new Error("Say what to do, or pick a ticket"), { status: 400 });
+  // checked now, so a closed PR or a branch that isn't there is said straight away
+  const { onPr, base } = await startPoint(input.from?.trim() ?? "");
   const id = randomUUID().slice(0, 8);
   const run: FlowRun = { id, flow, title, prompt, ticket: input.ticket, status: "starting", steps: flow.steps.map((s) => ({ step: s.id, round: 0, status: "pending" })), createdAt: Date.now() };
-  db.prepare("insert into flow_runs (id, flow, title, prompt, ticket, status, steps, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)").run(id, JSON.stringify(flow), title, prompt, input.ticket ?? null, run.status, JSON.stringify(run.steps), run.createdAt);
+  db.prepare("insert into flow_runs (id, flow, title, prompt, ticket, on_pr, base, status, steps, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, JSON.stringify(flow), title, prompt, input.ticket ?? null, onPr ?? null, base ?? null, run.status, JSON.stringify(run.steps), run.createdAt);
   const key = input.ticket ? `${input.ticket}-flow-${id.slice(0, 4)}` : `flow-${id}`;
   createWorktree(key, slugify(title) || "flow", {
     ticket: input.ticket ?? "",
@@ -310,9 +322,18 @@ export async function startFlow(input: NewFlowRun) {
         r.finishedAt = Date.now();
         return save(r);
       }
-      Object.assign(r, { status: "running", worktree: path, branch });
-      save(r);
-      void advance(id);
+      void placeAt(path, { onPr, base }).then(
+        (note) => {
+          db.prepare("update flow_runs set note = ? where id = ?").run(note, id);
+          Object.assign(r, { status: "running", worktree: path, branch });
+          save(r);
+          void advance(id);
+        },
+        (e) => {
+          Object.assign(r, { status: "failed", worktree: path, branch, error: (e as Error).message, finishedAt: Date.now() });
+          save(r);
+        },
+      );
     },
   });
   boardChanged();

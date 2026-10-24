@@ -148,9 +148,15 @@ server.registerTool(
   "start_flow",
   {
     description: "Run a flow (see list_flows) on a piece of work: cockpit makes one worktree and runs the flow's steps there, each with its own agent. Returns the run; follow it with list_flows runs: true.",
-    inputSchema: { flow: z.string(), title: z.string().min(1), prompt: z.string().optional().describe("What to do and how to check it's done; empty uses the ticket"), ticket: z.string().optional() },
+    inputSchema: {
+      flow: z.string(),
+      title: z.string().min(1),
+      prompt: z.string().optional().describe("What to do and how to check it's done; empty uses the ticket"),
+      ticket: z.string().optional(),
+      from: z.string().optional().describe("Start on an open PR (link or number) to build on, or another branch; empty is the repo's base branch"),
+    },
   },
-  wrap((a: { flow: string; title: string; prompt?: string; ticket?: string }) => call("POST", "/flows/runs", a)),
+  wrap((a: { flow: string; title: string; prompt?: string; ticket?: string; from?: string }) => call("POST", "/flows/runs", a)),
 );
 
 server.registerTool("list_tasks", { description: "Every task cockpit has queued or run, newest first, with status, worktree, session and group.", inputSchema: {} }, wrap(() => call("GET", "/tasks")));

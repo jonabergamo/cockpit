@@ -63,6 +63,9 @@ export interface FlowRun {
   ticket?: string;
   worktree?: string;
   branch?: string;
+  // where its branch starts instead of the base branch: an open PR to build on, or another branch
+  onPr?: string;
+  base?: string;
   status: FlowRunStatus;
   steps: FlowRunStep[];
   createdAt: number;

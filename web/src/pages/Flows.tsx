@@ -121,12 +121,13 @@ function StartRun({ flow, onClose }: { flow: Flow; onClose: () => void }) {
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [ticket, setTicket] = useState("");
+  const [from, setFrom] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>();
   const go = async () => {
     setBusy(true);
     try {
-      const r = await api.post<FlowRun>("/flows/runs", { flow: flow.id, title, prompt, ticket: ticket.trim() || undefined });
+      const r = await api.post<FlowRun>("/flows/runs", { flow: flow.id, title, prompt, ticket: ticket.trim() || undefined, from: from.trim() || undefined });
       navigate({ to: "/flows/$id", params: { id: r.id } });
     } catch (e) {
       setErr(e);
@@ -151,10 +152,16 @@ function StartRun({ flow, onClose }: { flow: Flow; onClose: () => void }) {
           <span className="text-muted">What to do {ticket && <span className="text-faint">(empty uses the ticket)</span>}</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder="Describe the outcome you want, and how to check it's done." className={`${inputClass} w-full h-auto py-2`} />
         </label>
-        <label className="block space-y-1">
-          <span className="text-muted">Ticket (optional)</span>
-          <input value={ticket} onChange={(e) => setTicket(e.target.value)} placeholder="ABC-123" className={`${inputClass} w-40 font-mono`} />
-        </label>
+        <div className="flex flex-wrap gap-3">
+          <label className="space-y-1">
+            <span className="block text-muted">Ticket (optional)</span>
+            <input value={ticket} onChange={(e) => setTicket(e.target.value)} placeholder="ABC-123" className={`${inputClass} w-40 font-mono`} />
+          </label>
+          <label className="space-y-1 flex-1 min-w-[220px]">
+            <span className="block text-muted">Start from (optional)</span>
+            <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="The base branch, or a PR to build on, or another branch" className={`${inputClass} w-full`} />
+          </label>
+        </div>
         <ErrorNote error={err} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -303,6 +310,7 @@ export function FlowRunPage() {
             <span>{r.flow.name}</span>
             {r.ticket && <span className="font-mono text-[12px]">{r.ticket}</span>}
             {r.branch && <span className="font-mono text-[12px]">{r.branch}</span>}
+            {(r.onPr || r.base) && <span>on {r.onPr ?? r.base}</span>}
             <span>{ago(r.createdAt)}</span>
           </span>
         }

@@ -89,7 +89,7 @@ export function NewTaskModal() {
         qc.invalidateQueries({ queryKey: ["tickets"] });
       }
       if (flow) {
-        const run = await api.post<FlowRun>("/flows/runs", { flow, title, prompt, ticket: key || undefined });
+        const run = await api.post<FlowRun>("/flows/runs", { flow, title, prompt, ticket: key || undefined, from: onPr.trim() || undefined });
         newTask.close();
         setTitle("");
         setPrompt("");
@@ -151,7 +151,7 @@ export function NewTaskModal() {
           <span className="text-muted">What it should do {(ticket || draft) && <span className="text-faint">(empty uses the ticket)</span>}</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder="Describe the outcome you want, and how to check it's done." className={`${inputClass} w-full h-auto py-2`} />
         </label>
-        <label className={`block space-y-1 ${flow ? "hidden" : ""}`}>
+        <label className="block space-y-1">
           <span className="text-muted">
             Start from <span className="text-faint">(optional, its PR goes back there)</span>
           </span>
