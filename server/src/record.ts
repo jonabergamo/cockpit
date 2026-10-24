@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { config } from "./config.ts";
 import { onEvent } from "./events.ts";
+import { runVideoMaker } from "./plugins.ts";
 import { appendRun, filesDir, getRun } from "./runs.ts";
 import { slugify } from "./util.ts";
 
@@ -118,7 +119,9 @@ export async function startRecording(id: string, size = config.record.screen) {
   // turns it off too)
   const browser = spawn(
     terminalBrowser()!,
-    [`--app=http://127.0.0.1:${config.port}/api/runs/${id}/terminal`, "--kiosk", `--window-size=${TERM_W},${h}`, "--window-position=0,0", `--user-data-dir=${join(dir, "chromium")}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox", "--test-type", "--disable-infobars"],
+    [`--app=http://127.0.0.1:${config.port}/api/runs/${id}/terminal`, "--kiosk", `--window-size=${TERM_W},${h}`, "--window-position=0,0", `--user-data-dir=${join(dir, "chromium")}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox", "--test-type", "--disable-infobars",
+      // with no window manager it counts as hidden, and a hidden page's timers are slowed to once a second
+      "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows"],
     { stdio: "ignore", env: { ...process.env, DISPLAY: `:${term.n}` } },
   );
   const r: Recording = { id, dir, app, term, browser, startedAt: Date.now() };
@@ -184,11 +187,27 @@ async function render(r: Recording, out: string) {
   const box = await contentBox(r.app.file, r.app.w, r.app.h).catch(() => undefined);
   const height = even(Math.min(r.app.h, 1000));
   const secs = Math.max(1, (Date.now() - r.startedAt) / 1000);
+  const progress = (p: number) => appendRun(r.id, { progress: Math.min(1, Math.max(0, p)) });
+  // a plugin with a look of its own (background, corners, speed) makes it from the browser's window and the output
+  const maker = box && runVideoMaker();
+  if (maker) {
+    const screen = join(r.dir, "window.mp4");
+    try {
+      await ffmpeg(["-y", "-v", "error", "-i", r.app.file, "-vf", `crop=${even(box.w)}:${even(box.h)}:${box.x}:${box.y}`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", screen]);
+      await maker.make({ run: getRun(r.id)!, screen, output: r.term.file, seconds: secs, out, progress });
+      if (existsSync(out) && statSync(out).size) return;
+      throw new Error("it made no video");
+    } catch (e) {
+      console.error(`record: the ${maker.plugin} plugin couldn't make the video, so it's the plain one:`, (e as Error).message);
+      appendRun(r.id, { meta: { note: `The ${maker.plugin} plugin couldn't make the video (${(e as Error).message.slice(0, 200)}), so it has the plain look.` } });
+      progress(0);
+    }
+  }
   await ffmpeg(
     ["-y", "-v", "error", "-i", r.app.file, "-i", r.term.file, "-filter_complex", layout(box, height), "-map", "[v]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out],
     (l) => {
       const us = l.match(/^out_time_us=(\d+)/)?.[1];
-      if (us) appendRun(r.id, { progress: Math.min(1, Number(us) / 1e6 / secs) });
+      if (us) progress(Number(us) / 1e6 / secs);
     },
   );
   return box ? undefined : "The browser never showed on the screen, so the video only has the output. Run it headed (Playwright: --headed).";

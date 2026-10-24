@@ -204,6 +204,7 @@ The Runs screen lists every test, lint, typecheck, audit, E2E, proof, verify and
 | `k.runs.list({ ticket, worktree, kind, status, since, limit })`, `k.runs.get(id)` | Runs, newest first. |
 | `k.runs.steps({ kinds, parse })` | Turns the raw step lines of these kinds of runs (or their output, when no steps were sent) into a list of steps for the run's page. `parse(lines)` returns `{ text, state, depth }[]`, where `state` is `running`, `ok`, `failed`, `skipped` or `section`. |
 | `k.runs.onStart(fn)` | `fn(run, body)` returns extra fields for whoever started the run over `POST /api/runs`, for example where a script should save its video. |
+| `k.runs.video(fn)` | Makes the video of a `cockpit run --record` run in a look of your own. `fn({ run, screen, output, seconds, out, progress })` gets the browser's window and the output pane as two mp4s of the same length, writes the finished mp4 to `out` and can call `progress(0..1)`. If it throws, cockpit makes its plain side-by-side video instead. |
 | `k.runPanel({ kinds, page, steps })` | Shows `page` from your folder in a frame on a run's page, with `?run=<id>`. Leave out `kinds` to show it for every run. Set `steps: true` when your page shows the run's steps itself, and the run page leaves out its own list. |
 
 Scripts use the HTTP API the same way:

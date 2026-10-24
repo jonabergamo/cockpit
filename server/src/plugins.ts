@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { watch } from "chokidar";
 import { register, type NamespacedUnregister } from "tsx/esm/api";
 import { z } from "zod";
-import { PLUGIN_API, type AccessProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type ReviewSource, type RouteRequest, type Run, type RunKind, type RunOption, type RunOptionStarted, type RunStep, type RunTarget, type ScreenInfo, type SettingValue, type Theme, type Tracker } from "@cockpit/shared";
+import { PLUGIN_API, type AccessProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type ReviewSource, type RouteRequest, type RecordedVideo, type Run, type RunKind, type RunOption, type RunOptionStarted, type RunStep, type RunTarget, type ScreenInfo, type SettingValue, type Theme, type Tracker } from "@cockpit/shared";
 import { config, paths } from "./config.ts";
 import { clearPluginBadges, setPluginBadge } from "./badges.ts";
 import { cached } from "./db.ts";
@@ -112,6 +112,7 @@ interface Plugin {
   access?: AccessProvider;
   runSteps: { kinds: RunKind[]; parse(lines: string[]): RunStep[] }[];
   runStarts: ((run: Run, body: Record<string, unknown>) => Record<string, unknown> | void)[];
+  runVideos: ((v: RecordedVideo) => Promise<void>)[];
   runPanels: { kinds?: RunKind[]; url: string; steps?: boolean }[];
   runOptions: Parameters<Cockpit["runOptions"]>[0][];
   // the node it runs on instead of here: its code isn't loaded here, its screens come from there
@@ -231,6 +232,7 @@ function unload(p: Plugin) {
   p.access = undefined;
   p.runSteps = [];
   p.runStarts = [];
+  p.runVideos = [];
   p.runPanels = [];
   p.runOptions = [];
   clearPluginBadges(p.manifest.id);
@@ -322,6 +324,9 @@ function makeApi(p: Plugin): Cockpit {
       onStart(fn) {
         if (live()) p.runStarts.push(fn);
       },
+      video(fn) {
+        if (live()) p.runVideos.push(fn);
+      },
     },
     runPanel(r) {
       if (!live()) return;
@@ -409,7 +414,7 @@ export function loadAll() {
     }
     for (const [id, f] of found) {
       const old = plugins.get(id);
-      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], exposed: new Map(), generation: 0, runSteps: [], runStarts: [], runPanels: [], runOptions: [] };
+      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], exposed: new Map(), generation: 0, runSteps: [], runStarts: [], runVideos: [], runPanels: [], runOptions: [] };
       plugins.set(id, p);
       await load(p);
     }
@@ -545,6 +550,10 @@ export function runSteps(kind: RunKind, lines: string[]): RunStep[] | undefined 
     }
 }
 export const runPanels = (kind: RunKind) => active().flatMap((p) => p.runPanels.filter((x) => forKind(x.kinds, kind)).map((x) => ({ plugin: p.manifest.id, url: x.url, ...(x.steps ? { steps: true } : {}) })));
+// the plugin that makes recorded runs' videos, when one on does; the first one wins
+export function runVideoMaker() {
+  for (const p of active()) if (p.runVideos[0]) return { plugin: p.manifest.id, make: p.runVideos[0] };
+}
 export function runStartExtras(run: Run, body: Record<string, unknown>) {
   const out: Record<string, unknown> = {};
   for (const p of active())

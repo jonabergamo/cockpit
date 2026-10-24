@@ -248,6 +248,20 @@ export interface RunStart {
   meta?: Record<string, unknown>;
 }
 
+// What a recorded run's video is made from, for a plugin that gives it a look of its own
+export interface RecordedVideo {
+  run: Run;
+  // the browser's window, cut out of the screen it ran on
+  screen: string;
+  // the run's output as it showed beside it, as long as the screen and starting with it
+  output: string;
+  seconds: number;
+  // where the finished mp4 goes
+  out: string;
+  // 0 to 1, shown on the run's page
+  progress(p: number): void;
+}
+
 // The events a script reporting a run sends: output lines, raw step lines, progress from 0 to 1, a phase, an error, and
 // the result. Phase "done" (or "failed", "cancelled") ends the run.
 export interface RunEvent {
@@ -373,6 +387,8 @@ export interface Cockpit {
     steps(s: { kinds: RunKind[]; parse(lines: string[]): RunStep[] }): void;
     // extra fields for whoever starts a run over POST /api/runs, e.g. where a script should put its video
     onStart(fn: (run: Run, body: Record<string, unknown>) => Record<string, unknown> | void): void;
+    // makes the video of a `cockpit run --record` run in a look of its own, instead of cockpit's plain side by side
+    video(fn: (v: RecordedVideo) => Promise<void>): void;
   };
   // a panel of this plugin's on a run's page, for these kinds (every kind when left out); the page gets ?run=<id>.
   // steps: the panel shows the run's steps itself, so the page leaves out its own list
