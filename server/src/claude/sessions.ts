@@ -8,6 +8,7 @@ import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
 import { day, ticketOf } from "../util.ts";
 import { agentRow, agentRows, type AgentRow } from "../workers/runner.ts";
+import { agentProvider } from "../workers/index.ts";
 import { backgroundShells } from "./background.ts";
 import { readFrom } from "./transcript.ts";
 
@@ -241,7 +242,9 @@ function toSession(r: Row): Session {
 // an agent cockpit runs a turn at a time, listed with the rest; one left idle for half a day counts as ended
 const IDLE_ENDS_MS = 12 * 3600_000;
 function agentSession(r: AgentRow): Session {
-  const status = r.status === "idle" && Date.now() - r.updated_at > IDLE_ENDS_MS ? "ended" : r.status;
+  // a conversation opened in the agent's own screen is busy while it works there, as its own files say
+  const open = r.status !== "busy" && !!r.native_id && !!agentProvider(r.agent)?.busy?.(r.native_id);
+  const status = open ? "busy" : r.status === "idle" && Date.now() - r.updated_at > IDLE_ENDS_MS ? "ended" : r.status;
   const branch = currentBranch.get(r.cwd);
   const title = r.title ?? undefined;
   return {

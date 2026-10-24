@@ -1,5 +1,5 @@
 // OpenAI's Codex CLI: codex exec --json, one turn per run, and exec resume <thread> for the next one
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentEvent, AgentProvider, AgentTurn } from "@cockpit/shared";
@@ -16,11 +16,58 @@ function access(t: AgentTurn) {
 // the models Codex lists in its picker, from what it last fetched
 function models() {
   try {
-    const cache = JSON.parse(readFileSync(join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "models_cache.json"), "utf8"));
+    const cache = JSON.parse(readFileSync(join(home(), "models_cache.json"), "utf8"));
     const listed = (cache.models ?? []).filter((m: { visibility?: string }) => m.visibility !== "hide");
     if (listed.length) return listed.map((m: { slug: string; display_name?: string }) => ({ id: m.slug, label: m.display_name ?? m.slug }));
   } catch {}
   return [];
+}
+
+const home = () => process.env.CODEX_HOME ?? join(homedir(), ".codex");
+
+// where Codex keeps a conversation: sessions/<year>/<month>/<day>/rollout-<time>-<id>.jsonl
+const files = new Map<string, string>();
+function rolloutOf(id: string) {
+  const known = files.get(id);
+  if (known) return known;
+  const walk = (dir: string, depth: number): string | undefined => {
+    let names: string[];
+    try {
+      names = readdirSync(dir).sort().reverse();
+    } catch {
+      return;
+    }
+    for (const n of names) {
+      if (depth === 3 && n.endsWith(`${id}.jsonl`)) return join(dir, n);
+      if (depth < 3 && /^\d+$/.test(n)) {
+        const found = walk(join(dir, n), depth + 1);
+        if (found) return found;
+      }
+    }
+  };
+  const found = walk(join(home(), "sessions"), 0);
+  if (found) files.set(id, found);
+  return found;
+}
+
+// in a turn when the last turn Codex wrote down started and hasn't ended; a file left untouched for half an hour
+// is a turn that died with its process
+function busy(id: string) {
+  const file = rolloutOf(id);
+  if (!file) return;
+  try {
+    const { size, mtimeMs } = statSync(file);
+    if (Date.now() - mtimeMs > 30 * 60_000) return false;
+    const len = Math.min(size, 256 * 1024);
+    const buf = Buffer.alloc(len);
+    const fd = openSync(file, "r");
+    readSync(fd, buf, 0, len, size - len);
+    closeSync(fd);
+    const last = [...buf.toString("utf8").matchAll(/"type":"(task_started|task_complete|turn_aborted)"/g)].at(-1)?.[1];
+    return last === "task_started";
+  } catch {
+    return;
+  }
 }
 
 export const codex: AgentProvider = {
@@ -84,4 +131,5 @@ export const codex: AgentProvider = {
   // by a code typed in the browser: the usual login waits for the browser on this machine's localhost, which a
   // node's browser isn't
   login: ["login", "--device-auth"],
+  busy,
 };

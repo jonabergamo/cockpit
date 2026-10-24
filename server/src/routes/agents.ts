@@ -17,7 +17,8 @@ export function agentTerminal(id: string) {
   const row = agentRow(id);
   const p = row && agentProvider(row.agent);
   if (!row || !p?.terminal) return;
-  return spawnTerm({ cwd: row.cwd, command: agentBin(p), args: p.terminal(row.native_id ?? undefined, row.model ?? undefined), title: `${p.name} · ${row.title ?? row.cwd}` });
+  // tied to the session, so its tab and card show it working
+  return spawnTerm({ cwd: row.cwd, command: agentBin(p), args: p.terminal(row.native_id ?? undefined, row.model ?? undefined), title: `${p.name} · ${row.title ?? row.cwd}`, session: id });
 }
 
 const ACCESS = new Set<AgentAccess>(["sandbox", "full", "readonly"]);

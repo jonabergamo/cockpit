@@ -51,6 +51,9 @@ export interface AgentProvider {
   terminal?(resume?: string, model?: string): string[];
   // the arguments that log it in, run in a terminal
   login?: string[];
+  // whether the conversation is in the middle of a turn right now, as the agent's own files say, for when it's
+  // open in its own screen rather than run a turn at a time by cockpit; undefined when it can't tell
+  busy?(resume: string): boolean | undefined;
 }
 
 // an agent as the screens and the lead see it

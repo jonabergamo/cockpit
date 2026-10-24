@@ -205,6 +205,7 @@ k.agent({
 - `parse` turns a line into events: `session`, `message`, `thinking`, `tool`, `tool_result`, `usage`, `done` and `error`. A line it throws on is skipped. `state` is kept for the whole turn, for an agent that splits one answer over several lines.
 - `t.access` says what the agent may do: `sandbox` (edit its folder and run commands there), `readonly`, or `full`. `t.writable` lists the folders outside the worktree it also needs to write to, like the repo's git data, so it can commit.
 - `terminal` gives the arguments that open the same conversation in the agent's own screen, for the **Open in** button.
+- `busy(resume)` says whether that conversation is in the middle of a turn, read from the agent's own files, so a conversation open in its own screen shows as working too. Leave it out when the agent doesn't keep such files.
 - `bin` can be changed per machine in `config.local.toml`, under `[agents.<id>]`.
 
 ## Access from other machines

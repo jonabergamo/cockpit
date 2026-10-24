@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentEvent, AgentProvider, Session } from "@cockpit/shared";
@@ -45,6 +45,25 @@ describe("agent output", () => {
     expect(kinds(evs)).toEqual(["session", "message", "tool", "tool_result", "message", "usage", "done"]);
     expect(evs[1]).toEqual({ kind: "message", text: "I'll append the line." });
     expect(evs.at(-1)).toEqual({ kind: "done", ok: true, text: "DONE" });
+  });
+
+  it("tells from Codex's own files whether a conversation is mid-turn", () => {
+    const home = mkdtempSync(join(tmpdir(), "codex-home-"));
+    const day = join(home, "sessions", "2026", "10", "24");
+    mkdirSync(day, { recursive: true });
+    const file = join(day, "rollout-2026-10-24T10-00-00-thread-1.jsonl");
+    const line = (type: string) => `${JSON.stringify({ type: "event_msg", payload: { type } })}\n`;
+    const was = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = home;
+    try {
+      writeFileSync(file, line("task_started") + line("item_completed"));
+      expect(codex.busy!("thread-1")).toBe(true);
+      writeFileSync(file, line("task_started") + line("task_complete"));
+      expect(codex.busy!("thread-1")).toBe(false);
+      expect(codex.busy!("no-such-thread")).toBeUndefined();
+    } finally {
+      process.env.CODEX_HOME = was;
+    }
   });
 
   it("asks each CLI for one turn, resumed and with the access given", () => {
