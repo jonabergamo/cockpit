@@ -1,6 +1,7 @@
 // The coding agents cockpit can hand work to: the ones that ship with it, and any a plugin adds with k.agent
 import type { AgentInfo, AgentProvider } from "@cockpit/shared";
 import { config } from "../config.ts";
+import { getSettings } from "../settings.ts";
 import { run } from "../util.ts";
 import { claude } from "./claude.ts";
 import { codex } from "./codex.ts";
@@ -12,6 +13,9 @@ export const useExtraAgents = (fn: () => AgentProvider[]) => void (extra = fn);
 
 export const agentProviders = () => [...builtIn, ...extra().filter((p) => !builtIn.some((b) => b.id === p.id))];
 export const agentProvider = (id: string) => agentProviders().find((p) => p.id === id);
+
+// turned off in Settings; Claude Code stays, since it's what everything falls back to
+export const agentOff = (id: string) => id !== "claude" && getSettings().agents.off.includes(id);
 
 export function agentBin(p: AgentProvider) {
   if (p.id === "claude") return config.agents.claude?.bin || config.claude.bin;
@@ -32,7 +36,7 @@ async function versionOf(p: AgentProvider) {
 
 export async function agentInfo(p: AgentProvider): Promise<AgentInfo> {
   const version = await versionOf(p);
-  return { id: p.id, name: p.name, about: p.about, installed: !!version, version, models: (await Promise.resolve(p.models?.() ?? []).catch(() => [])) ?? [], terminal: !!p.terminal };
+  return { id: p.id, name: p.name, about: p.about, installed: !!version, enabled: !agentOff(p.id), version, models: (await Promise.resolve(p.models?.() ?? []).catch(() => [])) ?? [], terminal: !!p.terminal };
 }
 
 export const listAgents = () => Promise.all(agentProviders().map(agentInfo));

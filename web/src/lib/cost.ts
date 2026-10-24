@@ -24,6 +24,7 @@ export interface SettingsRes {
     templates: { id: string; name: string; match: string; vars: Record<string, string>; agent: string; model: string; prompt: string; autopilot: "default" | "on" | "off" }[];
     notes: { prompt: string; maxChars: number; liveBranch: string };
     flows: Flow[];
+    agents: { off: string[] };
     ci: { local: string[] };
     overnight: { capUSD: number; capMTokens: number; fromHour: number; toHour: number };
   };

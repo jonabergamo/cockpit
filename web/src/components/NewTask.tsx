@@ -178,7 +178,7 @@ export function NewTaskModal() {
             {flow && <span className="block text-[12px] text-faint">{flows.data.find((f) => f.id === flow)?.description}</span>}
           </label>
         )}
-        {!flow && <Attempts value={attempts} onChange={setAttempts} agents={(agents.data ?? []).filter((a) => a.installed)} fallback={settings?.tasks.defaultAgent || "claude"} />}
+        {!flow && <Attempts value={attempts} onChange={setAttempts} agents={(agents.data ?? []).filter((a) => a.installed && a.enabled)} fallback={settings?.tasks.defaultAgent || "claude"} />}
         <div className="flex flex-wrap items-end gap-4">
           {!flow && kinds.length > 0 && (
             <label className="space-y-1">

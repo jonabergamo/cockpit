@@ -19,6 +19,7 @@ import { baseOf, createTasks, groupTasks } from "./tasks.ts";
 import { templateFor } from "./templates.ts";
 import { run as exec, slugify } from "./util.ts";
 import { runVerify } from "./verify.ts";
+import { agentOff } from "./workers/index.ts";
 import { agentRow, sendAgent, startAgent, stopAgent } from "./workers/runner.ts";
 import { createWorktree } from "./worktrees.ts";
 
@@ -83,6 +84,7 @@ export function checkFlow(f: Flow) {
     for (const a of s.after ?? []) if (ids.indexOf(a) < 0 || ids.indexOf(a) >= i) return `${s.id} waits for ${a}, which isn't a step before it`;
     if (s.loop && (ids.indexOf(s.loop.to) < 0 || ids.indexOf(s.loop.to) > i)) return `${s.id} loops back to ${s.loop.to}, which isn't it or a step before it`;
     if (s.loop && (s.kind === "human" ? false : s.output !== "verdict" && s.kind !== "verify")) return `${s.id} loops on its verdict, so it needs output: "verdict"`;
+    if ((s.kind ?? "agent") !== "verify" && s.kind !== "human" && s.agent && agentOff(s.agent)) return `${s.id} uses ${s.agent}, which is turned off in Settings`;
     if (s.when && !parseWhen(s.when)) return `${s.id}'s condition "${s.when}" isn't step.verdict == value or step.status == value`;
   }
 }

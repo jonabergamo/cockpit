@@ -12,6 +12,7 @@ import { gemini } from "../src/workers/gemini.ts";
 import { agentProvider, useExtraAgents } from "../src/workers/index.ts";
 import { agentRow, closeAgent, sendAgent, startAgent } from "../src/workers/runner.ts";
 import { sendText } from "../src/agents.ts";
+import { getSettings, putSettings } from "../src/settings.ts";
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "fixtures/agents", name), "utf8").split("\n").filter(Boolean);
 const parseAll = (p: AgentProvider, lines: string[]) => {
@@ -113,5 +114,15 @@ describe("agent sessions", () => {
     expect(agentRow(crashed)!.error).toContain("something broke");
     closeAgent(crashed);
     expect(getSession(crashed)!.status).toBe("ended");
+  });
+
+  it("won't start an agent that's turned off", () => {
+    putSettings({ agents: { off: ["fake"] } });
+    try {
+      expect(() => startAgent({ agent: "fake", cwd: tmpdir(), prompt: "x" })).toThrow(/turned off/);
+    } finally {
+      putSettings({ agents: { off: [] } });
+    }
+    expect(getSettings().agents.off).toEqual([]);
   });
 });

@@ -28,7 +28,7 @@ function Row({ t, vars, onChange, onRemove, onMove }: { t: Template; vars: strin
         <input value={t.match} onChange={(e) => onChange({ match: e.target.value })} placeholder="Matches every ticket" className={`${inputClass} flex-1 min-w-[180px] font-mono text-[12px] ${badPattern(t.match) ? "border-red" : ""}`} aria-label="Pattern" title="A pattern tested against the ticket's summary and type, ignoring case. Empty matches every ticket" />
         <select value={t.agent ?? ""} onChange={(e) => onChange({ agent: e.target.value, model: "" })} className={inputClass} aria-label="Agent">
           <option value="">Default agent</option>
-          {agents.filter((a) => a.installed || a.id === t.agent).map((a) => (
+          {agents.filter((a) => (a.installed && a.enabled) || a.id === t.agent).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
             </option>

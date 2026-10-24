@@ -128,7 +128,11 @@ server.registerTool(
 server.registerTool(
   "list_agents",
   { description: "The coding agents cockpit can start workers with: whether each is installed, its models (the first is the default) and what it's good at.", inputSchema: {} },
-  wrap(async () => ((await call("GET", "/agents")) as { id: string; name: string; installed: boolean; about?: string; models: { id: string }[] }[]).map((a) => ({ id: a.id, name: a.name, installed: a.installed, about: a.about, models: a.models.map((m) => m.id) }))),
+  wrap(async () =>
+    ((await call("GET", "/agents")) as { id: string; name: string; installed: boolean; enabled: boolean; about?: string; models: { id: string }[] }[])
+      .filter((a) => a.enabled)
+      .map((a) => ({ id: a.id, name: a.name, installed: a.installed, about: a.about, models: a.models.map((m) => m.id) })),
+  ),
 );
 
 server.registerTool(

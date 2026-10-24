@@ -39,22 +39,32 @@ const EXAMPLE_FLOWS: z.infer<typeof flowSchema>[] = [
   {
     id: "plan-build-review",
     name: "Plan, build, review",
-    description: "Claude plans, Codex builds it, the repo's checks run, Gemini reviews, and the work goes back to Codex until the review passes (twice at most).",
+    description: "Claude plans, Codex builds it, the repo's checks run, Claude reviews, and the work goes back to Codex until the review passes (twice at most).",
     steps: [
       { id: "plan", name: "Plan", agent: "claude", access: "readonly", prompt: "Plan this change. Read the code it touches first.\n\n{{prompt}}\n\nWrite a short plan: the files to change, what changes in each, and the checks that prove it works. Don't change any files." },
       { id: "build", name: "Build", agent: "codex", prompt: "Make this change, following the plan.\n\nThe change:\n{{prompt}}\n\nThe plan:\n{{steps.plan.output}}\n\nRun the checks the plan names, fix what fails, and commit.", again: "A review asked for changes:\n\n{{steps.review.output}}\n\nMake them, run the checks again and commit." },
       { id: "checks", name: "Checks", kind: "verify" },
-      { id: "review", name: "Review", agent: "gemini", access: "readonly", output: "verdict", loop: { to: "build", max: 2 }, prompt: "Review the changes on this branch against what was asked. Only raise real problems: bugs, missing pieces, broken checks.\n\nWhat was asked:\n{{prompt}}\n\nThe checks said:\n{{steps.checks.output}}\n\nThe changes:\n{{diff}}" },
+      { id: "review", name: "Review", agent: "claude", access: "readonly", output: "verdict", loop: { to: "build", max: 2 }, prompt: "Review the changes on this branch against what was asked. Only raise real problems: bugs, missing pieces, broken checks.\n\nWhat was asked:\n{{prompt}}\n\nThe checks said:\n{{steps.checks.output}}\n\nThe changes:\n{{diff}}" },
     ],
   },
   {
     id: "second-opinion",
     name: "Build with a second opinion",
-    description: "The default agent does the work, another agent reviews it, and you decide whether it goes back for changes.",
+    description: "The default agent does the work, Claude reviews it, and you decide whether it goes back for changes.",
     steps: [
       { id: "build", name: "Build", prompt: "{{prompt}}\n\nRun the checks and commit when it's done.", again: "Address this feedback, run the checks and commit:\n\n{{steps.you.output}}\n\n{{steps.review.output}}" },
-      { id: "review", name: "Review", agent: "codex", access: "readonly", output: "verdict", prompt: "Review the changes on this branch for bugs and missing pieces. What was asked:\n{{prompt}}\n\nThe changes:\n{{diff}}" },
+      { id: "review", name: "Review", agent: "claude", access: "readonly", output: "verdict", prompt: "Review the changes on this branch for bugs and missing pieces. What was asked:\n{{prompt}}\n\nThe changes:\n{{diff}}" },
       { id: "you", name: "Your call", kind: "human", loop: { to: "build", max: 3 } },
+    ],
+  },
+  {
+    id: "codex-builds",
+    name: "Codex builds, checks decide",
+    description: "Codex does the work and fixes what the repo's checks report, up to three times, then a fresh Codex session reviews it.",
+    steps: [
+      { id: "build", name: "Build", agent: "codex", prompt: "{{prompt}}\n\nRun the checks and commit when it's done.", again: "The checks fail:\n\n{{steps.checks.output}}\n\nFix it, run them again and commit." },
+      { id: "checks", name: "Checks", kind: "verify", loop: { to: "build", max: 3 } },
+      { id: "review", name: "Review", agent: "codex", access: "readonly", output: "verdict", prompt: "Review the changes on this branch for bugs and missing pieces. What was asked:\n{{prompt}}\n\nThe changes:\n{{diff}}" },
     ],
   },
   {
@@ -130,6 +140,8 @@ const schema = z.object({
     )
     .max(30)
     .default([]),
+  // coding agents turned off: left out of the pickers, and work can't be handed to them
+  agents: z.object({ off: z.array(z.string().max(40)).max(20).default([]) }).prefault({}),
   // recipes that pass one piece of work between coding agents, see flows.ts; the ones here are examples to edit
   flows: z.array(flowSchema).max(30).default(EXAMPLE_FLOWS),
   // what a ticket's sessions may use before cockpit says so, in dollars or, with costs hidden, millions of tokens.

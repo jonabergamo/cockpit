@@ -11,7 +11,7 @@ import { db } from "../db.ts";
 import { emit } from "../events.ts";
 import { notify } from "../notify.ts";
 import { spawnLines } from "../util.ts";
-import { agentBin, agentProvider } from "./index.ts";
+import { agentBin, agentOff, agentProvider } from "./index.ts";
 
 export interface AgentRow {
   id: string;
@@ -79,6 +79,7 @@ export interface NewAgentSession {
 export function startAgent(o: NewAgentSession) {
   const p = agentProvider(o.agent);
   if (!p) throw Object.assign(new Error(`No agent called ${o.agent}`), { status: 400 });
+  if (agentOff(p.id)) throw Object.assign(new Error(`${p.name} is turned off in Settings → Board and automation`), { status: 400 });
   if (!existsSync(o.cwd)) throw Object.assign(new Error(`${o.cwd} doesn't exist`), { status: 400 });
   mkdirSync(dir, { recursive: true });
   const id = randomUUID();

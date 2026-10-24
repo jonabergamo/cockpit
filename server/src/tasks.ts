@@ -20,7 +20,7 @@ import { nightOn } from "./overnight.ts";
 import { basePr, stackedNote, stackOnto } from "./stacked.ts";
 import { promptFor, templateFor } from "./templates.ts";
 import { createWorktree, deleteWorktree } from "./worktrees.ts";
-import { agentProvider } from "./workers/index.ts";
+import { agentOff, agentProvider } from "./workers/index.ts";
 import { agentRow, closeAgent, startAgent } from "./workers/runner.ts";
 
 interface Row {
@@ -159,6 +159,7 @@ export async function createTasks(input: NewTask) {
     // empty falls back to the kind of work's agent, then the default; "claude" is Claude Code in its terminal
     const agent = agentId(pick.agent || input.agent || tpl?.agent || s.defaultAgent);
     if (agent && !agentProvider(agent)) throw Object.assign(new Error(`No agent called ${agent}`), { status: 400 });
+    if (agent && agentOff(agent)) throw Object.assign(new Error(`${agentProvider(agent)!.name} is turned off in Settings → Board and automation`), { status: 400 });
     const model = pick.model || (agentId(tpl?.agent) === agent ? tpl?.model : "") || (agentId(s.defaultAgent) === agent ? s.defaultModel : "") || undefined;
     insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, agent, model, template: tpl?.id, onPr, base, overnight: !!input.overnight || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
   }

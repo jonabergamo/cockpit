@@ -59,6 +59,8 @@ export interface AgentInfo {
   name: string;
   about?: string;
   installed: boolean;
+  // false when it's turned off in Settings
+  enabled: boolean;
   version?: string;
   models: AgentModel[];
   terminal: boolean;
