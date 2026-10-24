@@ -85,6 +85,7 @@ function RunLine({ r, small }: { r: Run; small?: boolean }) {
           <Tag tone={statusTone(r.status)}>{statusLabel(r)}</Tag>
           {!small && <Tag tone="faint">{kindLabel(r.kind)}</Tag>}
           <span className={`${small ? "" : "font-medium"} truncate`}>{r.name}</span>
+          {r.node && <span className="shrink-0 text-[12px] text-faint">on {r.node}</span>}
         </div>
         {!small && (
           <div className="text-[12px] text-muted truncate mt-0.5 flex gap-2">

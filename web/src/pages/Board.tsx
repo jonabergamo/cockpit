@@ -58,6 +58,7 @@ function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
       <div className="flex items-center gap-1.5 text-[12px] text-muted min-w-0">
         {c.ticket && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{c.ticket}</span>}
         <span className="truncate">{c.folder}</span>
+        {c.node && <span className="shrink-0 text-faint">on {c.node}</span>}
       </div>
       <div className={`text-[12px] ${tone(c)} truncate`}>{c.stuck ? `Stuck: ${c.stuck}` : c.reason}</div>
       <div className="flex flex-wrap items-center gap-1">

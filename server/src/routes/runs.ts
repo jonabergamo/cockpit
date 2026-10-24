@@ -2,6 +2,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeF
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
+import { runsEverywhere } from "../remote/forward.ts";
 import type { RunDetail, RunEvent, RunFilter, RunKind, RunStatus } from "@cockpit/shared";
 import { config, paths } from "../config.ts";
 import { runPanels, runStartExtras, runSteps } from "../plugins.ts";
@@ -65,7 +66,11 @@ const filter = (q: Record<string, string>): RunFilter => ({
 });
 
 export const runs = new Hono()
-  .get("/", (c) => c.json(listRuns(filter(c.req.query()))))
+  // a hub lists its nodes' runs with its own
+  .get("/", async (c) => {
+    const f = filter(c.req.query());
+    return c.json(await runsEverywhere(listRuns(f), new URL(c.req.url).search, Math.min(Math.max(Number(f.limit) || 200, 1), 1000)));
+  })
   // Starts a run that reports as it goes (a recording script, `cockpit run`); finished: true records one already over.
   // Fields it doesn't know go in the run's meta.
   .post("/", async (c) => {

@@ -4,18 +4,26 @@ import { emit } from "./events.ts";
 import { db } from "./db.ts";
 import { listTerms } from "./pty.ts";
 import { getSettings } from "./settings.ts";
+import { config } from "./config.ts";
+import { enqueue } from "./remote/outbox.ts";
+
+// a node has nobody looking at it: what it would show goes to its hub, which shows it once it has it
+const relay = config.role === "node";
 
 const shortPath = (p: string) => (process.env.HOME ? p.replace(process.env.HOME, "~") : p);
 
 // Everything worth telling you also goes in a log, for "while you were away"
 export function logEvent(kind: string, title: string, body?: string, link?: string, ref?: string) {
+  if (relay) return enqueue("log", { kind, title, body, link, ref });
   db.prepare("insert into events_log (at, kind, title, body, link, ref) values (?, ?, ?, ?, ?, ?)").run(Date.now(), kind, title, body ?? null, link ?? null, ref ?? null);
 }
 
 let seq = 0;
 // urgent ones are a second nudge for something that has waited a long time; push plugins send them loudly
-export function notify(n: { title: string; body: string; link: string; urgent?: boolean; kind?: string }) {
-  broadcast({ type: "notify", id: ++seq, title: n.title, body: n.body, link: n.link });
+// node is the machine it happened on, when that's not this one
+export function notify(n: { title: string; body: string; link: string; urgent?: boolean; kind?: string; node?: string }) {
+  if (relay) return enqueue("notify", n);
+  broadcast({ type: "notify", id: ++seq, title: n.title, body: n.node ? `${n.body} · on ${n.node}` : n.body, link: n.link });
   emit("notify", n);
   logEvent(n.kind ?? "notify", n.title, n.body, n.link);
 }

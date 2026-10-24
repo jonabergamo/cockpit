@@ -11,6 +11,10 @@ import { newToken } from "./protocol.ts";
 import { addSessionLink, removeSessionLink } from "./sessions.ts";
 import { addLink, startRemoteTerms, unlinked } from "./terminals.ts";
 import { addWorkLink, removeWorkLink } from "./work.ts";
+import { logEvent, notify } from "../notify.ts";
+import { addApiLink, removeApiLink, startRemoteBoards } from "./forward.ts";
+import { addInboxLink } from "./outbox.ts";
+import { addSyncLink, removeSyncLink, startSync } from "./sync.ts";
 
 db.exec(`
   create table if not exists machines (
@@ -61,6 +65,9 @@ function open(row: Row) {
   addLink(row.id, link);
   addSessionLink(row.id, link);
   addWorkLink(row.id, link);
+  addInboxLink(row.id, link, { notify, log: logEvent });
+  addSyncLink(row.id, link);
+  addApiLink(row.id, link);
   link.start();
 }
 
@@ -91,6 +98,8 @@ export function removeMachine(id: string) {
   unlinked(id);
   removeSessionLink(id);
   removeWorkLink(id);
+  removeSyncLink(id);
+  removeApiLink(id);
   db.prepare("delete from machines where id = ?").run(id);
   announce();
 }
@@ -105,5 +114,7 @@ export const retryMachine = (id: string) => linkOf(id)?.retry();
 
 export function startMachines() {
   startRemoteTerms([]);
+  startRemoteBoards();
+  startSync();
   for (const row of db.prepare<[], Row>("select * from machines order by added_at").all()) open(row);
 }

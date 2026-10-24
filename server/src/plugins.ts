@@ -115,7 +115,7 @@ const plugins = new Map<string, Plugin>();
 const broken: { dir: string; error: string }[] = [];
 
 // on/off and setting values, kept in the settings table so they survive updating the plugin's files
-interface Saved {
+export interface Saved {
   on?: boolean;
   settings?: Record<string, Value>;
 }
@@ -630,4 +630,20 @@ export function pluginFile(id: string, rel: string) {
   // the code and the manifest stay private
   if (/^(server\.(ts|js|mjs)|plugin\.json)$/.test(rel)) return;
   return full;
+}
+
+// The plugins the automations lean on (a tracker, a code host, review sources) and how each is set up, for a
+// hub to pass on to its nodes. One that offered any of those once stays in the set, so turning it off passes on too.
+export function workPluginSetup(): Record<string, Saved> {
+  const ids = new Set(readRow<string[]>("workPlugins") ?? []);
+  const before = ids.size;
+  for (const p of plugins.values()) if (p.tracker || p.codeHost || p.reviewSource) ids.add(p.manifest.id);
+  if (ids.size !== before) writeRow("workPlugins", [...ids]);
+  return Object.fromEntries([...ids].map((id) => [id, saved(id)]));
+}
+
+// a node sets those up the way its hub has them; one this node doesn't have is skipped until it does
+export async function adoptPluginSetup(setup: Record<string, Saved>) {
+  writeRow("plugins", { ...savedAll(), ...setup });
+  for (const id of Object.keys(setup)) await reload(id);
 }

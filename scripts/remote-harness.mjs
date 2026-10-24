@@ -81,16 +81,16 @@ const stop = (p) => new Promise((done) => (p.exitCode !== null ? done() : (p.onc
 
 let failed = false;
 try {
-  start("hub");
+  let hub = start("hub");
   let node = start("node");
   await until("the hub", async () => (await api("hub", "/health")).role === "hub");
   await until("the node", async () => (await api("node", "/health")).role === "node");
 
   const added = await api("hub", "/machines", { method: "POST", body: JSON.stringify({ name: "devbox", address: `127.0.0.1:${ports.link}` }) });
-  const [, , , , hub, , token] = added.pair.split(" ");
+  const [, , , , hubId, , token] = added.pair.split(" ");
   // not paired yet: the node turns the hub away
   await until("a refusal before pairing", async () => (await state()) === "refused");
-  execFileSync(process.execPath, [join(root, "bin/cockpit"), "node", "pair", "--hub", hub, "--token", token], { env: { ...process.env, COCKPIT_DATA: dirs.node } });
+  execFileSync(process.execPath, [join(root, "bin/cockpit"), "node", "pair", "--hub", hubId, "--token", token], { env: { ...process.env, COCKPIT_DATA: dirs.node } });
   await api("hub", "/machines/devbox/retry", { method: "POST" });
   await until("the link to come up", async () => (await state()) === "up");
   console.log("paired and connected");
@@ -184,6 +184,32 @@ try {
   if (gone.code !== 0) throw new Error(`removing the worktree failed: ${gone.output}`);
   await until("the worktree to leave the list", async () => !(await api("hub", "/worktrees")).some((w) => w.path === wt.path));
   console.log("worktree removed on the node from the hub");
+
+  // the node keeps the automations: the hub's settings reach it, its screens are answered by it, and what it
+  // has to say reaches the hub once, even when it happened while the hub was away
+  await api("hub", "/settings", { method: "PUT", body: JSON.stringify({ alerts: { stuckMinutes: 37, escalateMinutes: 15 } }) });
+  await until("the hub's settings on the node", async () => (await api("node", "/settings")).settings.alerts.stuckMinutes === 37);
+  console.log("hub's settings passed on to the node");
+  const recorded = await api("node", "/runs", { method: "POST", body: JSON.stringify({ name: "node e2e", finished: true, status: "pass", output: "all green" }) });
+  if (!(await api("hub", "/runs")).some((r) => r.id === recorded.id && r.node === "devbox")) throw new Error("the node's run isn't in the hub's list");
+  if ((await api("hub", `/runs/${recorded.id}`)).name !== "node e2e") throw new Error("the node's run didn't open from the hub");
+  console.log("node's runs listed and opened from the hub");
+  const t0 = Date.now() - 1;
+  const titles = async () => (await api("hub", `/digest?since=${t0}`)).map((e) => e.title);
+  const once = async (title) => (await titles()).filter((t) => t === title).length === 1;
+  await api("hub", "/tasks/overnight", { method: "POST", body: JSON.stringify({ on: true }) });
+  await until("the node's notification on the hub", () => once("Overnight queue started"));
+  await stop(hub);
+  await api("node", "/tasks/overnight", { method: "POST", body: JSON.stringify({ on: false }) });
+  hub = start("hub");
+  await until("the hub to come back", async () => (await api("hub", "/health")).ok);
+  await until("what happened while the hub was away", () => once("Overnight queue ended"), 45_000);
+  await stop(hub);
+  hub = start("hub");
+  await until("the hub to come back again", async () => (await state()) === "up", 45_000);
+  await new Promise((r) => setTimeout(r, 3000));
+  if (!(await once("Overnight queue started")) || !(await once("Overnight queue ended"))) throw new Error(`the node's notifications came over more than once: ${JSON.stringify(await titles())}`);
+  console.log("node's notifications reached the hub once, including the one from while it was away");
   console.log("remote harness ok");
 } catch (e) {
   failed = true;

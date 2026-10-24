@@ -350,6 +350,8 @@ export type BoardColumn = "queued" | "working" | "needs" | "review" | "ready" | 
 
 export interface BoardCard {
   id: string;
+  // the machine its work is on, when that's a node
+  node?: string;
   kind: "worktree" | "session" | "task";
   title: string;
   ticket?: string;
@@ -449,6 +451,8 @@ export interface RunArtifact {
 
 export interface Run {
   id: string;
+  // the machine it ran on, when that's a node
+  node?: string;
   kind: RunKind;
   name: string;
   // where it came from: hook, wrapper, terminal, verify, ci, mcp, script, or plugin:<id>

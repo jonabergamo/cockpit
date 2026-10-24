@@ -363,9 +363,10 @@ async function poll() {
   if (snap !== lastSnapshot) {
     lastSnapshot = snap;
     broadcast({ type: "sessions", sessions });
-    sessionsChanged(sessions);
+    // a node's sessions are its to tell about, through its outbox, so they still arrive after this one slept
+    sessionsChanged(sessions.filter((s) => !s.node));
   }
-  escalate(sessions);
+  escalate(sessions.filter((s) => !s.node));
 }
 
 export function startSessions() {

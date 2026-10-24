@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { auth } from "./auth.ts";
+import { forward, serveApi } from "./remote/forward.ts";
 import { startAutomations, startHostServices, startHubServices } from "./startup.ts";
 import { addMachine, hubId, listMachines, pairCommandOf, removeMachine, retryMachine, startMachines } from "./remote/machines.ts";
 import { startNodeServer } from "./remote/node.ts";
@@ -139,7 +140,9 @@ const machines = new Hono()
     }
   });
 
+// on a hub, what a node does is asked of that node; see remote/forward.ts
 const api = new Hono()
+  .use("*", forward)
   .get("/health", (c) => c.json({ ok: true, role: config.role }))
   .get("/config", (c) => c.json(appConfig()))
   .get("/settings", async (c) => c.json({ settings: getSettings(), billing: await detectBilling() }))
@@ -183,6 +186,8 @@ const api = new Hono()
   .route("/", work);
 
 app.route("/api", api);
+// a hub asks this machine's API for what runs here, over the link
+serveApi((req) => api.fetch(req));
 
 // files for plugin screens; the page loads /plugin-sdk.js from the app itself
 const types: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2", ".map": "application/json" };

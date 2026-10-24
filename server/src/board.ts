@@ -11,7 +11,7 @@ import { readRow, writeRow } from "./settings.ts";
 import { stackRows } from "./stacked.ts";
 import { stuckReason } from "./stuck.ts";
 import { listTasks } from "./tasks.ts";
-import { allWorktrees } from "./remote/work.ts";
+import { listWorktrees } from "./worktrees.ts";
 
 const inside = (root: string, cwd?: string) => !!cwd && (cwd === root || cwd.startsWith(root + "/"));
 const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
@@ -97,13 +97,23 @@ export function archive(id: string, on: boolean) {
 const QUIET_DAYS = 3;
 
 // offline uses only the PRs already fetched and no ticket titles, so it never waits on the code host or tracker
+// The nodes' boards, on a hub: each node puts its own together from its worktrees, sessions and automations
+let remoteBoards: (offline: boolean) => Promise<BoardCard[]> = async () => [];
+export const useRemoteBoards = (fn: typeof remoteBoards) => void (remoteBoards = fn);
+
 export async function board(opts: { offline?: boolean } = {}): Promise<BoardCard[]> {
+  const [mine, theirs] = await Promise.all([localBoard(opts), remoteBoards(!!opts.offline).catch(() => [])]);
+  return [...mine, ...theirs].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function localBoard(opts: { offline?: boolean } = {}): Promise<BoardCard[]> {
   const [worktrees, prs, tickets] = await Promise.all([
-    allWorktrees(false),
+    listWorktrees(false),
     opts.offline ? (knownPrs() ?? []) : myPrs().catch(() => [] as PullRequest[]),
     opts.offline ? [] : myTickets().catch(() => []),
   ]);
-  const sessions = listSessions({ limit: 800 });
+  // a node's sessions are on its own board, which comes in below
+  const sessions = listSessions({ limit: 800 }).filter((s) => !s.node);
   const titleOf = new Map(tickets.map((t) => [t.key, t.summary]));
   const verify = verifyRows();
   const autopilot = autopilotRows();
@@ -124,7 +134,7 @@ export async function board(opts: { offline?: boolean } = {}): Promise<BoardCard
   const taskOf = (t?: Task): BoardCard["task"] => t && { id: t.id, group: t.group, status: t.status, attempt: t.attempt, title: t.title };
 
   for (const wt of worktrees) {
-    if (wt.main || (!wt.node && !existsSync(wt.path))) continue;
+    if (wt.main || !existsSync(wt.path)) continue;
     const { pr, session } = matchWorker(wt, prs, sessions);
     const task = tasks.find((t) => t.worktree === wt.path);
     const v = verify.get(wt.path);

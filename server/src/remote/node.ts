@@ -12,6 +12,7 @@ import { askOf, sendKeys, sendText } from "../agents.ts";
 import { entriesSince, tailEntries } from "../claude/entries.ts";
 import { searchSessions } from "../claude/search.ts";
 import { listSubagents, localSessions, type ListOpts } from "../claude/sessions.ts";
+import { localBoard } from "../board.ts";
 import { cleanupPlan } from "../cleaner.ts";
 import { config, paths } from "../config.ts";
 import { allowedRoot, forgetFolder, fsCall, listDirs, roots, saveFolder, savePaste, termChanges } from "../files.ts";
@@ -22,7 +23,10 @@ import { cleanChecked, createWorktree, deleteChecked, listWorktrees, repoState }
 import { slugify } from "../util.ts";
 import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
+import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
+import { ack, onEnqueue, since } from "./outbox.ts";
+import { adopt, type Synced } from "./sync.ts";
 import { Channel, keyOf, macOk, newNonce, PROTOCOL, type Frame, type NodeInfo, type Wire } from "./protocol.ts";
 
 export interface Pairing {
@@ -164,10 +168,20 @@ export function serve(c: Channel) {
   c.handle("term.changes", ({ id }: { id: string }) => termChanges(currentCwd(id)));
   c.handle("term.paste", ({ data, name }: { data: string; name: string }) => savePaste(Buffer.from(data, "base64"), name).then((path) => ({ path })));
   const offJobs = onJobStart((j) => c.emit("job.start", j));
+  // what it has to tell the hub, kept until the hub says it has it
+  c.handle("outbox.since", ({ seq }: { seq: number }) => since(seq));
+  c.handle("outbox.ack", ({ seq }: { seq: number }) => ack(seq));
+  const offOutbox = onEnqueue(() => c.emit("outbox"));
+  // the hub's settings, which it keeps using while the hub is away
+  c.handle("settings.sync", (s: Synced) => adopt(s));
+  // its automations' screens, answered by its own API, and its board
+  c.handle("api", (r: ApiReq) => handleApi(r));
+  c.handle("board", ({ offline }: { offline?: boolean }) => localBoard({ offline }));
   // the live ones as they change, which is what the hub's lists and badges follow
   const offSessions = tap((ev) => {
     if (ev.type === "sessions") c.emit("sessions", ev.sessions);
     if (ev.type === "job") c.emit("job", ev);
+    if (ev.type === "board" || ev.type === "run") c.emit("relay", ev);
   });
   const offTerms = onTermsChanged(() => c.emit("terms", localTerms()));
   const offExit = onTermExit((id, code) => c.emit("pty.exit", { id, code }));
@@ -177,6 +191,7 @@ export function serve(c: Channel) {
     offExit();
     offSessions();
     offJobs();
+    offOutbox();
   });
 }
 

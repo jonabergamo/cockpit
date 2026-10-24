@@ -133,7 +133,18 @@ export function readRow<T>(key: string): T | undefined {
   const row = db.prepare("select value from settings where key = ?").get(key) as { value: string } | undefined;
   return row ? (JSON.parse(row.value) as T) : undefined;
 }
-export const writeRow = (key: string, value: unknown) => db.prepare("insert or replace into settings (key, value) values (?, ?)").run(key, JSON.stringify(value));
+export const writeRow = (key: string, value: unknown) => {
+  const r = db.prepare("insert or replace into settings (key, value) values (?, ?)").run(key, JSON.stringify(value));
+  if (key === "plugins") changed();
+  return r;
+};
+
+// the settings and plugins' set up changed, which a hub passes on to its nodes
+const watchers = new Set<() => void>();
+export const onSettingsChanged = (fn: () => void) => (watchers.add(fn), () => void watchers.delete(fn));
+const changed = () => {
+  for (const fn of watchers) fn();
+};
 
 // Once, for settings saved before the sidebar went from 13 core screens to 8. Worktrees, Workflows, Your week and
 // Usage became tabs and keep their ids, so a hidden one now hides its tab. "/report" was the Sprint report and is now
@@ -163,6 +174,7 @@ export function putSettings(patch: unknown) {
   const next = schema.parse({ ...getSettings(), ...(patch as object) });
   const put = db.prepare("insert or replace into settings (key, value) values (?, ?)");
   for (const [k, v] of Object.entries(next)) put.run(k, JSON.stringify(v));
+  changed();
   return next;
 }
 
