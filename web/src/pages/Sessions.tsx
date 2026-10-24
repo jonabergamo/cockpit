@@ -23,6 +23,8 @@ export interface SaidHit {
   cwd: string | null;
   lastTs: string | null;
   hits: { entryId: string; ts: string; role: string; snippet: string }[];
+  // the machine it was found on, when that's a node
+  node?: string;
 }
 
 export const useSaid = (q: string) =>
@@ -57,7 +59,10 @@ function Said({ q }: { q: string }) {
               <span className="font-medium truncate flex-1">{s.title ?? s.id.slice(0, 8)}</span>
               <span className="text-[12px] text-muted shrink-0">{s.lastTs ? ago(Date.parse(s.lastTs)) : ""}</span>
             </div>
-            <div className="text-[12px] text-faint truncate">{shortPath(s.cwd ?? "")}</div>
+            <div className="text-[12px] text-faint truncate">
+              {s.node ? `${s.node}: ` : ""}
+              {shortPath(s.cwd ?? "")}
+            </div>
             {s.hits.map((h) => (
               <div key={h.entryId} className="text-[13px] text-muted mt-1 line-clamp-2">
                 <span className="text-faint">{h.role === "user" ? "You: " : "Claude: "}</span>
@@ -114,6 +119,7 @@ export function SessionsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="truncate font-medium">{s.title ?? s.lastPrompt ?? s.id.slice(0, 8)}</div>
                       <div className="truncate text-[12px] text-muted">
+                        {s.node ? `${s.node}: ` : ""}
                         {shortPath(s.cwd)}
                         {s.branch ? ` on ${s.branch}` : ""}
                       </div>

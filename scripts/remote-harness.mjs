@@ -3,7 +3,7 @@
 // up, goes down when the node stops, and comes back when it starts again. Run it after a build:
 // `node scripts/remote-harness.mjs`.
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,8 +13,28 @@ const ports = { hub: 18780, node: 18790, link: 18791 };
 const dirs = { hub: mkdtempSync(join(tmpdir(), "cockpit-hub-")), node: mkdtempSync(join(tmpdir(), "cockpit-node-")) };
 const procs = [];
 
+// each side reads its own Claude folder: the hub an empty one, the node one with a session in it, so what the hub
+// shows of it can only have come over the link
+const SID = "0b5e55ed-0000-4000-8000-00000000c0de";
+const claudeDir = (role) => join(dirs[role], "claude");
+const transcript = join(claudeDir("node"), "projects", "-tmp-harness", `${SID}.jsonl`);
+mkdirSync(join(claudeDir("hub"), "projects"), { recursive: true });
+mkdirSync(join(claudeDir("node"), "projects", "-tmp-harness"), { recursive: true });
+const line = (o) => `${JSON.stringify({ ...o, sessionId: SID, cwd: tmpdir() })}\n`;
+writeFileSync(
+  transcript,
+  line({ type: "user", uuid: "u1", timestamp: "2026-01-02T10:00:00.000Z", message: { role: "user", content: "find the flaky checkout test" } }) +
+    line({ type: "assistant", uuid: "a1", timestamp: "2026-01-02T10:00:05.000Z", message: { role: "assistant", content: [{ type: "text", text: "The flaky one is the checkout spec." }] } }) +
+    line({ type: "ai-title", aiTitle: "Harness session on the node" }),
+);
+const configs = {};
+for (const role of ["hub", "node"]) {
+  configs[role] = join(dirs[role], "config.toml");
+  writeFileSync(configs[role], readFileSync(config, "utf8").replace(/^dir = .*$/m, `dir = "${claudeDir(role)}"`));
+}
+
 function start(role) {
-  const env = { ...process.env, COCKPIT_CONFIG: config, COCKPIT_DATA: dirs[role], COCKPIT_ROLE: role, PORT: String(ports[role]), COCKPIT_TMUX_SOCKET: `cockpit-harness-${role}`, COCKPIT_NODE_PORT: String(ports.link), COCKPIT_NODE_LISTEN: "127.0.0.1" };
+  const env = { ...process.env, COCKPIT_CONFIG: configs[role], COCKPIT_DATA: dirs[role], COCKPIT_ROLE: role, PORT: String(ports[role]), COCKPIT_TMUX_SOCKET: `cockpit-harness-${role}`, COCKPIT_NODE_PORT: String(ports.link), COCKPIT_NODE_LISTEN: "127.0.0.1" };
   const p = spawn(join(root, "server/node_modules/.bin/tsx"), [join(root, "server/src/index.ts")], { cwd: join(root, "server"), env, stdio: ["ignore", "pipe", "pipe"] });
   let log = "";
   p.stdout.on("data", (d) => (log += d));
@@ -98,9 +118,36 @@ try {
   await until("output from while it was away", async () => Math.max(...ticks()) > before + 5, 20_000);
   const after = ticks();
   if (seen.exited) throw new Error("the terminal was reported as exited");
-  if (new Set(after).size !== after.length) throw new Error(`a tick shows twice after reconnecting: ${after.join(",")}`);
-  console.log(`terminal back and current (tick ${Math.max(...after)}, ${seen.resets} clean restarts, nothing twice)`);
+  // the node's tmux client is new, so the screen starts over rather than piling the redraw on the old output
+  // (tmux redraws in pieces, so counting lines in the raw stream says nothing; the copy's dedupe has unit tests)
+  if (seen.resets < 2) throw new Error("the screen wasn't started over after reconnecting");
+  console.log(`terminal back and current (tick ${Math.max(...after)}, ${seen.resets} clean restarts)`);
   ws.close();
+
+  // the node's Claude sessions, through the hub
+  await until("the node's session in the hub's list", async () => (await api("hub", "/sessions")).some((x) => x.id === SID && x.node === "devbox"));
+  const one = await api("hub", `/sessions/${SID}`);
+  if (one.title !== "Harness session on the node" || one.node !== "devbox") throw new Error(`the session came back as ${JSON.stringify(one)}`);
+  const tail = await api("hub", `/sessions/${SID}/entries`);
+  if (!tail.entries.some((e) => e.kind === "assistant" && /checkout spec/.test(e.text))) throw new Error("the transcript didn't come over");
+  // the node builds its search index half a minute after it starts
+  await until("search to find it on the node", async () => (await api("hub", "/sessions/search?q=flaky")).some((h) => h.id === SID && h.node === "devbox"), 60_000);
+  console.log("node's sessions: listed, opened and searched from the hub");
+
+  // following it live: a line written on the node shows up on the hub
+  const live = { entries: [] };
+  const watcher = new WebSocket(`ws://127.0.0.1:${ports.hub}/ws`);
+  watcher.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === "entries" && ev.sessionId === SID) live.entries.push(...ev.entries);
+  };
+  await new Promise((ok) => (watcher.onopen = ok));
+  watcher.send(JSON.stringify({ type: "watch", sessionId: SID, offset: tail.offset }));
+  await new Promise((r) => setTimeout(r, 500));
+  appendFileSync(transcript, line({ type: "assistant", uuid: "a2", timestamp: "2026-01-02T10:01:00.000Z", message: { role: "assistant", content: [{ type: "text", text: "Fixed it, the wait was too short." }] } }));
+  await until("the new line live on the hub", async () => live.entries.some((e) => /wait was too short/.test(e.text ?? "")));
+  watcher.close();
+  console.log("node's session followed live through the hub");
   console.log("remote harness ok");
 } catch (e) {
   failed = true;

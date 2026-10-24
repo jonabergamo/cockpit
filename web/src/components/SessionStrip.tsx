@@ -16,7 +16,9 @@ const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
 // Where it runs: the worktree's name and its repo, or the folder, plus the branch when it says more than main.
 function place(s: Session) {
-  const folder = s.worktree ? `${base(s.worktree.slice(0, s.worktree.lastIndexOf("/")))} · ${base(s.worktree)}` : base(s.cwd);
+  const where = s.worktree ? `${base(s.worktree.slice(0, s.worktree.lastIndexOf("/")))} · ${base(s.worktree)}` : base(s.cwd);
+  // a session on another machine says which
+  const folder = s.node ? `${s.node} · ${where}` : where;
   const branch = s.branch && !["main", "master", "HEAD"].includes(s.branch) && !folder.includes(s.branch) ? s.branch : undefined;
   return { folder, branch };
 }

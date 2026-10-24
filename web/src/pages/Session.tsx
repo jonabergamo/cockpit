@@ -140,7 +140,7 @@ export function SessionPage() {
                   {s.ticket}
                 </Link>
               )}
-              {s?.cwd && <span>{shortPath(s.cwd)}</span>}
+              {s?.cwd && <span>{s.node ? `${s.node}: ` : ""}{shortPath(s.cwd)}</span>}
               {s?.branch && <span className="font-mono text-[12px]">{s.branch}</span>}
               {s?.updatedAt ? <span>{ago(s.updatedAt)}</span> : null}
             </div>

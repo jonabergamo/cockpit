@@ -8,7 +8,12 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import { askOf, sendKeys, sendText } from "../agents.ts";
+import { entriesSince, tailEntries } from "../claude/entries.ts";
+import { searchSessions } from "../claude/search.ts";
+import { listSubagents, localSessions, type ListOpts } from "../claude/sessions.ts";
 import { config, paths } from "../config.ts";
+import { tap } from "../hub.ts";
 import { slugify } from "../util.ts";
 import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
@@ -127,12 +132,24 @@ export function serve(c: Channel) {
     return { mode: s.mode, epoch: s.epoch, start: s.start, tmux: s.tmux };
   });
   c.on("pty.unsub", ({ id }: { id: string }) => (subs.get(id)?.(), subs.delete(id)));
+  // its Claude sessions: the list, a transcript's end and what came after, subagents, and typing into one
+  c.handle("sessions.list", (o: ListOpts) => localSessions(o));
+  c.handle("session.entries", ({ id, agent, bytes }: { id: string; agent?: string; bytes?: number }) => tailEntries(id, agent, bytes).then((r) => r ?? null));
+  c.handle("session.read", ({ id, agent, offset }: { id: string; agent?: string; offset: number }) => entriesSince(id, agent, offset).then((r) => r ?? null));
+  c.handle("session.agents", ({ id }: { id: string }) => listSubagents(id));
+  c.handle("session.ask", ({ id }: { id: string }) => askOf(id));
+  c.handle("session.send", ({ id, text }: { id: string; text: string }) => sendText(id, text));
+  c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => sendKeys(id, keys));
+  c.handle("sessions.search", ({ q, limit, any }: { q: string; limit?: number; any?: boolean }) => searchSessions(q, limit, any));
+  // the live ones as they change, which is what the hub's lists and badges follow
+  const offSessions = tap((ev) => ev.type === "sessions" && c.emit("sessions", ev.sessions));
   const offTerms = onTermsChanged(() => c.emit("terms", localTerms()));
   const offExit = onTermExit((id, code) => c.emit("pty.exit", { id, code }));
   c.onClose(() => {
     for (const off of subs.values()) off();
     offTerms();
     offExit();
+    offSessions();
   });
 }
 

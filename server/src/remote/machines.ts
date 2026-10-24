@@ -8,6 +8,7 @@ import { readRow, writeRow } from "../settings.ts";
 import { slugify } from "../util.ts";
 import { RemoteLink } from "./link.ts";
 import { newToken } from "./protocol.ts";
+import { addSessionLink, removeSessionLink } from "./sessions.ts";
 import { addLink, startRemoteTerms, unlinked } from "./terminals.ts";
 
 db.exec(`
@@ -57,6 +58,7 @@ function open(row: Row) {
   link.onStatus(announce);
   links.set(row.id, { row, link });
   addLink(row.id, link);
+  addSessionLink(row.id, link);
   link.start();
 }
 
@@ -85,6 +87,7 @@ export function removeMachine(id: string) {
   l.link.stop();
   links.delete(id);
   unlinked(id);
+  removeSessionLink(id);
   db.prepare("delete from machines where id = ?").run(id);
   announce();
 }

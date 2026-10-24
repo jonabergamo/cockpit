@@ -237,9 +237,29 @@ function toSession(r: Row): Session {
   };
 }
 
-export function listSessions(opts: { limit?: number; q?: string; ticket?: string; worktree?: string; liveOnly?: boolean } = {}) {
-  const rows = db.prepare<[], Row>("select * from sessions order by last_ts desc").all();
-  let out = rows.map(toSession);
+// Sessions on other machines, which a hub lists next to its own; set once nodes can be reached
+export interface RemoteSessions {
+  list(): Session[];
+  get(id: string): Session | undefined;
+}
+let remote: RemoteSessions | undefined;
+export const useRemoteSessions = (r: RemoteSessions) => void (remote = r);
+
+export type ListOpts = { limit?: number; q?: string; ticket?: string; worktree?: string; liveOnly?: boolean };
+
+// this machine's own, what a node tells its hub
+export function localSessions(opts: ListOpts = {}) {
+  return filterSessions(db.prepare<[], Row>("select * from sessions order by last_ts desc").all().map(toSession), opts);
+}
+
+export function listSessions(opts: ListOpts = {}) {
+  if (!remote) return localSessions(opts);
+  const mine = db.prepare<[], Row>("select * from sessions order by last_ts desc").all().map(toSession);
+  return filterSessions([...mine, ...remote.list()], opts);
+}
+
+function filterSessions(all: Session[], opts: ListOpts) {
+  let out = all;
   if (opts.liveOnly) out = out.filter((s) => s.status !== "ended");
   if (opts.ticket) out = out.filter((s) => s.ticket === opts.ticket);
   if (opts.worktree) out = out.filter((s) => s.worktree === opts.worktree || s.cwd.startsWith(opts.worktree + "/") || s.cwd === opts.worktree);
@@ -254,7 +274,7 @@ export function listSessions(opts: { limit?: number; q?: string; ticket?: string
 
 export function getSession(id: string) {
   const r = getRow.get(id);
-  return r ? toSession(r) : undefined;
+  return r ? toSession(r) : remote?.get(id);
 }
 
 export const sessionFile = (id: string) => getRow.get(id)?.file;

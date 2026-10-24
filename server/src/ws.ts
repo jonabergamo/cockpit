@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientEvent } from "@cockpit/shared";
+import type { ClientEvent, Entry } from "@cockpit/shared";
 import { allowed } from "./auth.ts";
 import { demo } from "./config.ts";
 import { demoSessions } from "./demo.ts";
@@ -8,6 +8,7 @@ import { agentFile, listSessions, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readFrom } from "./claude/transcript.ts";
 import { clients, send } from "./hub.ts";
 import * as term from "./pty.ts";
+import { machineOf, requestOn } from "./remote/sessions.ts";
 
 interface Sub {
   sessionId: string;
@@ -15,6 +16,8 @@ interface Sub {
   file: string;
   offset: number;
   busy: boolean;
+  // a session on a node: what came after the offset is asked of it instead of read here
+  node?: string;
 }
 
 const subs = new Map<WebSocket, Map<string, Sub>>();
@@ -41,6 +44,11 @@ wss.on("connection", (ws) => {
     const mine = subs.get(ws)!;
     switch (ev.type) {
       case "watch": {
+        const node = machineOf(ev.sessionId);
+        if (node) {
+          mine.set(`${ev.sessionId}/${ev.agentId ?? ""}`, { sessionId: ev.sessionId, agentId: ev.agentId, file: "", offset: ev.offset, busy: false, node });
+          break;
+        }
         const file = ev.agentId ? await agentFile(ev.sessionId, ev.agentId) : sessionFile(ev.sessionId);
         if (file) mine.set(`${ev.sessionId}/${ev.agentId ?? ""}`, { sessionId: ev.sessionId, agentId: ev.agentId, file, offset: ev.offset, busy: false });
         break;
@@ -79,9 +87,17 @@ setInterval(async () => {
       if (sub.busy) continue;
       sub.busy = true;
       try {
-        const chunk = await readFrom(sub.file, sub.offset);
-        sub.offset = chunk.offset;
-        const entries = chunk.lines.flatMap((l) => parseLine(l));
+        let entries;
+        if (sub.node) {
+          const r = await requestOn<{ offset: number; entries: Entry[] } | null>(sub.node, "session.read", { id: sub.sessionId, agent: sub.agentId, offset: sub.offset });
+          if (!r) continue;
+          sub.offset = r.offset;
+          entries = r.entries;
+        } else {
+          const chunk = await readFrom(sub.file, sub.offset);
+          sub.offset = chunk.offset;
+          entries = chunk.lines.flatMap((l) => parseLine(l));
+        }
         if (entries.length) send(ws, { type: "entries", sessionId: sub.sessionId, agentId: sub.agentId, entries });
       } catch {
         // file rotated or removed

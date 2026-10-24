@@ -26,6 +26,8 @@ export interface Session {
   waitingFor?: string;
   // shells Claude left running after its turn; the session counts as busy until they end
   background?: number;
+  // the machine it ran on, when that's a node rather than this one
+  node?: string;
 }
 
 export type Entry =

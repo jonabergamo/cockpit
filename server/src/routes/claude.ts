@@ -53,9 +53,17 @@ export const claude = new Hono()
     if (resume) {
       // claude only finds a session from the folder it ran in, so use the one we indexed
       const s = getSession(resume);
-      if (!s?.cwd || !existsSync(s.cwd)) return c.json({ error: "session folder not found" }, 404);
       // a prompt rides along as the first new message of the resumed session
       const args = ["--resume", resume, ...(prompt ? [prompt] : [])];
+      // one that ran on a node resumes there, in the folder it ran in
+      if (s?.node) {
+        try {
+          return c.json(await spawnRemote(s.node, { cwd: s.cwd, command: "claude", args, title: title ?? s.title ?? `resume ${resume.slice(0, 8)}`, session: resume }));
+        } catch (e) {
+          return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 500) as 500);
+        }
+      }
+      if (!s?.cwd || !existsSync(s.cwd)) return c.json({ error: "session folder not found" }, 404);
       return c.json(spawnTerm({ cwd: s.cwd, command: "claude", args, title: title ?? s.title ?? `resume ${resume.slice(0, 8)}`, session: resume }));
     }
 
