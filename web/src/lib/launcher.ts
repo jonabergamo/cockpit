@@ -36,7 +36,8 @@ export const launcher = {
     listeners.add(l);
     return () => void listeners.delete(l);
   },
-  open: () => set({ open: true }),
+  // a mode given starts there instead of on the last one used, like the Terminals page's + always opening on Claude
+  open: (mode?: LaunchMode) => set(mode ? { open: true, mode } : { open: true }),
   close: () => set({ open: false }),
   setMode(mode: LaunchMode) {
     write(MODE, mode);

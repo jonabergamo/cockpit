@@ -128,7 +128,7 @@ export function TerminalsPage() {
       <div className="flex items-center h-11 border-b border-line bg-panel shrink-0">
         <div className="flex items-center pl-2 pr-1 h-full border-r border-line shrink-0">
           <button
-            onClick={launcher.open}
+            onClick={() => launcher.open("claude")}
             className="size-8 grid place-items-center rounded-md text-muted hover:text-ink hover:bg-ground"
             title="New terminal: Claude, resume a session or a shell, in any folder"
             aria-label="New terminal"
