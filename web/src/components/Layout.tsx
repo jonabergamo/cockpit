@@ -12,7 +12,6 @@ import { UsageMini } from "./UsageMini";
 import { TerminalLauncher } from "./TerminalLauncher";
 import { RunSomething } from "./RunSomething";
 import { NewTaskModal } from "./NewTask";
-import { RunFlowModal } from "./RunFlow";
 import { AskPanel } from "./AskPanel";
 import { SessionStrip } from "./SessionStrip";
 import { ThemePicker } from "./ThemePicker";
@@ -178,7 +177,6 @@ export function Layout() {
       <CommandPalette nav={nav} />
       <TerminalLauncher />
       <NewTaskModal />
-      <RunFlowModal />
       <RunSomething />
       <AskPanel />
     </div>

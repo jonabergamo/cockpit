@@ -1,5 +1,5 @@
-// Claude Code without its terminal: claude -p, printing stream-json. Tasks on Claude still get the usual terminal;
-// this is for work nobody watches as it happens, like the steps of a flow.
+// Claude Code without its terminal: claude -p, printing stream-json. Tasks on Claude get the usual terminal; this is
+// for a conversation started through the agents API, which runs a turn at a time like any other agent.
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import type { AgentAccess, AgentEvent, AgentProvider } from "@cockpit/shared";

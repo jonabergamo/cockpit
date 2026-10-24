@@ -7,8 +7,7 @@ import { ago, shortPath } from "../lib/format";
 import { useOpenSession } from "../lib/openSession";
 import { useAppConfig, useJobs } from "../lib/queries";
 import { statusLook } from "../lib/status";
-import { agentLabel, asPr } from "../pages/Board";
-import { runFlow } from "./RunFlow";
+import { asPr } from "../pages/Board";
 import { PrBadge } from "../pages/Tickets";
 import { PrFix } from "./PrFix";
 import { ReplyPanel } from "./ReplyPanel";
@@ -53,44 +52,6 @@ function Changes({ root, sessionId }: { root: string; sessionId?: string }) {
         </div>
       ) : (
         <div className="text-[12px] text-muted">{q.isLoading ? "Reading git" : "Nothing uncommitted."}</div>
-      )}
-    </section>
-  );
-}
-
-// Agents working here in the background: a flow's steps, or what its session handed out. And a flow to start here.
-function Helpers({ c }: { c: BoardCard }) {
-  const list = c.helpers ?? [];
-  return (
-    <section className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <h3 className="font-medium text-[13px] flex-1">Background agents</h3>
-        {c.kind === "worktree" && c.path && (
-          <Button size="sm" variant="ghost" onClick={() => runFlow.open({ worktree: c.path })} title="Run one of your flows in this worktree, on its branch">
-            Run a flow here
-          </Button>
-        )}
-      </div>
-      {list.length ? (
-        <ul className="rounded-md border border-line divide-y divide-line">
-          {list.map((h) => (
-            <li key={h.id} className="flex items-center gap-2 px-2.5 h-8 text-[12.5px]">
-              <span className={`size-1.5 rounded-full shrink-0 ${h.status === "busy" ? "bg-cobalt animate-pulse" : "bg-line"}`} />
-              <Link to="/sessions/$id" params={{ id: h.id }} search={{ agent: undefined }} className="truncate flex-1 hover:text-cobalt">
-                {agentLabel(h.agent)}
-                {h.title ? ` · ${h.title}` : ""}
-              </Link>
-              {h.flow && (
-                <Link to="/flows/$id" params={{ id: h.flow }} className="text-[11px] text-cobalt hover:underline shrink-0">
-                  flow
-                </Link>
-              )}
-              <span className="text-[11px] text-faint shrink-0">{h.status === "busy" ? "working" : "done"}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-[12px] text-muted">None right now. A flow run here, or work its Claude session hands to Codex, shows up here instead of as cards of its own.</p>
       )}
     </section>
   );
@@ -497,7 +458,6 @@ export function BoardCardDetail({ c, onClose }: { c: BoardCard; onClose: () => v
         </section>
       )}
 
-      {(!!c.helpers?.length || (c.kind === "worktree" && c.path)) && <Helpers c={c} />}
       {c.ticket && <BudgetEditor ticket={c.ticket} spend={c.spend} />}
       {c.kind === "worktree" && c.path && c.stacked && <Stacked c={c} />}
       {c.kind === "worktree" && c.path && c.pr?.state === "OPEN" && c.pr.checks === "fail" && <CiHere c={c} />}

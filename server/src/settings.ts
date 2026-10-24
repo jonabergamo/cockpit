@@ -19,61 +19,6 @@ const isRegex = (s: string) => {
 };
 
 
-const flowStep = z.object({
-  id: z.string().regex(/^[\w-]+$/).max(40),
-  name: z.string().max(80).optional(),
-  kind: z.enum(["agent", "verify", "human", "tasks"]).optional(),
-  agent: z.string().max(40).optional(),
-  model: z.string().max(60).optional(),
-  prompt: z.string().max(8000).optional(),
-  again: z.string().max(8000).optional(),
-  access: z.enum(["sandbox", "full", "readonly"]).optional(),
-  after: z.array(z.string()).max(20).optional(),
-  when: z.string().max(300).optional(),
-  output: z.enum(["text", "verdict"]).optional(),
-  loop: z.object({ to: z.string(), max: z.number().int().min(1).max(5) }).optional(),
-});
-const flowSchema = z.object({ id: z.string().regex(/^[\w-]+$/).max(40), name: z.string().min(1).max(80), description: z.string().max(400).optional(), steps: z.array(flowStep).min(1).max(20) });
-
-const EXAMPLE_FLOWS: z.infer<typeof flowSchema>[] = [
-  {
-    id: "plan-build-review",
-    name: "Plan, build, review",
-    description: "Claude plans, Codex builds it, the repo's checks run, Claude reviews, and the work goes back to Codex until the review passes (twice at most).",
-    steps: [
-      { id: "plan", name: "Plan", agent: "claude", access: "readonly", prompt: "Plan this change. Read the code it touches first.\n\n{{prompt}}\n\nWrite a short plan: the files to change, what changes in each, and the checks that prove it works. Don't change any files." },
-      { id: "build", name: "Build", agent: "codex", prompt: "Make this change, following the plan.\n\nThe change:\n{{prompt}}\n\nThe plan:\n{{steps.plan.output}}\n\nRun the checks the plan names, fix what fails, and commit.", again: "A review asked for changes:\n\n{{steps.review.output}}\n\nMake them, run the checks again and commit." },
-      { id: "checks", name: "Checks", kind: "verify" },
-      { id: "review", name: "Review", agent: "claude", access: "readonly", output: "verdict", loop: { to: "build", max: 2 }, prompt: "Review the changes on this branch against what was asked. Only raise real problems: bugs, missing pieces, broken checks.\n\nWhat was asked:\n{{prompt}}\n\nThe checks said:\n{{steps.checks.output}}\n\nThe changes:\n{{diff}}" },
-    ],
-  },
-  {
-    id: "second-opinion",
-    name: "Build with a second opinion",
-    description: "The default agent does the work, Claude reviews it, and you decide whether it goes back for changes.",
-    steps: [
-      { id: "build", name: "Build", prompt: "{{prompt}}\n\nRun the checks and commit when it's done.", again: "Address this feedback, run the checks and commit:\n\n{{steps.you.output}}\n\n{{steps.review.output}}" },
-      { id: "review", name: "Review", agent: "claude", access: "readonly", output: "verdict", prompt: "Review the changes on this branch for bugs and missing pieces. What was asked:\n{{prompt}}\n\nThe changes:\n{{diff}}" },
-      { id: "you", name: "Your call", kind: "human", loop: { to: "build", max: 3 } },
-    ],
-  },
-  {
-    id: "codex-builds",
-    name: "Codex builds, checks decide",
-    description: "Codex does the work and fixes what the repo's checks report, up to three times, then a fresh Codex session reviews it.",
-    steps: [
-      { id: "build", name: "Build", agent: "codex", prompt: "{{prompt}}\n\nRun the checks and commit when it's done.", again: "The checks fail:\n\n{{steps.checks.output}}\n\nFix it, run them again and commit." },
-      { id: "checks", name: "Checks", kind: "verify", loop: { to: "build", max: 3 } },
-      { id: "review", name: "Review", agent: "codex", access: "readonly", output: "verdict", prompt: "Review the changes on this branch for bugs and missing pieces. What was asked:\n{{prompt}}\n\nThe changes:\n{{diff}}" },
-    ],
-  },
-  {
-    id: "split-into-tasks",
-    name: "Split into tasks",
-    description: "Claude reads the work and breaks it into tasks that run in parallel, each in a worktree of its own.",
-    steps: [{ id: "split", name: "Split", kind: "tasks", agent: "claude", prompt: "Break this into independent tasks that can be done in parallel without touching the same files. Read the code first.\n\n{{prompt}}" }],
-  },
-];
 
 const schema = z.object({
   // auto works out from the Claude login whether the dollars are a bill or only what the tokens would cost on the API
@@ -107,7 +52,7 @@ const schema = z.object({
       // queued tasks wait while the 5 hour limit is above this
       pauseAbovePct: z.number().int().min(10).max(100).default(85),
       defaultModel: z.string().max(60).default(""),
-      // the coding agent new tasks use; empty is Claude Code
+      // the main coding agent, which tasks are handed to; empty is Claude Code
       defaultAgent: z.string().max(40).default(""),
     })
     .prefault({}),
@@ -131,8 +76,6 @@ const schema = z.object({
         name: z.string().min(1).max(60),
         match: z.string().max(300).default(""),
         vars: z.record(z.string().regex(/^\w+$/), z.string().max(300)).default({}),
-        // the coding agent for this kind of work; empty is Claude Code
-        agent: z.string().max(40).default(""),
         model: z.string().max(60).default(""),
         prompt: z.string().max(4000).default(""),
         autopilot: z.enum(["default", "on", "off"]).default("default"),
@@ -142,8 +85,6 @@ const schema = z.object({
     .default([]),
   // coding agents turned off: left out of the pickers, and work can't be handed to them
   agents: z.object({ off: z.array(z.string().max(40)).max(20).default([]) }).prefault({}),
-  // recipes that pass one piece of work between coding agents, see flows.ts; the ones here are examples to edit
-  flows: z.array(flowSchema).max(30).default(EXAMPLE_FLOWS),
   // what a ticket's sessions may use before cockpit says so, in dollars or, with costs hidden, millions of tokens.
   // 0 is no budget. Tickets can set their own.
   budget: z

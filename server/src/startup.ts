@@ -15,7 +15,6 @@ import { startRuns } from "./runs.ts";
 import { startStacked } from "./stacked.ts";
 import { startStuckWatch } from "./stuck.ts";
 import { startTasks } from "./tasks.ts";
-import { startFlows } from "./flows.ts";
 import { startUsage } from "./usage.ts";
 import { startVerify } from "./verify.ts";
 import { startWeekly } from "./weekly.ts";
@@ -42,7 +41,6 @@ export function startAutomations() {
   startStacked();
   startOvernight();
   startTasks();
-  startFlows();
 }
 
 // what's about you and the screens: tracker snapshots, the weekly digest and the sidebar badges

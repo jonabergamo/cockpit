@@ -180,33 +180,11 @@ db.exec(`
   );
 `);
 
-// flows being run: the recipe as it was when it started, and each step's rounds as JSON
-db.exec(`
-  create table if not exists flow_runs (
-    id text primary key,
-    flow text not null,
-    title text not null,
-    prompt text not null,
-    ticket text,
-    worktree text,
-    branch text,
-    status text not null,
-    steps text not null,
-    created_at integer not null,
-    finished_at integer,
-    error text
-  );
-`);
-
 // columns added after their table first shipped
 const hasColumn = (table: string, column: string) => (db.prepare(`pragma table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
 if (!hasColumn("tasks", "template")) db.exec("alter table tasks add column template text");
 if (!hasColumn("tasks", "on_pr")) db.exec("alter table tasks add column on_pr text");
 if (!hasColumn("tasks", "base")) db.exec("alter table tasks add column base text");
-if (!hasColumn("agent_sessions", "parent")) db.exec("alter table agent_sessions add column parent text");
-if (!hasColumn("flow_runs", "on_pr")) db.exec("alter table flow_runs add column on_pr text");
-if (!hasColumn("flow_runs", "base")) db.exec("alter table flow_runs add column base text");
-if (!hasColumn("flow_runs", "note")) db.exec("alter table flow_runs add column note text");
 if (!hasColumn("tasks", "agent")) db.exec("alter table tasks add column agent text");
 if (!hasColumn("tasks", "overnight")) db.exec("alter table tasks add column overnight integer not null default 0");
 

@@ -115,11 +115,7 @@ export interface NewTask {
   prompt?: string;
   ticket?: string;
   attempts?: number;
-  // the coding agent and model for every attempt; Claude Code when no agent is given
-  agent?: string;
   model?: string;
-  // or one attempt per entry, each with its own agent and model, to compare them
-  lineup?: { agent?: string; model?: string }[];
   dependsOn?: string[];
   // a kind of work by id; without one it's picked by the ticket
   template?: string;
@@ -136,8 +132,7 @@ export async function createTasks(input: NewTask) {
   const title = input.title?.trim();
   if (!title) throw new Error("Give the task a title");
   if (!config.repo.path) throw new Error("Set repo.path in config.local.toml first; tasks get worktrees of that repo");
-  const lineup = input.lineup?.length ? input.lineup.slice(0, 4) : undefined;
-  const attempts = lineup?.length ?? Math.min(Math.max(Math.round(input.attempts ?? 1), 1), 4);
+  const attempts = Math.min(Math.max(Math.round(input.attempts ?? 1), 1), 4);
   let prompt = input.prompt?.trim() ?? "";
   const ticket = input.ticket ? (await statusesOf([input.ticket]).catch(() => []))[0] : undefined;
   const tpl = templateFor({ summary: ticket?.summary ?? title, type: ticket?.type }, input.template);
@@ -153,14 +148,12 @@ export async function createTasks(input: NewTask) {
   const dependsOn = (input.dependsOn ?? []).filter((d) => known.has(d));
   const group = randomUUID().slice(0, 8);
   const s = getSettings().tasks;
+  // the main agent does the work; a kind of work's model is Claude's, so it only counts on Claude
+  const agent = agentId(s.defaultAgent);
+  if (agent && !agentProvider(agent)) throw Object.assign(new Error(`No agent called ${agent}`), { status: 400 });
+  if (agent && agentOff(agent)) throw Object.assign(new Error(`${agentProvider(agent)!.name} is turned off in Settings → Board and automation`), { status: 400 });
+  const model = input.model || (agent ? "" : tpl?.model) || s.defaultModel || undefined;
   for (let i = 1; i <= attempts; i++) {
-    const pick = lineup?.[i - 1] ?? input;
-    // a model only goes with the agent it was given for; Claude's default model isn't Codex's
-    // empty falls back to the kind of work's agent, then the default; "claude" is Claude Code in its terminal
-    const agent = agentId(pick.agent || input.agent || tpl?.agent || s.defaultAgent);
-    if (agent && !agentProvider(agent)) throw Object.assign(new Error(`No agent called ${agent}`), { status: 400 });
-    if (agent && agentOff(agent)) throw Object.assign(new Error(`${agentProvider(agent)!.name} is turned off in Settings → Board and automation`), { status: 400 });
-    const model = pick.model || (agentId(tpl?.agent) === agent ? tpl?.model : "") || (agentId(s.defaultAgent) === agent ? s.defaultModel : "") || undefined;
     insertTask({ id: randomUUID().slice(0, 12), group, title, prompt, ticket: input.ticket || undefined, agent, model, template: tpl?.id, onPr, base, overnight: !!input.overnight || undefined, attempt: i, status: "queued", dependsOn, createdAt: Date.now() + i });
   }
   boardChanged();

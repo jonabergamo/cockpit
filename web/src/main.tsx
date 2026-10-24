@@ -16,7 +16,6 @@ import { SETTINGS_TABS, SettingsPage, type SettingsTab } from "./pages/Settings"
 import { TerminalsPage } from "./pages/Terminals";
 import { TodayPage } from "./pages/Today";
 import { WorkflowPage } from "./pages/Workflows";
-import { FlowRunPage, FlowsPage } from "./pages/Flows";
 import { ReportScreen, SessionsScreen, TicketsScreen, UsageScreen, WeekScreen } from "./pages/Hubs";
 import { listen } from "./lib/live";
 import { show } from "./lib/notifications";
@@ -49,8 +48,6 @@ const routes = [
   createRoute({ getParentRoute: () => root, path: "/sessions/$id", component: SessionPage, validateSearch: (s): { agent?: string } => ({ agent: str(s.agent) }) }),
   moved("/workflows", "/sessions", { tab: "workflows" }),
   createRoute({ getParentRoute: () => root, path: "/workflows/$id", component: WorkflowPage }),
-  createRoute({ getParentRoute: () => root, path: "/flows", component: FlowsPage }),
-  createRoute({ getParentRoute: () => root, path: "/flows/$id", component: FlowRunPage }),
   createRoute({ getParentRoute: () => root, path: "/tickets", component: TicketsScreen, validateSearch: (s): { key?: string; tab?: "worktrees" } => ({ key: str(s.key), tab: s.tab === "worktrees" ? "worktrees" : undefined }) }),
   moved("/worktrees", "/tickets", { tab: "worktrees" }),
   createRoute({ getParentRoute: () => root, path: "/code", component: CodePage, validateSearch: (s): { root?: string; file?: string; diff?: boolean } => ({ root: str(s.root), file: str(s.file), diff: s.diff === true || s.diff === "1" || undefined }) }),

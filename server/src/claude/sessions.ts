@@ -7,7 +7,7 @@ import { db } from "../db.ts";
 import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
 import { day, ticketOf } from "../util.ts";
-import { agentRow, agentRows, helpersOf, type AgentRow } from "../workers/runner.ts";
+import { agentRow, agentRows, type AgentRow } from "../workers/runner.ts";
 import { agentProvider } from "../workers/index.ts";
 import { backgroundShells } from "./background.ts";
 import { readFrom } from "./transcript.ts";
@@ -263,7 +263,6 @@ function agentSession(r: AgentRow): Session {
     agent: r.agent,
     model: r.model ?? undefined,
     tokens: { input: r.tokens_in, output: r.tokens_out },
-    parent: r.parent ?? undefined,
   };
 }
 
@@ -360,10 +359,6 @@ export async function listSubagents(sessionId: string): Promise<Subagent[]> {
   await collect(base);
   const wfs = await readdir(join(base, "workflows")).catch(() => [] as string[]);
   for (const wf of wfs) await collect(join(base, "workflows", wf), wf);
-  // other coding agents it handed work to, through cockpit
-  for (const a of helpersOf(`session:${sessionId}`)) {
-    out.push({ id: a.id, type: agentProvider(a.agent)?.name ?? a.agent, description: a.title ?? "", model: a.model ?? undefined, finished: a.status !== "busy", session: a.id, agent: a.agent });
-  }
   return out;
 }
 

@@ -9,7 +9,7 @@ import { chromium } from "playwright";
 const port = Number(process.env.SMOKE_PORT ?? 8799);
 const base = `http://127.0.0.1:${port}`;
 const data = mkdtempSync(join(tmpdir(), "cockpit-smoke-"));
-const pages = ["/", "/board", "/tasks", "/tasks/g-423", "/sessions", "/workflows", "/tickets", "/worktrees", "/code", "/terminals", "/memory", "/reviews", "/report", "/usage", "/weekly", "/settings", "/settings?tab=machines", "/runs", "/runs?kind=unit&status=fail", "/flows"];
+const pages = ["/", "/board", "/tasks", "/tasks/g-423", "/sessions", "/workflows", "/tickets", "/worktrees", "/code", "/terminals", "/memory", "/reviews", "/report", "/usage", "/weekly", "/settings", "/settings?tab=machines", "/runs", "/runs?kind=unit&status=fail"];
 const phone = ["/settings", "/terminals", "/"];
 
 const server = spawn("pnpm", ["--filter", "server", "start"], {
@@ -41,8 +41,6 @@ try {
   for (const [path, ok] of [
     ["/api/runs", (r) => r.status === 200 && Array.isArray(r.body)],
     ["/api/agents", (r) => r.status === 200 && r.body.some((a) => a.id === "codex")],
-    ["/api/flows", (r) => r.status === 200 && r.body.length > 0 && r.body.every((f) => !f.problem)],
-    ["/api/flows/runs", (r) => r.status === 200 && Array.isArray(r.body)],
     ["/api/runs?kind=unit&status=fail&limit=5", (r) => r.status === 200 && Array.isArray(r.body)],
     ["/api/runs/missing", (r) => r.status === 404],
     ["/api/runs/missing/log", (r) => r.status === 404],

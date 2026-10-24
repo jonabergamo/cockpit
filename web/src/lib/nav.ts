@@ -22,7 +22,6 @@ export const coreNav: NavItem[] = [
   { to: "/board", label: "Work", key: "b", also: ["/tasks"] },
   { to: "/tickets", label: "Tickets", key: "j", also: ["/worktrees"] },
   { to: "/runs", label: "Runs", key: "n" },
-  { to: "/flows", label: "Flows", key: "o" },
   { to: "/terminals", label: "Terminals", key: "x" },
   { to: "/sessions", label: "Sessions", key: "s", also: ["/workflows"] },
   { to: "/reviews", label: "Reviews", key: "v", needs: "codeHost" as const },
@@ -107,7 +106,6 @@ export const place = {
 const details: [string, string][] = [
   ["/workflows/", "Workflow"],
   ["/tasks/", "Task"],
-  ["/flows/", "Flow"],
   ["/runs/", "Run"],
 ];
 

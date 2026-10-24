@@ -125,7 +125,7 @@ What `k` offers:
 | `k.productionBranch()` | The branch that is production, as set on the Sprint report. It's empty when nobody has set it. |
 | `k.tracker(provider)`, `k.codeHost(provider)` | Plugs a work tracker or a code host into cockpit. See below. |
 | `k.reviewSource(provider)` | Adds PRs to the PR reviews queue without replacing the code host. See below. |
-| `k.agent(provider)` | Adds a coding agent that tasks can be handed to. See below. |
+| `k.agent(provider)` | Adds a coding agent that can be picked as the main one. See below. |
 | `k.access(provider)` | Decides which requests from other machines get in. See below. |
 | `k.providers.tracker()`, `k.providers.codeHost()` | The ones in use, possibly from other plugins. |
 
@@ -178,7 +178,7 @@ k.reviewSource({
 
 ## Coding agents
 
-Tasks go to Claude Code by default. Codex and Gemini ship with cockpit as well, and a plugin can add another CLI that works without a terminal and prints JSON lines:
+Tasks go to the main agent, Claude Code by default. Codex and Gemini ship with cockpit as other choices, and a plugin can add another CLI that works without a terminal and prints JSON lines:
 
 ```ts
 k.agent({

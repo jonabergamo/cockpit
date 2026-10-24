@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { AgentInfo, CreateOptions, Flow, FlowRun, NewTicket, Task, Ticket } from "@cockpit/shared";
+import type { CreateOptions, NewTicket, Task, Ticket } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { useAgents, useAppConfig, useTickets } from "../lib/queries";
 import { useSettings } from "../lib/cost";
@@ -22,8 +22,6 @@ const useNewTask = () =>
     () => state,
   );
 
-// one attempt: which agent and model; empty is the default
-type Attempt = { agent: string; model: string };
 
 export function NewTaskModal() {
   const s = useNewTask();
@@ -35,15 +33,14 @@ export function NewTaskModal() {
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [ticket, setTicket] = useState("");
-  const [attempts, setAttempts] = useState<Attempt[]>([{ agent: "", model: "" }]);
-  const agents = useAgents(s.open);
-  // a flow instead of a single agent: its steps pass the work between agents in one worktree
-  const [flow, setFlow] = useState("");
-  const flows = useQuery({ queryKey: ["flows"], queryFn: () => api.get<Flow[]>("/flows"), enabled: s.open });
+  const [attempts, setAttempts] = useState<"1" | "2" | "3">("1");
+  const [model, setModel] = useState("");
   const [kind, setKind] = useState("");
   const base = cfg.data?.baseBranch ?? "main";
   const settings = useSettings().data?.settings;
   const kinds = settings?.templates ?? [];
+  // the main agent's models; Settings says which agent that is
+  const main = useAgents(s.open).data?.find((a) => a.id === (settings?.tasks.defaultAgent || "claude"));
   const [after, setAfter] = useState("");
   const [onPr, setOnPr] = useState("");
   const [overnight, setOvernight] = useState(false);
@@ -88,16 +85,7 @@ export function NewTaskModal() {
         setDraft(null);
         qc.invalidateQueries({ queryKey: ["tickets"] });
       }
-      if (flow) {
-        const run = await api.post<FlowRun>("/flows/runs", { flow, title, prompt, ticket: key || undefined, from: onPr.trim() || undefined });
-        newTask.close();
-        setTitle("");
-        setPrompt("");
-        navigate({ to: "/flows/$id", params: { id: run.id } });
-        return;
-      }
-      const lineup = attempts.map((a) => ({ agent: a.agent || undefined, model: a.model || undefined }));
-      await api.post<Task[]>("/tasks", { title, prompt, ticket: key || undefined, lineup, template: kind || undefined, dependsOn: after ? [after] : [], onPr: onPr.trim() || undefined, overnight: overnight || undefined });
+      await api.post<Task[]>("/tasks", { title, prompt, ticket: key || undefined, attempts: Number(attempts), model: model || undefined, template: kind || undefined, dependsOn: after ? [after] : [], onPr: onPr.trim() || undefined, overnight: overnight || undefined });
       await Promise.all([qc.invalidateQueries({ queryKey: ["board"] }), qc.invalidateQueries({ queryKey: ["tasks"] })]);
       newTask.close();
       setTitle("");
@@ -119,7 +107,7 @@ export function NewTaskModal() {
           submit();
         }}
       >
-        <p className="text-muted">Cockpit makes a worktree and branch for it and starts a coding agent there. With more than one attempt, each gets its own, so you can keep the best, or compare agents.</p>
+        <p className="text-muted">Cockpit makes a worktree and branch for it and starts {main?.name ?? "Claude"} there. With more than one attempt, each gets its own, so you can keep the best.</p>
         {cfg.data?.tracker && (!!tickets.data?.tickets.length || !!createOpts.data) && (
           <div className="space-y-1">
             <span className="block text-muted">Ticket (optional)</span>
@@ -164,23 +152,12 @@ export function NewTaskModal() {
             </span>
           )}
         </label>
-        {!!flows.data?.length && (
-          <label className="block space-y-1">
-            <span className="text-muted">Run it as</span>
-            <select value={flow} onChange={(e) => setFlow(e.target.value)} className={`${inputClass} w-full`}>
-              <option value="">A task, with the agents below</option>
-              {flows.data.map((f) => (
-                <option key={f.id} value={f.id}>
-                  Flow: {f.name}
-                </option>
-              ))}
-            </select>
-            {flow && <span className="block text-[12px] text-faint">{flows.data.find((f) => f.id === flow)?.description}</span>}
-          </label>
-        )}
-        {!flow && <Attempts value={attempts} onChange={setAttempts} agents={(agents.data ?? []).filter((a) => a.installed && a.enabled)} fallback={settings?.tasks.defaultAgent || "claude"} />}
         <div className="flex flex-wrap items-end gap-4">
-          {!flow && kinds.length > 0 && (
+          <div className="space-y-1">
+            <span className="block text-muted">Attempts</span>
+            <Tabs value={attempts} onChange={setAttempts} items={[{ value: "1", label: "1" }, { value: "2", label: "2" }, { value: "3", label: "3" }]} />
+          </div>
+          {kinds.length > 0 && (
             <label className="space-y-1">
               <span className="block text-muted">Kind of work</span>
               <select value={kind} onChange={(e) => setKind(e.target.value)} className={inputClass}>
@@ -193,7 +170,18 @@ export function NewTaskModal() {
               </select>
             </label>
           )}
-          {!flow && groups.length > 0 && (
+          <label className="space-y-1">
+            <span className="block text-muted">Model</span>
+            <select value={model} onChange={(e) => setModel(e.target.value)} className={inputClass}>
+              <option value="">Default</option>
+              {(main?.models ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {groups.length > 0 && (
             <label className="space-y-1 flex-1 min-w-[180px]">
               <span className="block text-muted">Start after</span>
               <select value={after} onChange={(e) => setAfter(e.target.value)} className={`${inputClass} w-full`}>
@@ -207,7 +195,7 @@ export function NewTaskModal() {
             </label>
           )}
         </div>
-        <label className={`flex items-start gap-2 text-[13px] cursor-pointer ${flow ? "hidden" : ""}`}>
+        <label className="flex items-start gap-2 text-[13px] cursor-pointer">
           <input type="checkbox" checked={overnight} onChange={(e) => setOvernight(e.target.checked)} className="mt-0.5 size-4 accent-[var(--cobalt)]" />
           <span>
             Overnight
@@ -220,53 +208,11 @@ export function NewTaskModal() {
             Cancel
           </Button>
           <Button variant="primary" disabled={busy || !title.trim() || (!prompt.trim() && !ticket && !draft)}>
-            {busy ? (draft ? "Making the ticket" : "Queueing") : draft ? "Make the ticket and queue it" : flow ? "Start the flow" : overnight ? "Queue for tonight" : attempts.length > 1 ? `Queue ${attempts.length} attempts` : "Queue it"}
+            {busy ? (draft ? "Making the ticket" : "Queueing") : draft ? "Make the ticket and queue it" : overnight ? "Queue for tonight" : Number(attempts) > 1 ? `Queue ${attempts} attempts` : "Queue it"}
           </Button>
         </div>
       </form>
     </Modal>
-  );
-}
-
-// Who works on it: one row per attempt, each an agent and one of its models. The same agent twice gives independent
-// tries; different ones compare agents on the same work.
-function Attempts({ value, onChange, agents, fallback }: { value: Attempt[]; onChange: (a: Attempt[]) => void; agents: AgentInfo[]; fallback: string }) {
-  const set = (i: number, p: Partial<Attempt>) => onChange(value.map((a, j) => (j === i ? { ...a, ...p } : a)));
-  const models = (id: string) => agents.find((a) => a.id === (id || fallback))?.models ?? [];
-  return (
-    <div className="space-y-1">
-      <span className="block text-muted">{value.length > 1 ? `Attempts (${value.length})` : "Agent"}</span>
-      {value.map((a, i) => (
-        <div key={i} className="flex flex-wrap items-center gap-2">
-          <select value={a.agent} onChange={(e) => set(i, { agent: e.target.value, model: "" })} className={inputClass} aria-label="Agent">
-            <option value="">Default ({agents.find((x) => x.id === fallback)?.name ?? fallback})</option>
-            {agents.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-          <select value={a.model} onChange={(e) => set(i, { model: e.target.value })} className={inputClass} aria-label="Model">
-            <option value="">Default model</option>
-            {models(a.agent).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-          {value.length > 1 && (
-            <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="text-[12px] text-muted hover:text-ink" aria-label="Remove this attempt">
-              Remove
-            </button>
-          )}
-        </div>
-      ))}
-      {value.length < 4 && (
-        <button type="button" onClick={() => onChange([...value, { ...value[value.length - 1] }])} className="text-[12px] text-cobalt hover:underline">
-          + Another attempt
-        </button>
-      )}
-    </div>
   );
 }
 

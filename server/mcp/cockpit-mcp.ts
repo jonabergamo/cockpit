@@ -3,7 +3,6 @@
 //   claude mcp add --scope user cockpit -- <tsx> <this file>
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { execFileSync } from "node:child_process";
 import { z } from "zod";
 
 const BASE = (process.env.COCKPIT_URL ?? "http://127.0.0.1:8770").replace(/\/$/, "");
@@ -104,105 +103,17 @@ server.registerTool(
   "start_task",
   {
     description:
-      "Queue work for a new worker: cockpit makes a worktree and branch, then starts a coding agent there with the prompt (Claude Code unless agent says otherwise; see list_agents). attempts > 1 runs that many independent tries to compare; lineup instead runs one try per entry, each with its own agent and model, to compare agents. after = task or group ids it must wait for (a wave). Returns the tasks created.",
+      "Queue work for a new worker: cockpit makes a worktree and branch, then starts the main coding agent (set in cockpit's Settings) there with the prompt. attempts > 1 runs that many independent tries to compare. after = task or group ids it must wait for (a wave). Returns the tasks created.",
     inputSchema: {
       title: z.string().min(1),
       prompt: z.string().optional().describe("What the worker should do and how to check it's done; empty uses the ticket"),
       ticket: z.string().optional(),
       attempts: z.number().int().min(1).max(4).optional(),
-      agent: z.string().optional().describe("claude, codex, gemini... (list_agents); empty is the default"),
-      model: z.string().optional().describe("one of the agent's models from list_agents, e.g. opus or sonnet for claude; empty is its default"),
-      lineup: z
-        .array(z.object({ agent: z.string().optional(), model: z.string().optional() }))
-        .min(1)
-        .max(4)
-        .optional()
-        .describe("one attempt per entry, e.g. [{agent:'claude',model:'opus'},{agent:'codex'}]"),
+      model: z.string().optional().describe("e.g. opus, sonnet, haiku when the main agent is Claude; empty is the default"),
       after: z.array(z.string()).optional(),
     },
   },
-  wrap((a: { title: string; prompt?: string; ticket?: string; attempts?: number; agent?: string; model?: string; lineup?: { agent?: string; model?: string }[]; after?: string[] }) =>
-    call("POST", "/tasks", { ...a, dependsOn: a.after }),
-  ),
-);
-
-server.registerTool(
-  "list_agents",
-  { description: "The coding agents cockpit can start workers with: whether each is installed, its models (the first is the default) and what it's good at.", inputSchema: {} },
-  wrap(async () =>
-    ((await call("GET", "/agents")) as { id: string; name: string; installed: boolean; enabled: boolean; about?: string; models: { id: string }[] }[])
-      .filter((a) => a.enabled)
-      .map((a) => ({ id: a.id, name: a.name, installed: a.installed, about: a.about, models: a.models.map((m) => m.id) })),
-  ),
-);
-
-// this process and the ones above it, so cockpit can tell which Claude session is calling
-function ancestors() {
-  const out: number[] = [];
-  let pid = process.ppid;
-  for (let i = 0; i < 6 && pid > 1; i++) {
-    out.push(pid);
-    try {
-      pid = Number(execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim());
-    } catch {
-      break;
-    }
-  }
-  return out;
-}
-
-server.registerTool(
-  "run_agent",
-  {
-    description:
-      "Hand a piece of work to another coding agent (Codex by default; see list_agents) in this same folder, in the background, like a subagent. It returns at once with the agent's session id; when the agent finishes, what it said is typed into this session as a message, and agent_result reads it any time. Use it to split work: give Codex a focused implementation or a second opinion while you go on. The agent can't see this conversation, so the prompt must say everything: what to do, which files, how to check it. With access readonly it only reads (reviews, investigations); sandbox (the default) lets it edit and run commands in this folder and commit. Agents working in the same folder at once can step on each other, so give them separate files.",
-    inputSchema: {
-      prompt: z.string().min(1),
-      title: z.string().optional().describe("A few words for what it's doing, shown in cockpit"),
-      agent: z.string().optional().describe("codex (the default), claude, ..."),
-      model: z.string().optional(),
-      access: z.enum(["sandbox", "readonly"]).optional(),
-      wait_seconds: z.number().int().min(0).max(110).optional().describe("Wait up to this long for it to finish before returning; for quick asks"),
-    },
-  },
-  wrap(async (a: { prompt: string; title?: string; agent?: string; model?: string; access?: "sandbox" | "readonly"; wait_seconds?: number }) => {
-    const s = (await call("POST", "/agents/sessions", { agent: a.agent || "codex", prompt: a.prompt, title: a.title, model: a.model, access: a.access, cwd: process.cwd(), pids: ancestors() })) as { id: string };
-    return call("GET", `/agents/sessions/${s.id}/result?wait=${a.wait_seconds ?? 0}`);
-  }),
-);
-
-server.registerTool(
-  "agent_result",
-  {
-    description: "How an agent started with run_agent is doing: working, done or failed, with the last thing it said. wait_seconds waits up to that long while it's still working. To ask it something more, use send_message with its id.",
-    inputSchema: { id: z.string(), wait_seconds: z.number().int().min(0).max(110).optional() },
-  },
-  wrap(({ id, wait_seconds }: { id: string; wait_seconds?: number }) => call("GET", `/agents/sessions/${encodeURIComponent(id)}/result?wait=${wait_seconds ?? 0}`)),
-);
-
-server.registerTool(
-  "list_flows",
-  { description: "The flows cockpit can run: recipes of steps that pass one piece of work between coding agents in one worktree (plan, build, check, review, loop back on changes). With runs: true, the runs too, with each step's status.", inputSchema: { runs: z.boolean().optional() } },
-  wrap(async ({ runs }: { runs?: boolean }) => ({
-    flows: ((await call("GET", "/flows")) as { id: string; name: string; description?: string; steps: { id: string; kind?: string; agent?: string }[] }[]).map((f) => ({ id: f.id, name: f.name, description: f.description, steps: f.steps.map((s) => `${s.id}${s.kind && s.kind !== "agent" ? ` (${s.kind})` : s.agent ? ` (${s.agent})` : ""}`) })),
-    ...(runs ? { runs: ((await call("GET", "/flows/runs")) as { id: string; title: string; status: string; steps: { step: string; round: number; status: string }[] }[]).slice(0, 20).map((r) => ({ id: r.id, title: r.title, status: r.status, steps: r.steps.map((s) => `${s.step}#${s.round}: ${s.status}`) })) } : {}),
-  })),
-);
-
-server.registerTool(
-  "start_flow",
-  {
-    description: "Run a flow (see list_flows) on a piece of work: cockpit makes one worktree and runs the flow's steps there, each with its own agent. Returns the run; follow it with list_flows runs: true.",
-    inputSchema: {
-      flow: z.string(),
-      title: z.string().min(1),
-      prompt: z.string().optional().describe("What to do and how to check it's done; empty uses the ticket"),
-      ticket: z.string().optional(),
-      from: z.string().optional().describe("For a new worktree: start on an open PR (link or number) to build on, or another branch; empty is the repo's base branch"),
-      here: z.boolean().optional().describe("Run it in the folder this session works in (its worktree), on the branch that's checked out, instead of making a new worktree. Use it for more work on what's already there, like the next piece of an epic."),
-    },
-  },
-  wrap((a: { flow: string; title: string; prompt?: string; ticket?: string; from?: string; here?: boolean }) => call("POST", "/flows/runs", { ...a, worktree: a.here ? process.cwd() : undefined })),
+  wrap((a: { title: string; prompt?: string; ticket?: string; attempts?: number; model?: string; after?: string[] }) => call("POST", "/tasks", { ...a, dependsOn: a.after })),
 );
 
 server.registerTool("list_tasks", { description: "Every task cockpit has queued or run, newest first, with status, worktree, session and group.", inputSchema: {} }, wrap(() => call("GET", "/tasks")));

@@ -162,7 +162,10 @@ export function AutomationSettings() {
         <Num label="Tasks running at once" value={s.tasks.maxParallel} min={1} max={12} onSave={(n) => put("tasks", { maxParallel: n })} />
         <Num label="Hold new tasks above" help="Of the 5 hour limit, as the status line reports it" value={s.tasks.pauseAbovePct} min={10} max={100} unit="% used" onSave={(n) => put("tasks", { pauseAbovePct: n })} />
         <label className="flex items-center gap-3 text-[13px]">
-          <span className="flex-1">Default agent for tasks</span>
+          <span className="flex-1">
+            <span className="block">Main agent</span>
+            <span className="block text-[12px] text-faint">The coding agent tasks are handed to. Using another one alongside it is up to you, in your own sessions and skills</span>
+          </span>
           <select value={s.tasks.defaultAgent || "claude"} onChange={(e) => put("tasks", { defaultAgent: e.target.value === "claude" ? "" : e.target.value, defaultModel: "" })} className={inputClass}>
             {(agents.data ?? [{ id: "claude", name: "Claude Code", installed: true, enabled: true }]).filter((a) => (a.installed && a.enabled) || a.id === (s.tasks.defaultAgent || "claude")).map((a) => (
               <option key={a.id} value={a.id}>
@@ -172,7 +175,7 @@ export function AutomationSettings() {
           </select>
         </label>
         <label className="flex items-center gap-3 text-[13px]">
-          <span className="flex-1">Default model for tasks</span>
+          <span className="flex-1">Its model for tasks</span>
           <select value={s.tasks.defaultModel} onChange={(e) => put("tasks", { defaultModel: e.target.value })} className={inputClass}>
             <option value="">The agent's own default</option>
             {(agents.data?.find((a) => a.id === (s.tasks.defaultAgent || "claude"))?.models ?? []).map((m) => (
@@ -277,7 +280,7 @@ function CodingAgents({ off, onChange }: { off: string[]; onChange: (off: string
     <div className="space-y-2.5">
       <h3 className="text-[12px] text-faint uppercase tracking-wide">Coding agents</h3>
       <p className="text-[12px] text-faint">
-        Tasks, flows and the lead can hand work to any of these. Besides Claude Code they run a turn at a time without a terminal: follow up from the session's page, or open it in the agent's own screen. Each needs installing and logging in on the machine the automations run on.
+        Any of these can be the main agent. Besides Claude Code they run a turn at a time without a terminal: follow up from the session's page, or open it in the agent's own screen. Each needs installing and logging in on the machine the automations run on.
       </p>
       {agents.data.map((a) => (
         <div key={a.id} className="flex items-center gap-3 text-[13px]">

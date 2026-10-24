@@ -23,7 +23,6 @@ import { repoNode, requestWork } from "./remote/work.ts";
 import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
 import { tasks } from "./routes/tasks.ts";
 import { agents } from "./routes/agents.ts";
-import { flows } from "./routes/flows.ts";
 import { claude } from "./routes/claude.ts";
 import { code } from "./routes/code.ts";
 import { report } from "./routes/report.ts";
@@ -225,7 +224,6 @@ const api = new Hono()
   .route("/code", code)
   .route("/tasks", tasks)
   .route("/agents", agents)
-  .route("/flows", flows)
   .route("/report", report)
   .route("/runs", runs)
   .route("/", work);

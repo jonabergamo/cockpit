@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import type { Session } from "@cockpit/shared";
 import { sendText } from "./agents.ts";
-import { inFlow } from "./flows.ts";
 import { boardChanged, matchWorker } from "./board.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { config } from "./config.ts";
@@ -99,7 +98,6 @@ export function startVerify() {
     if (event !== "session.idle" || !config.repo.verifyCommand || !getSettings().verify.auto) return;
     const s = data as Session;
     const wt = (await listWorktrees(false)).find((w) => !w.main && (s.cwd === w.path || s.cwd?.startsWith(w.path + "/")));
-    // a flow runs its checks as one of its steps
-    if (wt && !inFlow(wt.path)) runVerify(wt.path).catch((e) => console.error("verify", e));
+    if (wt) runVerify(wt.path).catch((e) => console.error("verify", e));
   });
 }

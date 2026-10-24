@@ -1,6 +1,6 @@
-// Coding agents besides Claude Code's own terminal: CLIs like Codex or Gemini that cockpit runs one turn at a time
-// without a terminal, reading what they print as JSON lines. Claude Code is one of them too, for work that runs
-// unattended (flows); a task on Claude still gets its usual terminal.
+// Coding agents besides Claude Code's own terminal: CLIs like Codex or Gemini that can be picked as cockpit's main
+// agent. Cockpit runs them a turn at a time without a terminal, reading what they print as JSON lines. A task on
+// Claude still gets its usual terminal.
 
 // how much an agent may do on its own: write in its folder and run commands there (sandbox), anything (full), or
 // only read (readonly, for reviews and plans)

@@ -33,9 +33,6 @@ export interface Session {
   model?: string;
   // what it used, for agents that count tokens rather than dollars
   tokens?: { input: number; output: number };
-  // what it works for in the background, so it's shown under that rather than on its own: "flow:<run>" or
-  // "session:<the Claude session that handed it the work>"
-  parent?: string;
 }
 
 export type Entry =
@@ -64,9 +61,6 @@ export interface Subagent {
   finished: boolean;
   workflowRun?: string;
   phase?: string;
-  // another coding agent the session handed work to: its own session in cockpit, and which agent it is
-  session?: string;
-  agent?: string;
 }
 
 export interface WorkflowAgent {
@@ -344,7 +338,6 @@ export const ticketUrl = (base: string, key: string) => `${base.replace(/\/$/, "
 export * from "./themes.ts";
 export * from "./plugin.ts";
 export * from "./agents.ts";
-export * from "./flows.ts";
 
 // What a running session is showing, for answering it without opening its terminal
 export interface Ask {
@@ -382,8 +375,6 @@ export interface BoardCard {
   autopilot?: { on: boolean; attempts: number; gaveUp: boolean; note?: string };
   task?: { id: string; group: string; status: TaskStatus; attempt: number; title: string };
   stuck?: string;
-  // coding agents working in its folder in the background: a flow's steps, or what its session handed out
-  helpers?: { id: string; agent: string; title?: string; status: SessionStatus; flow?: string }[];
   // the teammate's PR its work is built on, and whether that PR moved on since
   stacked?: { pr: number; url: string; title?: string; author?: string; branch: string; target?: string; state: "open" | "moved" | "merged" | "closed" | "gone"; note?: string };
   // what the ticket's sessions cost so far, against its budget when it has one

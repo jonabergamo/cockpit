@@ -47,8 +47,6 @@ function prLabel(c: BoardCard) {
   return { tone: "plain" as const, text: p.isDraft ? "draft" : p.checks === "pending" ? "checks running" : "in review" };
 }
 
-export const agentLabel = (id: string) => ({ codex: "Codex", gemini: "Gemini", claude: "Claude" })[id] ?? id;
-
 function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
   const s = c.session;
   return (
@@ -63,21 +61,6 @@ function Card({ c, onOpen }: { c: BoardCard; onOpen: () => void }) {
         {c.node && <span className="shrink-0 text-faint">on {c.node}</span>}
       </div>
       <div className={`text-[12px] ${tone(c)} truncate`}>{c.stuck ? `Stuck: ${c.stuck}` : c.reason}</div>
-      {!!c.helpers?.some((h) => h.status === "busy") && (
-        <div className="flex flex-col gap-0.5 text-[12px] text-cobalt min-w-0">
-          {c.helpers
-            .filter((h) => h.status === "busy")
-            .map((h) => (
-              <span key={h.id} className="flex items-center gap-1.5 min-w-0">
-                <span className="size-1.5 rounded-full bg-cobalt animate-pulse shrink-0" />
-                <span className="truncate">
-                  {agentLabel(h.agent)}
-                  {h.title ? ` · ${h.title}` : ""}
-                </span>
-              </span>
-            ))}
-        </div>
-      )}
       <div className="flex flex-wrap items-center gap-1">
         {c.pr && (
           <Tag tone={prLabel(c).tone}>

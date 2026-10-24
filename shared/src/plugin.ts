@@ -354,7 +354,7 @@ export interface Cockpit {
   // types a message into a running Claude session cockpit hosts, and presses Enter; false when it can't reach it
   sendToSession(sessionId: string, text: string): Promise<boolean>;
   // queues work for a new worker: a worktree and branch, then Claude with the prompt
-  task(t: { title: string; prompt?: string; ticket?: string; attempts?: number; agent?: string; model?: string; dependsOn?: string[] }): Promise<Task[]>;
+  task(t: { title: string; prompt?: string; ticket?: string; attempts?: number; model?: string; dependsOn?: string[] }): Promise<Task[]>;
   // a shell command whose output streams to cockpit's job log
   job(label: string, command: string, cwd?: string): Promise<{ code: number; output: string }>;
   onStop(fn: () => void): void;
@@ -376,7 +376,7 @@ export interface Cockpit {
   // adds to the PR reviews queue without replacing the code host
   reviewSource(s: ReviewSource): void;
   access(a: AccessProvider): void;
-  // another coding agent cockpit can hand work to, run a turn at a time without a terminal (see AgentProvider)
+  // another coding agent that can be picked as the main one, run a turn at a time without a terminal (see AgentProvider)
   agent(a: AgentProvider): void;
   // runs on the Runs screen: record one as it goes (start, then events) or in one go once it's over
   runs: {

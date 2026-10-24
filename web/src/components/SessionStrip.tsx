@@ -42,8 +42,7 @@ function useIdleAlerts(sessions: Session[]) {
 
 export function SessionStrip() {
   const cost = useCost();
-  // agents working in the background for a flow or a session show there, not up here
-  const sessions = useLiveSessions().filter((s) => !s.parent);
+  const sessions = useLiveSessions();
   const openSession = useOpenSession();
   const [opening, setOpening] = useState<string>();
   const [replying, setReplying] = useState<Session>();
