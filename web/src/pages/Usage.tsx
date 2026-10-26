@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { RefreshButton, useRefreshing } from "../components/RefreshButton";
@@ -7,6 +8,7 @@ import { api } from "../lib/api";
 import { ago, until, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { useTokens } from "./Report";
+import { useClaudeMain } from "../lib/agent";
 
 interface Limit {
   pct?: number;
@@ -14,6 +16,8 @@ interface Limit {
 }
 
 interface UsageRes {
+  // claude has dollars and its status line's limits; codex has tokens and its own files' limits
+  agent: "claude" | "codex";
   plan: { seatTier?: string; rateLimitTier?: string; billingType?: string };
   limits: { latest?: { at: number; five: Limit; seven: Limit }; series: { at: number; five: number; seven: number }[] };
   totals: {
@@ -26,7 +30,12 @@ interface UsageRes {
   days: { date: string; costUSD: number; tokens: number; output: number }[];
   models: { model: string; input: number; output: number; cacheRead: number; cacheWrite: number; requests: number }[];
   heat: number[][];
-  top: { sessions: { id: string; title: string; folder?: string; costUSD: number }[]; folders: { name: string; costUSD: number }[]; tickets: { name: string; costUSD: number }[] };
+  // with tokens set, the lists rank by tokens and costUSD holds the same number
+  top: {
+    sessions: { id: string; title: string; folder?: string; costUSD: number; tokens?: number; linked?: boolean }[];
+    folders: { name: string; costUSD: number; tokens?: number }[];
+    tickets: { name: string; costUSD: number; tokens?: number }[];
+  };
   indexing: boolean;
   hasLimitsFile: boolean;
 }
@@ -52,8 +61,9 @@ function Gauge({ label, limit }: { label: string; limit?: Limit }) {
 }
 
 // Hidden costs leave the token count as the headline
-function Stat({ label, cost, tokens }: { label: string; cost: number; tokens: number }) {
-  const c = useCost();
+function Stat({ label, cost, tokens, noDollars }: { label: string; cost: number; tokens: number; noDollars?: boolean }) {
+  const real = useCost();
+  const c = noDollars ? { ...real, hidden: true } : real;
   return (
     <div className="bg-panel border border-line rounded-lg px-4 py-3" title={c.hidden ? undefined : c.hint}>
       <div className="text-[22px] font-semibold tracking-tight leading-none">{c.hidden ? tok(tokens) : usd(cost) || "$0.00"}</div>
@@ -97,7 +107,7 @@ function Heatmap({ heat }: { heat: number[][] }) {
   );
 }
 
-function TopList({ title, items }: { title: string; items: { key: string; label: React.ReactNode; costUSD: number }[] }) {
+function TopList({ title, items, tokens }: { title: string; items: { key: string; label: React.ReactNode; costUSD: number }[]; tokens?: boolean }) {
   const cost = useCost();
   const max = Math.max(0.01, ...items.map((i) => i.costUSD));
   return (
@@ -108,7 +118,7 @@ function TopList({ title, items }: { title: string; items: { key: string; label:
           <div key={i.key} className="text-[13px]">
             <div className="flex gap-2">
               <span className="flex-1 truncate">{i.label}</span>
-              {!cost.hidden && <span className="text-muted">{usd(i.costUSD)}</span>}
+              {tokens ? <span className="text-muted">{tok(i.costUSD)}</span> : !cost.hidden && <span className="text-muted">{usd(i.costUSD)}</span>}
             </div>
             <div className="h-1 rounded-full bg-ground mt-0.5">
               <div className="h-full rounded-full bg-cobalt" style={{ width: `${(i.costUSD / max) * 100}%` }} />
@@ -172,11 +182,37 @@ function WhereTokensGo() {
   );
 }
 
+// which agent's usage the page shows, kept per browser
+const AGENT_KEY = "cockpit.usage.agent";
+const savedAgent = () => {
+  try {
+    return localStorage.getItem(AGENT_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export function UsagePage() {
-  const q = useQuery({ queryKey: ["usage"], queryFn: () => api.get<UsageRes>("/usage?days=30") });
+  const claudeMain = useClaudeMain();
+  const agents = useQuery({ queryKey: ["usage-agents"], queryFn: () => api.get<string[]>("/usage/agents"), staleTime: 5 * 60_000 });
+  const [picked, setPicked] = useState(savedAgent);
+  const offered = agents.data ?? [];
+  // what was picked here before, else the main agent, else whichever has something
+  const agent = (picked && offered.includes(picked) ? picked : offered.includes(claudeMain ? "claude" : "codex") ? (claudeMain ? "claude" : "codex") : offered[0]) ?? "claude";
+  const pick = (a: string) => {
+    setPicked(a);
+    try {
+      localStorage.setItem(AGENT_KEY, a);
+    } catch {}
+  };
+  const q = useQuery({ queryKey: ["usage", agent], queryFn: () => api.get<UsageRes>(`/usage?days=30&agent=${agent}`), enabled: !!agents.data });
   const t = useTokens();
-  const cost = useCost();
+  const real = useCost();
   const u = q.data;
+  const codex = u?.agent === "codex";
+  // Codex says nothing of dollars, so its numbers are tokens
+  const cost = codex ? { ...real, hidden: true } : real;
+  const name = codex ? "Codex" : "Claude Code";
   const refreshing = useRefreshing(["usage"]);
 
   const tooltip = { background: t.raised, border: `1px solid ${t.line}`, borderRadius: 6, color: t.ink, fontSize: 13 };
@@ -191,12 +227,21 @@ export function UsagePage() {
               {[u.plan.seatTier, u.plan.rateLimitTier].filter(Boolean).map((x) => (
                 <Tag key={x}>{x!.replace(/_/g, " ")}</Tag>
               ))}
-              <span>Last 30 days of Claude Code on this machine</span>
-              {u.indexing && <Tag tone="amber">still reading older transcripts</Tag>}
+              <span>Last 30 days of {name} on this machine</span>
+              {u.indexing && <Tag tone="amber">still reading older {codex ? "sessions" : "transcripts"}</Tag>}
             </span>
           ) : undefined
         }
       >
+        {offered.length > 1 && (
+          <div className="tabbar flex gap-1" role="tablist">
+            {offered.map((a) => (
+              <button key={a} role="tab" aria-selected={a === agent} onClick={() => pick(a)} className={`px-2.5 h-7 rounded-md text-[13px] ${a === agent ? "bg-panel border border-line text-ink" : "text-muted hover:text-ink"}`}>
+                {a === "codex" ? "Codex" : "Claude Code"}
+              </button>
+            ))}
+          </div>
+        )}
         <RefreshButton targets={[{ key: ["usage"] }]} />
       </PageHeader>
       {q.isLoading && <Loading what="Adding up tokens" />}
@@ -205,38 +250,49 @@ export function UsagePage() {
       {u && (
         <>
           <div className={`grid grid-cols-2 lg:grid-cols-5 gap-3 rounded-lg ${refreshing ? "wave" : ""}`}>
-            <Gauge label="of the 5 hour window" limit={u.limits.latest?.five} />
+            {/* a Codex plan can have only one of the windows */}
+            {(!codex || u.limits.latest?.five.pct !== undefined) && <Gauge label="of the 5 hour window" limit={u.limits.latest?.five} />}
             <Gauge label="of the weekly limit" limit={u.limits.latest?.seven} />
-            <Stat label="Today" cost={u.totals.today.costUSD} tokens={u.totals.today.tokens} />
-            <Stat label="This week" cost={u.totals.week.costUSD} tokens={u.totals.week.tokens} />
-            <Stat label="This month" cost={u.totals.month.costUSD} tokens={u.totals.month.tokens} />
+            <Stat label="Today" cost={u.totals.today.costUSD} tokens={u.totals.today.tokens} noDollars={codex} />
+            <Stat label="This week" cost={u.totals.week.costUSD} tokens={u.totals.week.tokens} noDollars={codex} />
+            <Stat label="This month" cost={u.totals.month.costUSD} tokens={u.totals.month.tokens} noDollars={codex} />
           </div>
+          {codex ? (
+            <p className="text-[12px] text-muted -mt-2">
+              {u.limits.latest ? `Plan limits last read ${ago(u.limits.latest.at)} from Codex's own session files; they update after each Codex turn, wherever it ran.` : "Plan limits show up after Codex's next turn."}{" "}
+              Codex doesn't say what tokens cost, so this page counts tokens. Input and cached input are counted apart, as for Claude Code.
+            </p>
+          ) : (
           <p className="text-[12px] text-muted -mt-2">
             {u.limits.latest ? `Plan limits last read ${ago(u.limits.latest.at)} from the status line. They only update while a session is open.` : "Plan limits show up once a session's status line has run with the cockpit hook."}
             {cost.hidden ? " " : cost.real ? " Dollars are Claude Code's own totals for these tokens. " : " API value is what these tokens would cost at API prices, from Claude Code's own totals. Your plan doesn't charge it. "}
             Token counts come from the transcripts, which leave out
             its background calls (titles, recaps), so they run a few percent low.
           </p>
+          )}
 
-          {!cost.hidden && (
+          {/* dollars per day, or tokens per day when there are none to show */}
           <section className="bg-panel border border-line rounded-lg p-4">
             <div className="flex items-baseline gap-3 mb-2">
-              <h2 className="font-semibold flex-1">{cost.label} per day</h2>
-              <span className="text-[13px] text-muted">{usd(u.totals.range.costUSD)} over the range</span>
+              <h2 className="font-semibold flex-1">{cost.hidden ? "Tokens" : cost.label} per day</h2>
+              <span className="text-[13px] text-muted">{cost.hidden ? `${tok(u.days.reduce((n, d) => n + d.tokens, 0))} tokens` : usd(u.totals.range.costUSD)} over the range</span>
             </div>
-            <div className="h-[220px]" role="img" aria-label={`Claude Code ${cost.label} per day`}>
+            <div className="h-[220px]" role="img" aria-label={`${name} ${cost.hidden ? "tokens" : cost.label} per day`}>
               <ResponsiveContainer>
                 <BarChart data={u.days.map((d) => ({ ...d, label: shortDate(d.date) }))} margin={{ top: 8, right: 8, bottom: 0, left: -12 }} barCategoryGap={3}>
                   <CartesianGrid stroke={t.line} vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: t.muted, fontSize: 11 }} axisLine={{ stroke: t.line }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: t.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
-                  <Tooltip contentStyle={tooltip} cursor={{ fill: t.line, opacity: 0.4 }} formatter={(v, _n, p) => [`${usd(Number(v))} · ${tok(p.payload.tokens)} tokens`, cost.label]} />
-                  <Bar dataKey="costUSD" fill={t.cobalt} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  <YAxis tick={{ fill: t.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => (cost.hidden ? tok(Number(v)) : `$${v}`)} />
+                  <Tooltip
+                    contentStyle={tooltip}
+                    cursor={{ fill: t.line, opacity: 0.4 }}
+                    formatter={(v, _n, p) => (cost.hidden ? [`${tok(Number(v))} tokens, ${tok(p.payload.output)} of them output`, "Tokens"] : [`${usd(Number(v))} · ${tok(p.payload.tokens)} tokens`, cost.label])}
+                  />
+                  <Bar dataKey={cost.hidden ? "tokens" : "costUSD"} fill={t.cobalt} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </section>
-          )}
 
           <div className="grid lg:grid-cols-2 gap-5 items-start">
             <section className="bg-panel border border-line rounded-lg p-4">
@@ -286,18 +342,24 @@ export function UsagePage() {
           <div className="grid md:grid-cols-3 gap-5 items-start">
             <TopList
               title="Top sessions"
+              tokens={codex}
               items={u.top.sessions.map((s) => ({
                 key: s.id,
                 costUSD: s.costUSD,
-                label: (
-                  <Link to="/sessions/$id" params={{ id: s.id }} className="hover:text-cobalt" title={s.folder}>
-                    {s.title}
-                  </Link>
-                ),
+                // a Codex conversation cockpit didn't run has no page here
+                label:
+                  codex && !s.linked ? (
+                    <span title={s.folder}>{s.title}</span>
+                  ) : (
+                    <Link to="/sessions/$id" params={{ id: s.id }} className="hover:text-cobalt" title={s.folder}>
+                      {s.title}
+                    </Link>
+                  ),
               }))}
             />
             <TopList
               title="Top tickets"
+              tokens={codex}
               items={u.top.tickets.map((x) => ({
                 key: x.name,
                 costUSD: x.costUSD,
@@ -308,13 +370,13 @@ export function UsagePage() {
                 ),
               }))}
             />
-            <TopList title="Top folders" items={u.top.folders.map((x) => ({ key: x.name, costUSD: x.costUSD, label: x.name }))} />
+            <TopList title="Top folders" tokens={codex} items={u.top.folders.map((x) => ({ key: x.name, costUSD: x.costUSD, label: x.name }))} />
           </div>
 
-          <WhereTokensGo />
+          {!codex && <WhereTokensGo />}
 
           <section className="bg-panel border border-line rounded-lg p-4">
-            <h2 className="font-semibold">5 hour window over the last week</h2>
+            <h2 className="font-semibold">{codex && u.limits.latest?.five.pct === undefined ? "Weekly limit" : "5 hour window"} over the last week</h2>
             {u.limits.series.length < 2 ? (
               <p className="text-[13px] text-muted mt-1">This fills in as the status line reports. History starts from when cockpit began saving it.</p>
             ) : (
@@ -324,8 +386,8 @@ export function UsagePage() {
                     <CartesianGrid stroke={t.line} vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: t.muted, fontSize: 11 }} axisLine={{ stroke: t.line }} tickLine={false} interval="preserveStartEnd" />
                     <YAxis domain={[0, 100]} tick={{ fill: t.muted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                    <Tooltip contentStyle={tooltip} formatter={(v) => [`${v}%`, "5 hour window"]} />
-                    <Line type="stepAfter" dataKey="five" stroke={t.cobalt} strokeWidth={2} dot={false} isAnimationActive={false} />
+                    <Tooltip contentStyle={tooltip} formatter={(v) => [`${v}%`, codex && u.limits.latest?.five.pct === undefined ? "Weekly limit" : "5 hour window"]} />
+                    <Line type="stepAfter" dataKey={codex && u.limits.latest?.five.pct === undefined ? "seven" : "five"} stroke={t.cobalt} strokeWidth={2} dot={false} isAnimationActive={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

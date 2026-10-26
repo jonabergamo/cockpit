@@ -16,6 +16,7 @@ import { startStacked } from "./stacked.ts";
 import { startStuckWatch } from "./stuck.ts";
 import { startTasks } from "./tasks.ts";
 import { startUsage } from "./usage.ts";
+import { startCodexUsage } from "./codexUsage.ts";
 import { startVerify } from "./verify.ts";
 import { startWeekly } from "./weekly.ts";
 
@@ -24,6 +25,7 @@ export function startHostServices() {
   startAgentRunner();
   startSessions();
   startUsage();
+  startCodexUsage();
   startSearch();
   startRuns();
   startRecordings();

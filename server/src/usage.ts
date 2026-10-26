@@ -8,6 +8,8 @@ import { readFrom } from "./claude/transcript.ts";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { day } from "./util.ts";
+import { codexIndexing, codexLimits, codexRows, codexTitles, hasCodex, indexCodexUsage } from "./codexUsage.ts";
+import { agentOfNative } from "./workers/runner.ts";
 
 db.exec(`
   create table if not exists usage (
@@ -388,3 +390,100 @@ export async function usageReport(days: number) {
     hasLimitsFile: existsSync(limitsFile),
   };
 }
+
+// --- Codex -----------------------------------------------------------------
+// The same report from Codex's own files: tokens instead of dollars, and its plan's windows. The top lists rank by
+// tokens, which go in costUSD's place with tokens set, so the screen knows what it's showing.
+export async function codexReport(days: number) {
+  days = Math.max(days, 31);
+  await Promise.race([indexCodexUsage(), new Promise((r) => setTimeout(r, 1500))]);
+  const to = day(new Date());
+  const from = day(Date.now() - (days - 1) * 864e5);
+  const rows = codexRows(new Date(Date.now() - days * 864e5).toISOString());
+
+  const perDay = new Map<string, { date: string; costUSD: number; tokens: number; output: number }>();
+  for (let t = Date.parse(`${from}T12:00:00`); day(t) <= to; t += 864e5) perDay.set(day(t), { date: day(t), costUSD: 0, tokens: 0, output: 0 });
+  const models = new Map<string, { model: string; input: number; output: number; cacheRead: number; cacheWrite: number; requests: number }>();
+  const heat = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
+  const bySession = new Map<string, { tokens: number; cwd?: string }>();
+  let input = 0, output = 0, cacheRead = 0;
+  for (const r of rows) {
+    const t = new Date(r.ts);
+    const total = r.input + r.output + r.cache_read;
+    const d = perDay.get(day(t));
+    if (d) {
+      d.tokens += total;
+      d.output += r.output;
+    }
+    const m = models.get(r.model ?? "unknown") ?? { model: r.model ?? "unknown", input: 0, output: 0, cacheRead: 0, cacheWrite: 0, requests: 0 };
+    m.input += r.input;
+    m.output += r.output;
+    m.cacheRead += r.cache_read;
+    m.requests++;
+    models.set(m.model, m);
+    heat[t.getDay()][t.getHours()] += r.output;
+    input += r.input;
+    output += r.output;
+    cacheRead += r.cache_read;
+    if (r.session_id) {
+      const s = bySession.get(r.session_id) ?? { tokens: 0, cwd: r.cwd ?? undefined };
+      s.tokens += total;
+      bySession.set(r.session_id, s);
+    }
+  }
+
+  // a conversation cockpit ran is one of its sessions, with a title and maybe a ticket; any other is its folder
+  const home = homedir();
+  let known: Map<string, ReturnType<typeof listSessions>[number]> | undefined;
+  const ours = (id: string) => {
+    const row = agentOfNative(id);
+    if (!row) return;
+    known ??= new Map(listSessions({ limit: 10_000 }).map((s) => [s.id, s]));
+    return known.get(row.id);
+  };
+  const top = [...bySession].sort((a, b) => b[1].tokens - a[1].tokens);
+  const group = (key: (id: string, cwd?: string) => string | undefined) => {
+    const out = new Map<string, number>();
+    for (const [id, s] of top) {
+      const k = key(id, s.cwd);
+      if (k) out.set(k, (out.get(k) ?? 0) + s.tokens);
+    }
+    return [...out].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, tokens]) => ({ name, costUSD: tokens, tokens }));
+  };
+
+  const titles = await codexTitles();
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  const sumSince = (d: string) => [...perDay.values()].filter((x) => x.date >= d).reduce((a, x) => ({ costUSD: 0, tokens: a.tokens + x.tokens }), { costUSD: 0, tokens: 0 });
+  const limits = codexLimits(Date.now() - 7 * 864e5);
+
+  return {
+    agent: "codex",
+    plan: { seatTier: limits.plan },
+    limits: { latest: limits.latest, series: limits.series },
+    totals: {
+      today: sumSince(to),
+      week: sumSince(day(weekStart)),
+      month: sumSince(`${to.slice(0, 7)}-01`),
+      range: { costUSD: 0, input, output, cacheRead, cacheWrite: 0, requests: rows.length },
+      cacheShare: input + cacheRead ? cacheRead / (input + cacheRead) : 0,
+    },
+    days: [...perDay.values()],
+    models: [...models.values()].sort((a, b) => b.output - a.output),
+    heat,
+    top: {
+      sessions: top.slice(0, 10).map(([id, s]) => {
+        const mine = ours(id);
+        return { id: mine?.id ?? id, linked: !!mine, title: mine?.title ?? titles.get(id) ?? `Codex ${id.slice(0, 8)}`, folder: (mine?.cwd ?? s.cwd)?.replace(home, "~"), costUSD: s.tokens, tokens: s.tokens };
+      }),
+      folders: group((_id, cwd) => cwd?.replace(home, "~")),
+      tickets: group((id) => ours(id)?.ticket),
+    },
+    indexing: codexIndexing(),
+    hasLimitsFile: true,
+  };
+}
+
+// which agents have usage to show here: Claude Code when its folder is there, Codex once it has run
+export const usageAgents = () => [...(existsSync(projectsDir) ? ["claude"] : []), ...(hasCodex() ? ["codex"] : [])];

@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { api } from "../lib/api";
 import { useCost } from "../lib/cost";
 import { until, usd } from "../lib/format";
+import { useClaudeMain } from "../lib/agent";
 
 interface Limit {
   pct?: number;
@@ -33,14 +34,20 @@ function Bar({ label, limit }: { label: string; limit?: Limit }) {
 }
 
 export function UsageMini() {
-  const q = useQuery({ queryKey: ["usage", "summary"], queryFn: () => api.get<Summary>("/usage?days=1"), refetchInterval: 60_000 });
+  // the main agent's plan: Claude Code's from its status line, Codex's from its own files
+  const claudeMain = useClaudeMain();
+  const agent = claudeMain ? "claude" : "codex";
+  const q = useQuery({ queryKey: ["usage", "summary", agent], queryFn: () => api.get<Summary>(`/usage?days=1&agent=${agent}`), refetchInterval: 60_000 });
   const l = q.data?.limits.latest;
   const cost = useCost();
+  // another agent with no reading yet has nothing to show; it fills in after its first turn
+  if (!claudeMain && !l) return null;
   return (
     <Link to="/usage" className="block px-4 py-2.5 border-t border-line text-[12px] text-muted space-y-2 hover:bg-ground">
-      <Bar label="5h" limit={l?.five} />
+      {/* a Codex plan can have only the weekly window */}
+      {(claudeMain || l?.five.pct !== undefined) && <Bar label="5h" limit={l?.five} />}
       <Bar label="7d" limit={l?.seven} />
-      {!cost.hidden && (
+      {claudeMain && !cost.hidden && (
         <div className="flex justify-between pt-0.5" title={cost.hint}>
           <span className="text-faint">{cost.real ? "Cost today" : "API value today"}</span>
           <span className="tabular-nums text-ink">{q.data ? usd(q.data.totals.today.costUSD) || "$0.00" : ""}</span>

@@ -8,7 +8,7 @@ import type { NewTicket } from "@cockpit/shared";
 import { ticketOf } from "../util.ts";
 import { getJob, listJobs, type Job } from "../jobs.ts";
 import { getReview, lastReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
-import { toolReport, usageReport } from "../usage.ts";
+import { codexReport, toolReport, usageAgents, usageReport } from "../usage.ts";
 import { cleanupPlan, type Candidate } from "../cleaner.ts";
 import { archive, board, boardChanged } from "../board.ts";
 import { badges, seen } from "../badges.ts";
@@ -241,7 +241,11 @@ export const work = new Hono()
     return c.json({ ok: true });
   })
   .get("/usage/tools", (c) => c.json(toolReport(Math.min(Math.max(Number(c.req.query("days")) || 30, 1), 365))))
-  .get("/usage", async (c) => c.json(await usageReport(Number(c.req.query("days")) || 30)))
+  .get("/usage", async (c) => {
+    const days = Number(c.req.query("days")) || 30;
+    return c.json(c.req.query("agent") === "codex" ? await codexReport(days) : { agent: "claude", ...(await usageReport(days)) });
+  })
+  .get("/usage/agents", (c) => c.json(usageAgents()))
   .get("/reviews", async (c) => c.json(await listReviews()))
   .post("/reviews/check", async (c) => {
     const pr = parsePr((await c.req.json<{ input: string }>()).input);
