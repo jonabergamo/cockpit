@@ -65,10 +65,10 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 - **Autopilot.** Turn it on for a worktree and its PR's failing checks and requested changes go back to its Claude session, with the check logs and the review comments. After a set number of tries it stops and tells you.
 - **Checks before the PR.** Set `repo.verifyCommand` and cockpit runs it in a worktree each time its session finishes. A failure moves the card to Needs you, with a button that sends the output to Claude.
 - **Tasks.** Queue some work and cockpit creates the worktree and starts the main coding agent there with your prompt. It keeps to a limit on how many tasks run at once, and holds Claude's new ones when the 5-hour limit is nearly used. A task can run up to 4 attempts, which you compare side by side before keeping one. Tasks can wait for other tasks, so a plan runs in waves. They're listed under Queued and attempts on Work.
-- **Main agent.** Claude Code does the work by default. Settings → Board and automation can make the Codex CLI or the Gemini CLI the main agent instead, and a plugin can add more. Those run one turn at a time without a terminal. Their sessions show up with the rest, with the transcript and tokens, and you follow up from the session's page or open the conversation in the agent's own screen. Using a second agent alongside the main one is left to you, in your own sessions and skills.
+- **Main agent.** Claude Code does the work by default. Settings → Board and automation can make the Codex CLI or the Gemini CLI the main agent instead, and a plugin can add more. Tasks on those run one turn at a time without a terminal. Their sessions show up with the rest, with the transcript and tokens, and you follow up from the session's page or open the conversation in the agent's own screen. Everything else that starts an agent opens the main one too: tickets, PR reviews, the lead, autopilot and plugins. Setup then asks for that agent instead of Claude Code, and adds cockpit's tools and skills to it. Using a second agent alongside the main one is left to you, in your own sessions and skills.
 - **A lead session.** Cockpit ships an MCP server and a `cockpit-lead` skill. With them, one Claude session plans the work with you, queues the tasks, watches the workers and answers them.
 - **Review before the PR.** Read a worker's diff, leave notes on its lines and send them all to its session as one message.
-- **Runs.** Tests, lint, typechecks, audits, E2E runs, proofs, verify and CI checks in one list, each linked to its ticket and worktree, with its output, steps and videos. They come from a Claude Code hook, the `cockpit run` wrapper, terminals and plugins. A failed run can be sent to the Claude session that ran it, or run again in a terminal.
+- **Runs.** Tests, lint, typechecks, audits, E2E runs and their videos, verify and CI checks in one list, each linked to its ticket and worktree, with its output, steps and videos. They come from a Claude Code hook, the `cockpit run` wrapper, terminals and plugins. A failed run can be sent to the Claude session that ran it, or run again in a terminal.
 - **Previews.** With `repo.devCommand` set, the Board starts a worktree's dev server on a free port and shows it.
 - **While you were away.** After a break, Today lists what finished, failed or waited for you. The Phone push plugin sends notifications to ntfy or Pushover, plus a second, urgent one for a session left waiting.
 - **Transcripts.** Any session in full, with tool calls, subagents and cost, updating as it runs. Full-text search covers everything said in every session.
@@ -80,7 +80,7 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 - **Reports.** The sprint report has a burnup of released points, the time each ticket spent in each status, Claude cost per ticket and a day-by-day log. The Week tab sums up your week and has a daily update you can polish with Claude. Usage is the third tab.
 - **PR reviews.** Start a Claude review of a pull request, or let Claude fix failed checks and answer review comments.
 - **Memory and skills.** An editor for CLAUDE.md, memories, skills, plans, settings and saved workflows. Every save keeps a backup you can diff and restore. It opens from Settings and ⌘K, and Settings → Screens can put it and Code back in the sidebar.
-- **Usage.** The 5-hour and weekly plan limits, tokens by model and a heatmap of when you use Claude, plus the tools and shell commands that use the most tokens. Cockpit works out from your Claude login whether the dollars are a real bill and labels them "API value" when they aren't. You can also hide them.
+- **Usage.** The 5-hour and weekly plan limits, tokens by model and a heatmap of when you use Claude, plus the tools and shell commands that use the most tokens. Cockpit works out from your Claude login whether the dollars are a real bill and labels them "API value" when they aren't. You can also hide them. Codex gets the same page, read from its own session files: its plan limits, and tokens by day, model, session, ticket and folder. It counts every Codex session on the machine, not only the ones cockpit started.
 - **Themes and fonts.** 26 themes from well-known editor palettes, with 34 more in a plugin. Auto follows the system's light or dark mode. Any font installed on your device can be used for the interface and for code.
 - **Plugins.** They add screens, themes, API routes, event listeners and Claude Code skills, or replace the tracker, the code host or the way in from other devices.
 - **Setup in the app.** Settings → Setup checks every tool, login, token and skill that cockpit and your plugins need. It installs what it safely can and opens a terminal for logins.
@@ -92,13 +92,23 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 
 - Linux or macOS
 - [Node.js 22](https://nodejs.org) and [pnpm](https://pnpm.io)
-- [git](https://git-scm.com) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [git](https://git-scm.com), and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or the [Codex CLI](https://developers.openai.com/codex/cli)
 - [tmux](https://github.com/tmux/tmux). It's optional, but without it terminals don't survive a restart.
 - The CLIs of the plugins you turn on: [`gh`](https://cli.github.com) for GitHub and [`acli`](https://developer.atlassian.com/cloud/acli/) for Jira
 
 You don't need all of it before you start. Once cockpit is running, Settings → Setup shows what's missing.
 
-### Quick start
+### One command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jonabergamo/cockpit/main/install.sh | bash
+```
+
+The installer checks for git, Node.js, pnpm and tmux and installs what's missing, through Homebrew on a Mac. It sets up Codex or Claude Code, whichever you pick, builds cockpit and asks which project you work in. Then it starts cockpit at login and opens it. Run it again to update, or with `--uninstall` to stop it and remove it from your login items. `--help` lists the options, including `--yes` for a setup with no questions.
+
+To share your own plugins with a teammate, run `bin/cockpit plugins pack`. It writes `cockpit-plugins.tgz`, without their saved data or settings. If that file is in their Downloads folder when they run the installer, it offers to add the plugins. `--plugins <file>` points it at the file anywhere else, and `bin/cockpit plugins add <file>` adds them to a cockpit that's already installed.
+
+### By hand
 
 Clone this repository, then:
 

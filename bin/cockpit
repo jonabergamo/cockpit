@@ -10,6 +10,8 @@
 //                                                  moves the hub's part of this cockpit to another machine
 //   cockpit service install|uninstall|status [--role all|hub|node] [--print]
 //                                                  runs cockpit at login: systemd on Linux, launchd on a Mac
+//   cockpit plugins list | pack [id...] [-o file.tgz] | add <file.tgz> [--replace]
+//                                                  your own plugins, packed into one file to share, or added from one
 //
 // runs the command here, streams its output into a run on cockpit's Runs screen, keeps its exit code and exits with
 // it. --artifact files (a report, a screenshot, a video) are kept with the run once the command ends. The kind is
@@ -27,6 +29,7 @@ const usage = [
   "       cockpit node --adopt",
   "       cockpit migrate export [file] | import <file> [--force]",
   "       cockpit service install|uninstall|status [--role all|hub|node] [--print]",
+  "       cockpit plugins list | pack [id...] [-o file.tgz] | add <file.tgz> [--replace]",
 ].join("\n");
 
 async function call(path, body, timeout = 3000) {
@@ -190,13 +193,15 @@ async function service(argv) {
   const role = (i >= 0 ? argv[i + 1] : undefined) ?? (existsSync(cfg) ? readFileSync(cfg, "utf8").match(/^role\s*=\s*"(\w+)"/m)?.[1] : undefined) ?? "all";
   if (!["all", "hub", "node"].includes(role) || !["install", "uninstall", "status"].includes(action)) throw new Error(usage);
   const tsx = join(root, "server/node_modules/.bin/tsx");
-  const pass = Object.fromEntries(["COCKPIT_DATA", "COCKPIT_CONFIG"].filter((k) => process.env[k]).map((k) => [k, process.env[k]]));
+  // cockpit's own settings (COCKPIT_DATA, COCKPIT_TMUX_SOCKET...) and where tmux and the agents keep their files
+  const pass = Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v && k !== "COCKPIT_ROLE" && (k.startsWith("COCKPIT_") || ["TMUX_TMPDIR", "CODEX_HOME", "CLAUDE_CONFIG_DIR"].includes(k))));
   // per-shell folders (fnm's, say) are gone once this shell is, so the node running this goes first instead
   const { realpathSync } = await import("node:fs");
   const { dirname } = await import("node:path");
   const keep = (process.env.PATH ?? "").split(":").filter((p) => p && !p.includes("/fnm_multishells/") && !p.startsWith("/run/user/"));
   const PATH = [...new Set([dirname(realpathSync(process.execPath)), ...keep])].join(":");
-  const env = { PATH, SHELL: process.env.SHELL || "/bin/bash", COCKPIT_ROLE: role, ...pass };
+  // HOME too: launchd hands a service the account's home, which isn't the one this shell uses when it's been moved
+  const env = { PATH, HOME: process.env.HOME || homedir(), SHELL: process.env.SHELL || "/bin/bash", COCKPIT_ROLE: role, ...pass };
   const roles = ["all", "hub", "node"];
   const MARK = "made by cockpit service install";
   const sh = (cmd, args) => {
@@ -291,8 +296,64 @@ WantedBy=default.target
   return 0;
 }
 
+// Your own plugins, packed into one file to hand to someone else, and added from one. Their saved data (the
+// .data folder) and settings stay behind: settings live in cockpit's database, each person fills in their own.
+async function plugins(argv) {
+  const { execFileSync } = await import("node:child_process");
+  const { existsSync, mkdtempSync, readdirSync, readFileSync, cpSync, rmSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const root = await repo();
+  const cfg = process.env.COCKPIT_CONFIG || join(root, "config.local.toml");
+  const set = existsSync(cfg) ? readFileSync(cfg, "utf8").match(/^pluginsDir\s*=\s*"([^"]+)"/m)?.[1] : undefined;
+  const dir = set ? set.replace(/^~/, process.env.HOME) : join(process.env.COCKPIT_DATA || join(root, "data"), "plugins");
+  const ids = (d) => (existsSync(d) ? readdirSync(d).filter((n) => !n.startsWith(".") && existsSync(join(d, n, "plugin.json"))) : []);
+  const [action, ...args] = argv;
+  const flag = (f) => args.includes(f);
+  const out = (() => {
+    const i = args.indexOf("-o");
+    return i >= 0 ? args[i + 1] : undefined;
+  })();
+  const named = args.filter((a, i) => !a.startsWith("-") && args[i - 1] !== "-o");
+
+  if (action === "pack") {
+    const all = ids(dir);
+    const pick = named.length ? named : all;
+    const missing = pick.filter((p) => !all.includes(p));
+    if (missing.length) throw new Error(`No plugin ${missing.join(", ")} in ${dir}. There: ${all.join(", ") || "none"}.`);
+    if (!pick.length) throw new Error(`No plugins of your own in ${dir}.`);
+    const file = resolve(out || "cockpit-plugins.tgz");
+    execFileSync("tar", ["-czf", file, "--exclude=node_modules", "--exclude=.data", "--exclude=.DS_Store", "-C", dir, ...pick]);
+    process.stdout.write(`Packed ${pick.join(", ")} into ${file}.\nThe other side runs: cockpit plugins add ${file.split("/").pop()}\n`);
+    return 0;
+  }
+  if (action === "add") {
+    const [file] = named;
+    if (!file || !existsSync(file)) throw new Error("usage: cockpit plugins add <file.tgz> [--replace]");
+    const tmp = mkdtempSync(join(tmpdir(), "cockpit-plugins-"));
+    try {
+      execFileSync("tar", ["-xzf", resolve(file), "-C", tmp]);
+      const found = ids(tmp);
+      if (!found.length) throw new Error(`${file} has no plugins in it.`);
+      const there = found.filter((p) => existsSync(join(dir, p)));
+      if (there.length && !flag("--replace")) throw new Error(`You have ${there.join(", ")} already. Add --replace to swap them for the ones in ${file}.`);
+      mkdirSync(dir, { recursive: true });
+      for (const p of found) {
+        rmSync(join(dir, p), { recursive: true, force: true });
+        cpSync(join(tmp, p), join(dir, p), { recursive: true });
+      }
+      process.stdout.write(`Added ${found.join(", ")} to ${dir}. A running cockpit picks them up by itself; turn them on in Settings → Plugins.\n`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+    return 0;
+  }
+  if (action === "list" || !action) return process.stdout.write(`${ids(dir).join("\n") || "none"}\n`), 0;
+  throw new Error("usage: cockpit plugins list | pack [id...] [-o file.tgz] | add <file.tgz> [--replace]");
+}
+
 const [sub, ...rest] = process.argv.slice(2);
-const commands = { run, node, migrate, service };
+const commands = { run, node, migrate, service, plugins };
 if (!commands[sub]) {
   process.stderr.write(`${usage}\n`);
   process.exit(2);
