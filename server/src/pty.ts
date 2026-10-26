@@ -1,9 +1,26 @@
 import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import * as pty from "node-pty";
+
+// node-pty starts every terminal on a Mac through its spawn-helper, and a pnpm install leaves that file without
+// its execute bit, so every terminal fails with "posix_spawnp failed". Put the bit back before anything spawns.
+function fixSpawnHelper() {
+  if (process.platform !== "darwin") return;
+  try {
+    const root = dirname(dirname(createRequire(import.meta.url).resolve("node-pty")));
+    for (const dir of [`build/Release`, `prebuilds/darwin-${process.arch}`]) {
+      const helper = join(root, dir, "spawn-helper");
+      if (existsSync(helper) && !(statSync(helper).mode & 0o111)) chmodSync(helper, 0o755);
+    }
+  } catch (e) {
+    console.error("node-pty spawn-helper", e);
+  }
+}
+fixSpawnHelper();
 import type { WebSocket } from "ws";
 import type { TermInfo } from "@cockpit/shared";
 import { demo, paths } from "./config.ts";

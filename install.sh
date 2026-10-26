@@ -324,6 +324,8 @@ cd "$dir" || fail "Can't open $dir."
 
 spin "Installing packages" pnpm install --frozen-lockfile || spin "Installing packages" pnpm install || fail "pnpm install failed."
 ok "Packages installed"
+# pnpm leaves node-pty's spawn-helper without its execute bit on a Mac, and then no terminal can start
+find node_modules/.pnpm -path '*node-pty*' -name spawn-helper -exec chmod +x {} + 2>/dev/null
 spin "Building" pnpm -r build || fail "The build failed."
 ok "Built"
 
