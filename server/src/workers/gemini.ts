@@ -58,5 +58,8 @@ export const gemini: AgentProvider = {
     return out;
   },
   terminal: (resume, model) => [...(model ? ["-m", model] : []), ...(resume ? ["--resume", resume] : [])],
+  start: (prompt) => ["-i", prompt],
+  install: "npm install -g @google/gemini-cli",
+  docs: "https://github.com/google-gemini/gemini-cli",
   login: [],
 };

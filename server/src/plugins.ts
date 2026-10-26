@@ -13,7 +13,7 @@ import { onEvent } from "./events.ts";
 import { broadcast } from "./hub.ts";
 import { notify } from "./notify.ts";
 import { sendText } from "./agents.ts";
-import { useExtraAgents } from "./workers/index.ts";
+import { agentLaunch, useExtraAgents } from "./workers/index.ts";
 import { startJob } from "./jobs.ts";
 import { createTasks } from "./tasks.ts";
 import { kill, listTerms, spawnTerm } from "./pty.ts";
@@ -287,7 +287,11 @@ function makeApi(p: Plugin): Cockpit {
     closeTerminal: (tid) => kill(tid),
     sessions: (o) => listSessions(o ?? {}),
     terminals: () => listTerms(),
-    claude: (c) => spawnTerm({ cwd: c.cwd, command: "claude", args: c.prompt ? [c.prompt] : [], title: c.title ?? "claude" }),
+    // the main agent, which is Claude Code unless Settings says otherwise
+    claude: (c) => {
+      const go = agentLaunch(c.prompt);
+      return spawnTerm({ cwd: c.cwd, command: go.command, args: go.args, title: c.title ?? go.agent?.name.toLowerCase() ?? "claude" });
+    },
     notify: (n) => void (speaks(id) && notify({ title: n.title, body: n.body ?? "", link: n.link ?? "/", urgent: n.urgent })),
     sendToSession: (sessionId, text) => sendText(sessionId, text),
     task: (t) => createTasks(t),

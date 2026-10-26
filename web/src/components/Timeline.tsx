@@ -104,6 +104,8 @@ export function Timeline({ entries, agents = [], sessionId }: { entries: Entry[]
       case "system":
         if (e.subtype === "turn") return <div key={e.id} className="text-[12px] text-faint text-center">turn took {e.text}</div>;
         if (e.subtype === "away") return <div key={e.id} className="text-[13px] text-muted border border-dashed border-line rounded-md px-3 py-2">{e.text}</div>;
+        // what an agent run a turn at a time stopped on, like a login that ran out
+        if (e.subtype === "error") return <div key={e.id} className="text-[13px] text-red bg-red-soft border border-red/40 rounded-md px-3 py-2 whitespace-pre-wrap">{e.text}</div>;
         return null;
       default:
         return null;

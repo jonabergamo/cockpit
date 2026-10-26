@@ -12,10 +12,11 @@ import { useLive, useLiveSessions } from "../lib/live";
 import { SpendTag } from "../components/Budget";
 import { statusLook } from "../lib/status";
 import { TasksList } from "./Tasks";
+import { useAgentName } from "../lib/agent";
 
 const COLUMNS: { id: BoardColumn; title: string; hint: string }[] = [
   { id: "queued", title: "Queued", hint: "Tasks waiting for a free slot" },
-  { id: "working", title: "Working", hint: "Claude or autopilot is on it" },
+  { id: "working", title: "Working", hint: "The agent or autopilot is on it" },
   { id: "needs", title: "Needs you", hint: "Can't move until you answer or decide" },
   { id: "review", title: "In review", hint: "Waiting for checks or reviewers" },
   { id: "ready", title: "Ready to merge", hint: "Approved, or merged and done" },
@@ -88,12 +89,13 @@ function SetYourRepo() {
       <h2 className="font-semibold text-[15px]">Set your repo</h2>
       <p className="text-muted">The Board shows the worktrees of one repo, and tasks get new ones of it, but {why}. Point cockpit at the checkout you work in, in config.local.toml at the top of cockpit's folder (copy config.example.toml if you have none), then restart cockpit:</p>
       <pre className="rounded-md bg-ground px-3 py-2 font-mono text-[12px]">{`[repo]\npath = "~/code/your-app"\nname = "your-app"`}</pre>
-      <p className="text-faint">Until then the Board still shows Claude sessions running anywhere else.</p>
+      <p className="text-faint">Until then the Board still shows the sessions running anywhere else.</p>
     </div>
   );
 }
 
 export function BoardPage() {
+  const agent = useAgentName();
   const { card: openId, filter } = useSearch({ from: "/board" });
   const navigate = useNavigate();
   const q = useBoard();
@@ -128,7 +130,7 @@ export function BoardPage() {
             {quiet ? "Hide quiet" : `Show quiet (${quietCount})`}
           </Button>
         )}
-        <Button onClick={() => lead.mutate()} disabled={lead.isPending} title="A Claude session that plans with you and runs the work through these workers (needs Cockpit tools for Claude, in Settings → Setup)">
+        <Button onClick={() => lead.mutate()} disabled={lead.isPending} title={`A ${agent} session that plans with you and runs the work through these workers (needs Cockpit tools for ${agent}, in Settings → Setup)`}>
           {lead.isPending ? "Opening" : "Lead"}
         </Button>
         <Button variant="primary" onClick={() => newTask.open()}>
@@ -142,7 +144,7 @@ export function BoardPage() {
       ) : q.isLoading ? (
         <Loading what="Gathering sessions, worktrees and PRs" shape="cards" rows={6} />
       ) : !cards.length ? (
-        <Empty>Nothing in flight. Start Claude in a worktree, or queue a task.</Empty>
+        <Empty>Nothing in flight. Start {agent} in a worktree, or queue a task.</Empty>
       ) : (
         <div className="flex-1 min-h-0 flex gap-3 overflow-x-auto pb-2 max-md:flex-col max-md:overflow-x-visible">
           {columns.map((col) => {

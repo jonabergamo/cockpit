@@ -9,8 +9,17 @@ const toml = (v: unknown) => JSON.stringify(v);
 function access(t: AgentTurn) {
   if (t.access === "full") return ["--dangerously-bypass-approvals-and-sandbox"];
   if (t.access === "readonly") return ["-c", `sandbox_mode=${toml("read-only")}`, "-c", `approval_policy=${toml("never")}`];
-  // a worktree keeps its git data in the main checkout, outside the folder Codex may write to, so it couldn't commit
-  return ["-c", `sandbox_mode=${toml("workspace-write")}`, "-c", `approval_policy=${toml("never")}`, ...(t.writable?.length ? ["-c", `sandbox_workspace_write.writable_roots=${toml(t.writable)}`] : [])];
+  // a worktree keeps its git data in the main checkout, outside the folder Codex may write to, so it couldn't commit;
+  // and the network is on, or it couldn't push its branch or open the PR its prompt asks for
+  return [
+    "-c",
+    `sandbox_mode=${toml("workspace-write")}`,
+    "-c",
+    `approval_policy=${toml("never")}`,
+    "-c",
+    "sandbox_workspace_write.network_access=true",
+    ...(t.writable?.length ? ["-c", `sandbox_workspace_write.writable_roots=${toml(t.writable)}`] : []),
+  ];
 }
 
 // the models Codex lists in its picker, from what it last fetched
@@ -120,14 +129,26 @@ export const codex: AgentProvider = {
     }
     if (d.type === "turn.completed") {
       const u = d.usage ?? {};
-      out.push({ kind: "usage", input: u.input_tokens ?? 0, output: (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0), cached: u.cached_input_tokens });
+      // output_tokens already has the reasoning in it (input + output is Codex's total)
+      out.push({ kind: "usage", input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cached: u.cached_input_tokens });
       out.push({ kind: "done", ok: true, text: state.last as string | undefined });
     }
     if (d.type === "turn.failed") out.push({ kind: "error", text: d.error?.message ?? "the turn failed" }, { kind: "done", ok: false });
-    if (d.type === "error") out.push({ kind: "error", text: d.message ?? "error" });
+    // "Reconnecting... 2/5 (...)" is Codex retrying, not giving up; only the last try is kept, as a note
+    if (d.type === "error" && /^Reconnecting\.\.\./.test(d.message ?? "")) {
+      if (!state.retrying) out.push({ kind: "thinking", text: `Codex is retrying: ${d.message}` });
+      state.retrying = true;
+    } else if (d.type === "error") out.push({ kind: "error", text: d.message ?? "error" });
     return out;
   },
   terminal: (resume, model) => [...(resume ? ["resume", resume] : []), ...(model ? ["-m", model] : [])],
+  ask: (model) => ["exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", ...(model ? ["-m", model] : []), "-"],
+  authed: ["login", "status"],
+  install: "npm install -g @openai/codex",
+  docs: "https://developers.openai.com/codex/cli",
+  skillsDir: () => join(home(), "skills"),
+  mcpAdd: (name, env, command) => ["mcp", "add", name, ...Object.entries(env).flatMap(([k, v]) => ["--env", `${k}=${v}`]), "--", ...command],
+  mcpGet: (name) => ["mcp", "get", name],
   // by a code typed in the browser: the usual login waits for the browser on this machine's localhost, which a
   // node's browser isn't
   login: ["login", "--device-auth"],

@@ -67,7 +67,7 @@ export function SessionStrip() {
 
   return (
     <div className="drag overlay-gap flex items-stretch gap-2 overflow-x-auto px-4 py-2 border-b border-line bg-panel min-h-[74px]">
-      {sorted.length === 0 && <div className="text-muted self-center">No Claude sessions running.</div>}
+      {sorted.length === 0 && <div className="text-muted self-center">No sessions running.</div>}
       {sorted.map((s) => {
         const where = place(s);
         const look = statusLook(s.status, s.waitingFor, s.background);

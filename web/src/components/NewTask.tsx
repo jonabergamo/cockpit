@@ -7,6 +7,7 @@ import { useAgents, useAppConfig, useTickets } from "../lib/queries";
 import { useSettings } from "../lib/cost";
 import { Button, ErrorNote, inputClass, Modal, Tabs } from "./ui";
 import { TicketPicker } from "./TicketPicker";
+import { useAgentName } from "../lib/agent";
 
 // Opened from the Board, a ticket and ⌘K, so the open state lives outside them all.
 let state: { open: boolean; ticket?: string; after?: string; onPr?: string } = { open: false };
@@ -24,6 +25,7 @@ const useNewTask = () =>
 
 
 export function NewTaskModal() {
+  const agent = useAgentName();
   const s = useNewTask();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -108,6 +110,11 @@ export function NewTaskModal() {
         }}
       >
         <p className="text-muted">Cockpit makes a worktree and branch for it and starts {main?.name ?? "Claude"} there. With more than one attempt, each gets its own, so you can keep the best.</p>
+        {main && (!main.installed || main.authed === false) && (
+          <p className="text-[12px] text-amber">
+            {main.name} {main.installed ? "isn't logged in" : "isn't installed"} on this machine, so the task would stop straight away. Settings → Setup sorts it out.
+          </p>
+        )}
         {cfg.data?.tracker && (!!tickets.data?.tickets.length || !!createOpts.data) && (
           <div className="space-y-1">
             <span className="block text-muted">Ticket (optional)</span>
@@ -147,7 +154,7 @@ export function NewTaskModal() {
           {onPr.trim() && onPr.trim() !== base && (
             <span className="block text-[12px] text-faint">
               {/^(#?\d+|https?:\/\/\S+)$/.test(onPr.trim())
-                ? "Its branch is the starting point. When that PR gets new commits or merges, the Board says so and can hand the catching up to Claude."
+                ? `Its branch is the starting point. When that PR gets new commits or merges, the Board says so and can hand the catching up to ${agent}.`
                 : `That branch on origin is the starting point, and the PR targets it instead of ${base}.`}
             </span>
           )}
@@ -219,6 +226,7 @@ export function NewTaskModal() {
 // What the new ticket gets: its summary, type, the preset of fields it's filed with, its epic, the sprint, and the
 // fields the tracker asks for (acceptance criteria, points). The description defaults to what Claude should do.
 function CreateTicket({ draft, onChange, options, epics, tracker }: { draft: NewTicket; onChange: (d: NewTicket | null) => void; options: CreateOptions; epics: { key: string; summary: string }[]; tracker: string }) {
+  const agent = useAgentName();
   const set = (p: Partial<NewTicket>) => onChange({ ...draft, ...p });
   const field = (k: string, v: string | number) => set({ fields: { ...draft.fields, [k]: v } });
   return (
@@ -284,7 +292,7 @@ function CreateTicket({ draft, onChange, options, epics, tracker }: { draft: New
         </label>
       ))}
       <label className="block space-y-1">
-        <span className="text-muted">Description <span className="text-faint">(empty uses what Claude should do)</span></span>
+        <span className="text-muted">Description <span className="text-faint">(empty uses what {agent} should do)</span></span>
         <textarea value={draft.description ?? ""} onChange={(e) => set({ description: e.target.value })} rows={3} className={`${inputClass} w-full h-auto py-2`} />
       </label>
     </div>

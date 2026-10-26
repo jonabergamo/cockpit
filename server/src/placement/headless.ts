@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { config, paths } from "../config.ts";
 import { startJob, whenDone, type Job } from "../jobs.ts";
 import { fill } from "../util.ts";
+import { agentBin, mainAgent } from "../workers/index.ts";
 import { requestWork, tracked } from "../remote/work.ts";
 import { where } from "./where.ts";
 
@@ -22,8 +23,13 @@ export function headlessHere(h: Headless, onDone?: (job: Job) => void) {
   const file = join(paths.data, `claude-${Date.now()}-${Math.floor(Math.random() * 1e6)}.txt`);
   writeFileSync(file, h.prompt, { mode: 0o600 });
   const q = JSON.stringify(file);
-  const model = h.model ? ` --model ${JSON.stringify(h.model)}` : "";
-  return startJob(h.label, `${fill("{bin}", { bin: config.claude.bin })} -p${model} < ${q}; code=$?; rm -f ${q}; exit $code`, h.cwd ?? (config.repo.path || process.env.HOME), onDone);
+  // the main agent answers; a model named here is Claude's, so another agent uses its own default
+  const main = mainAgent();
+  const cmd = main?.ask
+    ? [agentBin(main), ...main.ask()].map((a) => (/^[\w./:@=,+-]+$/.test(a) ? a : JSON.stringify(a))).join(" ")
+    : `${fill("{bin}", { bin: config.claude.bin })} -p${h.model ? ` --model ${JSON.stringify(h.model)}` : ""}`;
+  // what Codex prints along the way goes to stderr, which the job would show as part of the answer
+  return startJob(h.label, `${cmd} < ${q}${main?.ask ? " 2>/dev/null" : ""}; code=$?; rm -f ${q}; exit $code`, h.cwd ?? (config.repo.path || process.env.HOME), onDone);
 }
 
 // node is where to run it when the caller knows, like a folder that's on that node

@@ -369,7 +369,12 @@ export function trustTask(id: string) {
 async function sessionWentIdle(session: Session) {
   const t = listTasks().find((x) => x.sessionId === session.id && x.status === "running");
   if (!t?.worktree) return;
-  if (!(await hasChanges(t.worktree))) return;
+  if (!(await hasChanges(t.worktree))) {
+    // an agent run a turn at a time that stopped on an error (logged out, say) won't go on by itself
+    const why = agentRow(session.id)?.error;
+    if (why) finish(t, "failed", why);
+    return;
+  }
   if (!config.repo.verifyCommand || !getSettings().verify.auto) finish(t, "done");
 }
 

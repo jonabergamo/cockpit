@@ -3,6 +3,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { api } from "../lib/api";
 import { useJobs } from "../lib/queries";
 import { Button, ErrorNote, inputClass, Markdown, Modal, Spinner } from "./ui";
+import { useAgentName } from "../lib/agent";
 
 // Opened from ⌘K with the question typed there.
 let state: { open: boolean; question?: string } = { open: false };
@@ -20,6 +21,7 @@ const useAsk = () =>
 
 // A question about your own work, answered by Claude from cockpit's index: sessions, the Board and your tickets.
 export function AskPanel() {
+  const agent = useAgentName();
   const s = useAsk();
   const navigate = useNavigate();
   const jobs = useJobs();
@@ -74,13 +76,13 @@ export function AskPanel() {
           <Spinner /> Reading your sessions, the Board and your tickets
         </div>
       )}
-      {job && done && job.code !== 0 && <ErrorNote error={new Error(job.output.trim().split("\n").slice(-3).join("\n") || "Claude stopped without an answer")} />}
+      {job && done && job.code !== 0 && <ErrorNote error={new Error(job.output.trim().split("\n").slice(-3).join("\n") || `${agent} stopped without an answer`)} />}
       {job && done && job.code === 0 && (
         <div className="text-[14px] max-h-[60vh] overflow-y-auto" onClick={follow}>
           <Markdown>{job.output.trim()}</Markdown>
         </div>
       )}
-      <p className="text-[12px] text-faint mt-3">Claude answers from what cockpit has indexed on this machine, and links what it used.</p>
+      <p className="text-[12px] text-faint mt-3">{agent} answers from what cockpit has indexed on this machine, and links what it used.</p>
     </Modal>
   );
 }

@@ -286,10 +286,10 @@ function CodingAgents({ off, onChange }: { off: string[]; onChange: (off: string
         <div key={a.id} className="flex items-center gap-3 text-[13px]">
           <span className="flex-1 min-w-0">
             <span className="block">{a.name}</span>
-            <span className="block text-[12px] text-faint truncate">{!a.enabled ? "Turned off" : a.installed ? `${a.version} · ${a.about ?? ""}` : `Not installed (${a.id} isn't on the PATH)`}</span>
+            <span className="block text-[12px] text-faint truncate">{!a.enabled ? "Turned off" : a.installed ? `${a.version}${a.authed === false ? " · not logged in" : ""} · ${a.about ?? ""}` : `Not installed (${a.id} isn't on the PATH; config.local.toml's [agents.${a.id}] bin can say where it is)`}</span>
           </span>
           {a.installed && a.enabled && (
-            <Button size="sm" variant="ghost" onClick={() => api.post(`/agents/${a.id}/login`).then(() => (location.href = "/terminals"), setErr)}>
+            <Button size="sm" variant={a.authed === false ? "primary" : "ghost"} onClick={() => api.post(`/agents/${a.id}/login`).then(() => (location.href = "/terminals"), setErr)}>
               Log in
             </Button>
           )}

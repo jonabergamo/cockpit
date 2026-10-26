@@ -13,6 +13,7 @@ import { ago } from "../lib/format";
 import { useOpenSession } from "../lib/openSession";
 import { SpendTag } from "../components/Budget";
 import { useAppConfig, useJobs, usePrs, useTickets, useWorktrees } from "../lib/queries";
+import { useAgentName } from "../lib/agent";
 
 export { useTickets };
 
@@ -109,6 +110,7 @@ export function TicketsPage() {
 
 // One worktree and one Claude session per epic; each ticket is sent into that session so the PRs stack.
 function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?: Worktree; tickets: Ticket[]; prsBy: Map<string, PullRequest[]>; highlight?: string }) {
+  const agent = useAgentName();
   const navigate = useNavigate();
   const openSession = useOpenSession();
   const editor = useOpenEditor();
@@ -160,7 +162,7 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
                 {resume.isPending ? "Opening" : "Resume epic session"}
               </Button>
             ) : (
-              <Button size="sm" variant="primary" disabled={busy} onClick={() => start.mutate(e.url ?? e.key)} title={`Starts Claude with ${e.url ?? e.key}`}>
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => start.mutate(e.url ?? e.key)} title={`Starts ${agent} with ${e.url ?? e.key}`}>
                 {start.isPending ? "Starting" : "Start epic session"}
               </Button>
             )}
@@ -194,7 +196,7 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
               <div className="text-[13px] text-muted truncate">{t.summary}</div>
             </div>
             {wt && (
-              <Button size="sm" disabled={busy} onClick={() => work(t)} title={e.lastSession ? `Types ${t.url ?? t.key} into the epic's Claude session` : `Starts the epic's Claude session with ${t.url ?? t.key}`}>
+              <Button size="sm" disabled={busy} onClick={() => work(t)} title={e.lastSession ? `Types ${t.url ?? t.key} into the epic's session` : `Starts the epic's Claude session with ${t.url ?? t.key}`}>
                 {e.lastSession ? "Send to epic session" : "Start with this one"}
               </Button>
             )}
@@ -232,7 +234,7 @@ function NewEpic({ onClose }: { onClose: () => void }) {
           create.mutate();
         }}
       >
-        <p className="text-[13px] text-muted">One worktree for the whole epic. Its tickets get worked in the epic's Claude session, so their PRs stack on the epic branch.</p>
+        <p className="text-[13px] text-muted">One worktree for the whole epic. Its tickets get worked in the epic's session, so their PRs stack on the epic branch.</p>
         <input autoFocus value={input} onChange={(ev) => setInput(ev.target.value)} placeholder={`Epic key or ${tracker} link`} className={`${inputClass} w-full`} />
         <ErrorNote error={create.error} />
         {existing && <p className="text-[13px] text-green">It already had a worktree at {existing}, so that one is used for the epic now.</p>}
@@ -259,6 +261,7 @@ function NewEpic({ onClose }: { onClose: () => void }) {
 }
 
 function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Worktree; highlight: boolean }) {
+  const agent = useAgentName();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const openSession = useOpenSession();
@@ -309,8 +312,8 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
               <Button size="sm" onClick={() => navigate({ to: "/code", search: { root: wt.path } })}>
                 Code
               </Button>
-              <Button size="sm" variant={t.lastSession ? "default" : "primary"} disabled={start.isPending} onClick={() => start.mutate(wt.path)} title={`Starts Claude with ${t.url ?? t.key}`}>
-                {start.isPending ? "Starting" : "Start Claude"}
+              <Button size="sm" variant={t.lastSession ? "default" : "primary"} disabled={start.isPending} onClick={() => start.mutate(wt.path)} title={`Starts ${agent} with ${t.url ?? t.key}`}>
+                {start.isPending ? "Starting" : `Start ${agent}`}
               </Button>
             </>
           ) : (
@@ -320,11 +323,11 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
           )}
           {t.lastSession && (
             <Button size="sm" variant="primary" disabled={resume.isPending} onClick={() => resume.mutate(t.lastSession!.id)} title={`Last session ${ago(t.lastSession.updatedAt)}`}>
-              {resume.isPending ? "Opening" : "Resume Claude"}
+              {resume.isPending ? "Opening" : "Resume"}
             </Button>
           )}
           {!wt && (
-            <Button size="sm" variant="ghost" onClick={() => newTask.open({ ticket: t.key })} title="Queue it: cockpit makes the worktree and starts Claude on it, optionally a few attempts at once">
+            <Button size="sm" variant="ghost" onClick={() => newTask.open({ ticket: t.key })} title={`Queue it: cockpit makes the worktree and starts ${agent} on it, optionally a few attempts at once`}>
               Task
             </Button>
           )}

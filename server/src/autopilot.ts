@@ -10,6 +10,8 @@ import { fixPrompt } from "./fix.ts";
 import { notify } from "./notify.ts";
 import { myPrs, requestReview, reviewThreads } from "./providers.ts";
 import { spawnTerm } from "./pty.ts";
+import { mainAgent } from "./workers/index.ts";
+import { startAgent } from "./workers/runner.ts";
 import { getSettings, readRow, writeRow } from "./settings.ts";
 import { listWorktrees } from "./worktrees.ts";
 
@@ -117,8 +119,11 @@ async function tick() {
       else {
         // its last session keeps the context; otherwise a new one in the worktree
         const args = session ? ["--resume", session.id, prompt] : [prompt];
-        spawnTerm({ cwd: wt.path, command: "claude", args, title: `autopilot #${pr.number}`, session: session?.id });
-        how = session ? "resumed its session" : "started Claude";
+        // with no session to go on, a main agent other than Claude Code starts one of its own, run a turn at a time
+        const main = !session ? mainAgent() : undefined;
+        if (main) startAgent({ agent: main.id, cwd: wt.path, prompt, title: `autopilot #${pr.number}` });
+        else spawnTerm({ cwd: wt.path, command: "claude", args, title: `autopilot #${pr.number}`, session: session?.id });
+        how = session ? "resumed its session" : `started ${main?.name ?? "Claude"}`;
       }
       save({ attempts: r.attempts + 1, signature: sig, last_at: Date.now(), note: `${d.kind === "checks" ? "Fixing the checks" : "Answering the review"}: ${how}` });
       // the review gets asked for again once this answer is pushed

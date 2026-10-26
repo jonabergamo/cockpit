@@ -6,6 +6,7 @@ import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { deletePending, lastReview, parsePr, pendingReview, prInfo } from "./providers.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
+import { agentLaunch } from "./workers/index.ts";
 
 db.exec(`
   create table if not exists reviews (
@@ -81,7 +82,8 @@ export async function startReview(opts: { input: string; backend?: boolean; exis
 
   const cwd = cfg.cwd || config.repo.path;
   if (!existsSync(cwd)) throw new Error(`review folder not found: ${cwd}`);
-  const term = spawnTerm({ cwd, command: "claude", args: [prompt], title: `review #${pr.n}` });
+  const go = agentLaunch(prompt);
+  const term = spawnTerm({ cwd, command: go.command, args: go.args, title: `review #${pr.n}` });
 
   const res = db
     .prepare("insert into reviews (repo, pr, url, title, author, started_at, term_id, pid) values (?, ?, ?, ?, ?, ?, ?, ?)")

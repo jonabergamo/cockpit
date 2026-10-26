@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { agentTerminal } from "./agents.ts";
+import { agentLaunch } from "../workers/index.ts";
 import { headless } from "../placement/headless.ts";
 import { where } from "../placement/where.ts";
 import { findOwner } from "../remote/work.ts";
@@ -48,7 +49,8 @@ export const claude = new Hono()
     if (node && node !== "local") {
       if (!cwd) return c.json({ error: "say which folder on that machine" }, 400);
       try {
-        return c.json(await spawnRemote(node, { cwd, command: "claude", args: picker ? ["--resume"] : prompt ? [prompt] : [], title: title ?? (picker ? "claude --resume" : "claude") }));
+        const go = picker ? { command: "claude", args: ["--resume"] } : agentLaunch(prompt);
+        return c.json(await spawnRemote(node, { cwd, command: go.command, args: go.args, title: title ?? (picker ? "claude --resume" : (go.agent?.name.toLowerCase() ?? "claude")) }));
       } catch (e) {
         return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 500) as 500);
       }
@@ -91,11 +93,13 @@ export const claude = new Hono()
       // starting on a ticket: the kind of work its worktree was made as, or the one the ticket matches
       const t = (await statusesOf([ticket]).catch(() => []))[0];
       const tpl = templateOf(cwd) ?? templateFor({ summary: t?.summary, type: t?.type });
-      const args = claudeArgs(tpl, promptFor(tpl, { key: ticket, url: t?.url, summary: t?.summary }) ?? prompt);
-      return c.json(spawnTerm({ cwd, command: "claude", args, title: title ?? ticket }));
+      const first = promptFor(tpl, { key: ticket, url: t?.url, summary: t?.summary }) ?? prompt;
+      const go = agentLaunch(first, claudeArgs(tpl, first));
+      return c.json(spawnTerm({ cwd, command: go.command, args: go.args, title: title ?? ticket }));
     }
-    const args = picker ? ["--resume"] : prompt ? [prompt] : [];
-    return c.json(spawnTerm({ cwd, command: "claude", args, title: title ?? (picker ? "claude --resume" : "claude") }));
+    // the resume picker lists Claude Code's sessions; anything else opens the main agent
+    const go = picker ? { command: "claude", args: ["--resume"] } : agentLaunch(prompt);
+    return c.json(spawnTerm({ cwd, command: go.command, args: go.args, title: title ?? (picker ? "claude --resume" : (go.agent?.name.toLowerCase() ?? "claude")) }));
   })
   // The lead: one long-running Claude per repo that plans with you and runs the work through cockpit's tools.
   // Opens its terminal when it's running, resumes it when it isn't, or starts one.

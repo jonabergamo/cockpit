@@ -10,6 +10,7 @@ import { api } from "../lib/api";
 import { ago } from "../lib/format";
 import { useAppConfig, usePrs } from "../lib/queries";
 import { useTerms } from "./Terminals";
+import { useAgentName } from "../lib/agent";
 
 interface Review {
   id: number;
@@ -50,6 +51,7 @@ const statusTag = (r: Review) => {
 };
 
 export function ReviewsPage() {
+  const agent = useAgentName();
   const { id, pr } = useSearch({ from: "/reviews" });
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -107,7 +109,7 @@ export function ReviewsPage() {
   return (
     <div className="grid lg:grid-cols-[360px_1fr] gap-5 max-w-[1500px]">
       <div className="space-y-5 min-w-0">
-        <PageHeader title="PR reviews" sub="Paste a pull request. Claude reviews it and leaves a draft review for you to submit.">
+        <PageHeader title="PR reviews" sub={`Paste a pull request. ${agent} reviews it and leaves a draft review for you to submit.`}>
           <RefreshButton targets={[{ key: ["prs"], url: "/prs" }, { key: ["reviews"] }]} />
         </PageHeader>
         <form
@@ -279,7 +281,7 @@ function ReopenButton({ review: r, label }: { review: Review; label?: string }) 
         size="sm"
         variant={label ? "primary" : "ghost"}
         disabled={reopen.isPending}
-        title={open ? "Show its terminal" : "Resume its Claude session in a new terminal"}
+        title={open ? "Show its terminal" : "Resume its session in a new terminal"}
         onClick={() => (open ? navigate({ to: "/reviews", search: { id: r.id } }) : reopen.mutate())}
       >
         {reopen.isPending ? "Opening" : (label ?? (open ? "Terminal" : "Reopen"))}
@@ -290,6 +292,7 @@ function ReopenButton({ review: r, label }: { review: Review; label?: string }) 
 }
 
 function ReviewDetail({ review: r }: { review: Review }) {
+  const agent = useAgentName();
   const terms = useTerms();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -329,10 +332,10 @@ function ReviewDetail({ review: r }: { review: Review }) {
         </div>
         {r.status === "done" && (
           <p className="text-[13px] text-muted mt-3">
-            {r.review_url ? "The review is a draft on GitHub. Read it there and submit it when you're happy." : "Nothing was posted. Claude found nothing worth a comment."}
+            {r.review_url ? "The review is a draft on GitHub. Read it there and submit it when you're happy." : `Nothing was posted. ${agent} found nothing worth a comment.`}
           </p>
         )}
-        {r.status === "waiting" && <p className="text-[13px] text-amber mt-3">Claude stopped and is waiting for you in the terminal below.</p>}
+        {r.status === "waiting" && <p className="text-[13px] text-amber mt-3">{agent} stopped and is waiting for you in the terminal below.</p>}
         {(r.status === "done" || r.status === "stopped") && <SinceYourReview url={r.url} busy={again.isPending} onAgain={() => again.mutate()} />}
         <ErrorNote error={again.error} />
       </div>

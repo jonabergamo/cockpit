@@ -4,11 +4,13 @@ import type { PullRequest } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { useOpenSession } from "../lib/openSession";
 import { Button } from "./ui";
+import { useAgentName } from "../lib/agent";
 
 type Kind = "checks" | "comments";
 
 // Hands a red PR to Claude: into the session that worked on it when there is one, else a new one in its worktree.
 export function PrFix({ pr }: { pr: PullRequest }) {
+  const agent = useAgentName();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const openSession = useOpenSession();
@@ -31,12 +33,12 @@ export function PrFix({ pr }: { pr: PullRequest }) {
     <span className="inline-flex gap-1" onClick={(e) => e.stopPropagation()} title={fix.error ? String((fix.error as Error).message) : undefined}>
       {checks && (
         <Button size="sm" variant="danger" disabled={fix.isPending} onClick={() => fix.mutate("checks")}>
-          {fix.isPending && fix.variables === "checks" ? "Asking Claude" : "Fix checks"}
+          {fix.isPending && fix.variables === "checks" ? `Asking ${agent}` : "Fix checks"}
         </Button>
       )}
       {comments && (
         <Button size="sm" disabled={fix.isPending} onClick={() => fix.mutate("comments")}>
-          {fix.isPending && fix.variables === "comments" ? "Asking Claude" : "Address comments"}
+          {fix.isPending && fix.variables === "comments" ? `Asking ${agent}` : "Address comments"}
         </Button>
       )}
       {fix.error && <span className="text-[12px] text-red self-center">{String((fix.error as Error).message).slice(0, 80)}</span>}

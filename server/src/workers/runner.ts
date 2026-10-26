@@ -144,6 +144,8 @@ function apply(row: AgentRow, ev: AgentEvent, turnState: { ok?: boolean; last?: 
       if (ev.text && !turnState.last) turnState.last = ev.text;
       break;
     case "error":
+      // Codex says the same failure twice, as an error and as the failed turn
+      if (turnState.error === ev.text) break;
       turnState.error = ev.text;
       write(row, { kind: "system", subtype: "error", text: ev.text });
       break;

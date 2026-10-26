@@ -26,7 +26,7 @@ export function useRecentFolders() {
   return { folders: out, all, label, ready: roots.isSuccess && sessions.isSuccess };
 }
 
-const modeLabel: Record<LaunchMode, string> = { claude: "Claude", resume: "Resume", shell: "Shell" };
+const modeLabel: Record<LaunchMode, string> = { claude: "Agent", resume: "Resume", shell: "Shell" };
 
 // Pick a folder, or type any path in your home, and start Claude, the resume picker or a shell there.
 export function TerminalLauncher() {

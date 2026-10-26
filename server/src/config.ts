@@ -37,7 +37,8 @@ const schema = z.object({
     .object({
       path: pathOr(""),
       name: z.string().default(""),
-      worktreesDir: pathOr("~/.claude/worktrees"),
+      // Claude Code's usual place when it's there, so existing setups keep theirs; cockpit's own otherwise
+      worktreesDir: pathOr(existsSync(join(homedir(), ".claude/worktrees")) ? "~/.claude/worktrees" : "~/.cockpit/worktrees"),
       keyPattern: z.string().default("[A-Z][A-Z0-9]+-\\d+"),
       branchTemplate: z.string().default("feat/{key}/{slug}"),
       // the branch work starts from and its PRs go back to, like main or staging; {base} in createCommand

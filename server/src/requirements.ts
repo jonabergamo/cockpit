@@ -1,7 +1,7 @@
 import type { Requirement, SettingSpec, SettingValue } from "@cockpit/shared";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { frontmatter, writeConfig } from "./claude/memory.ts";
 import { config, paths } from "./config.ts";
 import { startJob } from "./jobs.ts";
@@ -9,18 +9,39 @@ import { activeCodeHost, pluginRequirements } from "./plugins.ts";
 import { spawnTerm } from "./pty.ts";
 import { detectBilling } from "./settings.ts";
 import { run } from "./util.ts";
+import { agentBin, mainAgent } from "./workers/index.ts";
 
 // What cockpit needs on the machine to work, plus what each plugin that's on asks for. Settings → Setup shows
 // them with a live check, an install button where that's safe, a log-in terminal and any token fields.
-const core: Requirement[] = [
-  {
-    id: "claude",
-    name: "Claude Code",
-    check: ["claude", "--version"],
-    login: ["claude"],
-    install: { linux: "curl -fsSL https://claude.ai/install.sh | bash", darwin: "curl -fsSL https://claude.ai/install.sh | bash" },
-    docs: "https://docs.anthropic.com/en/docs/claude-code",
-  },
+// The main coding agent is the one that has to be there; Claude Code is optional when it's another one.
+const core = (): Requirement[] => {
+  const main = mainAgent();
+  const sh = (args: string[]) => args.map((a) => (/^[\w./:@=,+-]+$/.test(a) ? a : JSON.stringify(a))).join(" ");
+  const mcp = [join(paths.root, "server/node_modules/.bin/tsx"), join(paths.root, "server/mcp/cockpit-mcp.ts")];
+  const env = { COCKPIT_URL: `http://127.0.0.1:${config.port}` };
+  return [
+    ...(main
+      ? [
+          {
+            id: "agent",
+            name: main.name,
+            check: [agentBin(main), "--version"],
+            auth: main.authed && [agentBin(main), ...main.authed],
+            login: main.login && [agentBin(main), ...main.login],
+            install: main.install ? { linux: main.install, darwin: main.install } : undefined,
+            docs: main.docs,
+          },
+        ]
+      : []),
+    {
+      id: "claude",
+      name: "Claude Code",
+      check: ["claude", "--version"],
+      login: ["claude"],
+      install: { linux: "curl -fsSL https://claude.ai/install.sh | bash", darwin: "curl -fsSL https://claude.ai/install.sh | bash" },
+      docs: "https://docs.anthropic.com/en/docs/claude-code",
+      optional: !!main,
+    },
   { id: "git", name: "git", check: ["git", "--version"], install: { linux: "sudo apt install git", darwin: "xcode-select --install" }, docs: "https://git-scm.com/downloads" },
   {
     id: "tmux",
@@ -30,15 +51,17 @@ const core: Requirement[] = [
     docs: "https://github.com/tmux/tmux/wiki/Installing",
     optional: true,
   },
-  {
-    // the MCP server in server/mcp: lets a Claude session see the Board, queue tasks and answer workers
-    id: "cockpit-mcp",
-    name: "Cockpit tools for Claude",
-    check: ["claude", "mcp", "get", "cockpit"],
-    install: { linux: mcpInstall(), darwin: mcpInstall() },
-    docs: "https://docs.anthropic.com/en/docs/claude-code/mcp",
-    optional: true,
-  },
+    // the MCP server in server/mcp: lets the main agent see the Board, queue tasks and answer workers
+    main?.mcpAdd && main.mcpGet
+      ? { id: "cockpit-mcp", name: `Cockpit tools for ${main.name}`, check: [agentBin(main), ...main.mcpGet("cockpit")], install: { linux: sh([agentBin(main), ...main.mcpAdd("cockpit", env, mcp)]), darwin: sh([agentBin(main), ...main.mcpAdd("cockpit", env, mcp)]) }, docs: main.docs, optional: true }
+      : {
+          id: "cockpit-mcp",
+          name: "Cockpit tools for Claude",
+          check: ["claude", "mcp", "get", "cockpit"],
+          install: { linux: mcpInstall(), darwin: mcpInstall() },
+          docs: "https://docs.anthropic.com/en/docs/claude-code/mcp",
+          optional: true,
+        },
   // `cockpit run --record`: the virtual screen a browser test runs on, and the recording of it
   ...(process.platform === "linux"
     ? [
@@ -46,7 +69,8 @@ const core: Requirement[] = [
         { id: "ffmpeg", name: "ffmpeg (recording runs)", check: ["ffmpeg", "-hide_banner", "-version"], install: { linux: "sudo apt install ffmpeg" }, docs: "https://ffmpeg.org/download.html", optional: true },
       ]
     : []),
-];
+  ];
+};
 
 function mcpInstall() {
   const tsx = join(paths.root, "server/node_modules/.bin/tsx");
@@ -78,7 +102,7 @@ async function check(source: string, sourceName: string, req: Requirement, env: 
   );
   let authed: boolean | undefined;
   if (out.ok && req.auth) authed = await run(req.auth[0], req.auth.slice(1), { timeout: 10_000, env }).then(() => true, () => false);
-  if (out.ok && source === "core" && req.id === "claude") authed = (await detectBilling()).kind !== "unknown";
+  if (out.ok && source === "core" && req.id === "claude" && !req.optional) authed = (await detectBilling()).kind !== "unknown";
   const install = req.install?.[platform];
   return {
     source,
@@ -95,7 +119,7 @@ async function check(source: string, sourceName: string, req: Requirement, env: 
 
 export async function setupStatus() {
   const items = await Promise.all([
-    ...core.map((r) => check("core", "cockpit", r, {})),
+    ...core().map((r) => check("core", "cockpit", r, {})),
     ...pluginRequirements().flatMap((p) => p.requires.map((r) => check(p.plugin, p.name, r, p.env, p.settings, p.specs))),
   ]);
   const skills = skillsStatus();
@@ -103,7 +127,7 @@ export async function setupStatus() {
 }
 
 function find(source: string, id: string) {
-  if (source === "core") return { req: core.find((r) => r.id === id) };
+  if (source === "core") return { req: core().find((r) => r.id === id) };
   const p = pluginRequirements().find((x) => x.plugin === source);
   return { req: p?.requires.find((r) => r.id === id) };
 }
@@ -127,7 +151,8 @@ export function login(source: string, id: string) {
 // Installing copies the folder into ~/.claude/skills through writeConfig, so an edited copy gets a backup first.
 
 const coreSkillsDir = join(paths.root, "skills");
-const installedDir = (name: string) => join(config.claude.dir, "skills", name);
+// the main agent's skills folder; Claude Code's when it has none of its own
+const installedDir = (name: string) => join(mainAgent()?.skillsDir?.() ?? join(config.claude.dir, "skills"), name);
 
 function filesOf(dir: string, base = dir): string[] {
   if (!existsSync(dir)) return [];
@@ -175,6 +200,11 @@ export const skillsStatus = () => skillSources().map((s) => skillStatus(s.source
 export async function installSkill(source: string, name: string) {
   const s = skillSources().find((x) => x.source === source && x.name === name);
   if (!s || !existsSync(join(s.dir, "SKILL.md"))) throw Object.assign(new Error("this skill doesn't ship with cockpit or the plugin, install it yourself"), { status: 400 });
-  for (const f of filesOf(s.dir)) await writeConfig(join(installedDir(name), f), readFileSync(join(s.dir, f), "utf8"));
+  const into = installedDir(name);
+  for (const f of filesOf(s.dir)) {
+    // Claude Code's config goes through writeConfig, which keeps a backup; another agent's folder is written as is
+    if (into.startsWith(config.claude.dir)) await writeConfig(join(into, f), readFileSync(join(s.dir, f), "utf8"));
+    else mkdirSync(dirname(join(into, f)), { recursive: true }), writeFileSync(join(into, f), readFileSync(join(s.dir, f)));
+  }
   return skillStatus(s.source, s.sourceName, s.name, s.required, s.dir);
 }

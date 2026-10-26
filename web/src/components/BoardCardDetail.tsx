@@ -15,6 +15,7 @@ import { DiffReview } from "./DiffReview";
 import { JobLog } from "./JobLog";
 import { BudgetEditor } from "./Budget";
 import { Button, ErrorNote, Tag } from "./ui";
+import { useAgentName } from "../lib/agent";
 
 interface Change {
   path: string;
@@ -23,6 +24,7 @@ interface Change {
 }
 
 function Changes({ root, sessionId }: { root: string; sessionId?: string }) {
+  const agent = useAgentName();
   const [reviewing, setReviewing] = useState(false);
   const q = useQuery({ queryKey: ["changes", root], queryFn: () => api.get<Change[]>(`/code/fs/changes${qs({ root })}`), retry: false, refetchInterval: 8000 });
   if (q.error) return null;
@@ -32,7 +34,7 @@ function Changes({ root, sessionId }: { root: string; sessionId?: string }) {
       <div className="flex items-center gap-2">
         <h3 className="font-medium text-[13px] flex-1">Uncommitted changes {list.length ? <span className="text-faint font-normal">{list.length}</span> : null}</h3>
         {list.length > 0 && (
-          <Button size="sm" onClick={() => setReviewing(true)} title="Read the diff and leave notes for Claude on specific lines">
+          <Button size="sm" onClick={() => setReviewing(true)} title={`Read the diff and leave notes for ${agent} on specific lines`}>
             Review the diff
           </Button>
         )}
@@ -77,8 +79,8 @@ function Autopilot({ c }: { c: BoardCard }) {
         {on
           ? a?.gaveUp
             ? `Gave up: ${a.note ?? "still red after its tries"}. Turn it off and on to try again.`
-            : (a?.note ?? "Watching the PR. Failing checks and requested changes go straight to its Claude session.")
-          : "When its PR's checks fail or a reviewer asks for changes, send them to its Claude session on its own."}
+            : (a?.note ?? "Watching the PR. Failing checks and requested changes go straight to its session.")
+          : "When its PR's checks fail or a reviewer asks for changes, send them to its session on its own."}
         {on && a?.attempts ? ` Tries so far: ${a.attempts}.` : ""}
       </p>
     </section>

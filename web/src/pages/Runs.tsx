@@ -227,7 +227,7 @@ export function RunsPage() {
 
   return (
     <div className="max-w-[1100px]">
-      <PageHeader title="Runs" sub="Tests, lint, typechecks, audits, E2E runs and their videos, verify and CI checks, from Claude, terminals, cockpit run and plugins.">
+      <PageHeader title="Runs" sub="Tests, lint, typechecks, audits, E2E runs and their videos, verify and CI checks, from your agent, terminals, cockpit run and plugins.">
         <Button variant="primary" onClick={() => runSomething.open({ worktree: f.worktree, ticket: f.ticket })}>
           Run something
         </Button>
@@ -382,7 +382,7 @@ export function RunPage() {
         >
           <div className="flex flex-wrap gap-2">
             {r.status === "fail" && (r.worktree || r.meta.session) && (
-              <Button onClick={() => send.mutate()} disabled={send.isPending} title="Types what failed and the end of its output into the Claude session that ran it, or the one in its worktree">
+              <Button onClick={() => send.mutate()} disabled={send.isPending} title="Types what failed and the end of its output into the session that ran it, or the one in its worktree">
                 {send.isSuccess ? "Sent" : "Send failure to the session"}
               </Button>
             )}

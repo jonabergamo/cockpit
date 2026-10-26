@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { useJobs } from "../lib/queries";
 import { JobLog } from "./JobLog";
 import { Button, copy, ErrorNote, inputClass, Loading, Tag } from "./ui";
+import { useAgentName } from "../lib/agent";
 
 interface SetupItem {
   source: string;
@@ -193,6 +194,7 @@ function Row({ item, onJob }: { item: SetupItem; onJob: (id: string) => void }) 
 
 // Every tool and login cockpit and its plugins need, with what's missing first.
 export function SetupSection() {
+  const agent = useAgentName();
   const q = useSetup();
   const jobs = useJobs();
   const qc = useQueryClient();
@@ -223,7 +225,7 @@ export function SetupSection() {
       </div>
       {!!q.data?.skills.length && (
         <>
-          <h3 className="font-medium text-[13px] text-muted pt-3">Claude Code skills</h3>
+          <h3 className="font-medium text-[13px] text-muted pt-3">{agent === "Claude" ? "Claude Code" : agent} skills</h3>
           <div className="divide-y divide-line">
             {[...q.data.skills]
               .sort((a, b) => Number(b.required) - Number(a.required) || a.name.localeCompare(b.name))

@@ -16,11 +16,13 @@ import { statusLook } from "../lib/status";
 
 export type { TermInfo } from "@cockpit/shared";
 import type { TermInfo } from "@cockpit/shared";
+import { useAgentName } from "../lib/agent";
 
 // kept current by the `terms` push, see main.tsx
 export const useTerms = () => useQuery({ queryKey: ["terms"], queryFn: () => api.get<TermInfo[]>("/code/terms") });
 
 export function TerminalsPage() {
+  const agent = useAgentName();
   const { id, resume, pid } = useSearch({ from: "/terminals" });
   const navigate = useNavigate();
   const openSession = useOpenSession();
@@ -122,7 +124,7 @@ export function TerminalsPage() {
           <button
             onClick={() => launcher.open("claude")}
             className="size-8 grid place-items-center rounded-md text-muted hover:text-ink hover:bg-ground"
-            title="New terminal: Claude, resume a session or a shell, in any folder"
+            title={`New terminal: ${agent}, resume a session or a shell, in any folder`}
             aria-label="New terminal"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>
@@ -232,6 +234,7 @@ interface TermChanges {
 
 // The git changes of whatever repo the terminal is sitting in. Clicking a file opens its diff in Code.
 function ChangesSide({ id, onHide }: { id: string; onHide: () => void }) {
+  const agent = useAgentName();
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ["term-changes", id], queryFn: () => api.get<TermChanges>(`/code/terms/${id}/changes`), refetchInterval: 4000 });
   const d = q.data;
@@ -261,7 +264,7 @@ function ChangesSide({ id, onHide }: { id: string; onHide: () => void }) {
           {d?.root && <span className="text-muted font-normal"> · {shortPath(d.root).split("/").pop()}</span>}
         </span>
         {d?.root && !!d.changes.length && (
-          <button onClick={() => setReviewing(true)} className="text-[12px] text-cobalt px-1.5 h-6 rounded hover:bg-ground" title="Read the diff and leave notes for Claude on specific lines">
+          <button onClick={() => setReviewing(true)} className="text-[12px] text-cobalt px-1.5 h-6 rounded hover:bg-ground" title={`Read the diff and leave notes for ${agent} on specific lines`}>
             Review
           </button>
         )}

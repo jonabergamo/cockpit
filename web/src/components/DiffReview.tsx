@@ -7,6 +7,7 @@ import { editorTheme } from "../lib/monaco";
 import "../lib/monaco";
 import { useOpenSession } from "../lib/openSession";
 import { Button, ErrorNote, inputClass } from "./ui";
+import { useAgentName } from "../lib/agent";
 
 interface Change {
   path: string;
@@ -23,6 +24,7 @@ interface Note {
 // Review what a worker changed before there's a PR: click a line number to leave a note, then send all of
 // them to its session as one message.
 export function DiffReview({ root, sessionId, onClose }: { root: string; sessionId?: string; onClose: () => void }) {
+  const agent = useAgentName();
   const font = useEditorFont();
   const openSession = useOpenSession();
   const changes = useQuery({ queryKey: ["changes", root], queryFn: () => api.get<Change[]>(`/code/fs/changes${qs({ root })}`) });
@@ -115,9 +117,9 @@ export function DiffReview({ root, sessionId, onClose }: { root: string; session
               <span className="font-medium">{path ?? "Review"}</span>
               <span className="text-faint"> · click a line number to leave a note</span>
             </div>
-            {sent && !notes.length && <span className="text-[12px] text-green">Sent to Claude</span>}
+            {sent && !notes.length && <span className="text-[12px] text-green">Sent to {agent}</span>}
             <Button size="sm" variant="primary" disabled={!notes.length || sending} onClick={send}>
-              {sending ? "Sending" : notes.length ? `Send ${notes.length} note${notes.length > 1 ? "s" : ""} to Claude` : "Send to Claude"}
+              {sending ? "Sending" : notes.length ? `Send ${notes.length} note${notes.length > 1 ? "s" : ""} to ${agent}` : `Send to ${agent}`}
             </Button>
             <button onClick={onClose} className="size-7 rounded text-faint hover:text-ink hover:bg-ground" aria-label="Close">
               ✕

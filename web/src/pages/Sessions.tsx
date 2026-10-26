@@ -9,6 +9,7 @@ import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { useLiveSessions } from "../lib/live";
 import { statusLook } from "../lib/status";
+import { useAgentName } from "../lib/agent";
 
 interface HistoryItem {
   text: string;
@@ -160,6 +161,7 @@ export function SessionsPage() {
 }
 
 export function LaunchModal({ open, onClose, cwd: initial }: { open: boolean; onClose: () => void; cwd?: string }) {
+  const agent = useAgentName();
   const [cwd, setCwd] = useState(initial ?? "");
   const [prompt, setPrompt] = useState("");
   const [err, setErr] = useState<unknown>();
@@ -176,7 +178,7 @@ export function LaunchModal({ open, onClose, cwd: initial }: { open: boolean; on
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Start a Claude session">
+    <Modal open={open} onClose={onClose} title={`Start a ${agent} session`}>
       <div className="space-y-3">
         {!initial && <RootPicker value={cwd} onChange={setCwd} />}
         <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="First prompt (optional)" className={`${inputClass} h-auto w-full py-2`} />

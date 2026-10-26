@@ -69,7 +69,7 @@ export function ReplyPanel({ session, compact = false, onSent }: { session: Pick
                 <span className="max-w-[260px] truncate">{o.label}</span>
               </Button>
             ))}
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => keys(["Escape"])} title="Esc: cancel and tell Claude what to do instead">
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => keys(["Escape"])} title="Esc: cancel and say what to do instead">
               Esc
             </Button>
           </div>
@@ -110,7 +110,7 @@ export function ReplyPanel({ session, compact = false, onSent }: { session: Pick
             }
           }}
           rows={1}
-          placeholder={ask?.reachable ? "Reply to Claude" : "Reply (opens it in a cockpit terminal)"}
+          placeholder={ask?.reachable ? "Reply" : "Reply (opens it in a cockpit terminal)"}
           className={`${inputClass} flex-1 min-w-0 h-auto min-h-8 py-1.5 resize-y`}
         />
         <Button size="sm" variant="primary" disabled={busy || !text.trim()}>

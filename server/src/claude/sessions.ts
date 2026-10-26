@@ -164,7 +164,8 @@ let indexing: Promise<void> | null = null;
 
 export function indexAll() {
   indexing ??= (async () => {
-    const dirs = await readdir(projectsDir, { withFileTypes: true });
+    // no ~/.claude yet: someone who doesn't use Claude Code, or hasn't run it
+    const dirs = await readdir(projectsDir, { withFileTypes: true }).catch(() => []);
     for (const d of dirs) {
       if (!d.isDirectory()) continue;
       const files = await readdir(join(projectsDir, d.name)).catch(() => [] as string[]);
@@ -409,7 +410,9 @@ async function poll() {
 }
 
 export function startSessions() {
-  indexAll().then(() => console.log(`indexed ${db.prepare("select count(*) n from sessions").get()?.["n" as never]} sessions`));
+  indexAll()
+    .then(() => console.log(`indexed ${db.prepare("select count(*) n from sessions").get()?.["n" as never]} sessions`))
+    .catch((e) => console.error("session index", e));
   setInterval(() => poll().catch((e) => console.error("session poll", e)), 1500);
   setInterval(() => indexAll().catch(() => {}), 5 * 60_000);
 }

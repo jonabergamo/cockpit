@@ -12,6 +12,7 @@ import { ago, shortPath } from "../lib/format";
 import { useLive } from "../lib/live";
 import { editorTheme } from "../lib/monaco";
 import { useOpenSession } from "../lib/openSession";
+import { useAgentName } from "../lib/agent";
 
 const statusTone: Record<TaskStatus, "plain" | "cobalt" | "green" | "red" | "amber"> = { queued: "plain", starting: "cobalt", running: "cobalt", done: "green", failed: "red", cancelled: "plain" };
 
@@ -40,6 +41,7 @@ export function waves(groups: { group: string; dependsOn: string[] }[]) {
 
 // The Work screen's "Queued and attempts" filter: every task by wave, each opening its attempts side by side.
 export function TasksList() {
+  const agent = useAgentName();
   const q = useTasks();
   const all = q.data ?? [];
   const groups = [...new Map(all.map((t) => [t.group, t])).values()];
@@ -51,7 +53,7 @@ export function TasksList() {
       {q.isLoading ? (
         <Loading />
       ) : !groups.length ? (
-        <Empty>No tasks yet. Queue one and cockpit sets up a worktree and starts Claude in it.</Empty>
+        <Empty>No tasks yet. Queue one and cockpit sets up a worktree and starts {agent} in it.</Empty>
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-2 max-md:flex-col">
           {Array.from({ length: depth + 1 }, (_, w) => (
@@ -162,7 +164,7 @@ export function TaskGroupPage() {
       ) : (
         <>
           <details className="bg-panel border border-line rounded-lg px-4 py-2.5 text-[13px]">
-            <summary className="cursor-pointer text-muted">What Claude was asked</summary>
+            <summary className="cursor-pointer text-muted">What it was asked</summary>
             <pre className="mt-2 whitespace-pre-wrap font-sans">{g.prompt}</pre>
           </details>
           <div className={`grid gap-3 ${many ? "md:grid-cols-2 xl:grid-cols-3" : ""}`}>

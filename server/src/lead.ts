@@ -8,6 +8,7 @@ import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { onEvent } from "./events.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
+import { agentLaunch } from "./workers/index.ts";
 import { readRow, writeRow } from "./settings.ts";
 
 interface Lead {
@@ -44,12 +45,14 @@ export function openLead(epic?: EpicRef) {
   }
   const resume = saved.session && getSession(saved.session) ? ["--resume", saved.session] : [];
   const first = !resume.length && epic ? [epicPrompt(epic)] : [];
+  // another main agent has no system prompt to add to, so what the lead is goes first in its prompt
+  const go = agentLaunch(`${SYSTEM}${epic ? `\n\n${epicPrompt(epic)}` : ""}`, [...resume, "--append-system-prompt", SYSTEM, ...first]);
   const t = spawnTerm({
     cwd: config.repo.path,
-    command: "claude",
-    args: [...resume, "--append-system-prompt", SYSTEM, ...first],
+    command: go.command,
+    args: go.args,
     title: `lead · ${epic?.key ?? config.repo.name}`,
-    session: resume.length ? saved.session : undefined,
+    session: resume.length && !go.agent ? saved.session : undefined,
   });
   writeRow(key, { ...saved, term: t.id });
   return t;

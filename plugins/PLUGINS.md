@@ -107,7 +107,7 @@ What `k` offers:
 | `k.on(event, fn)` | `session.started`, `session.waiting` (Claude asked you something: a question, a permission prompt, a dialog), `session.idle` (it finished its turn), `session.ended`, `session.stuck`, `worktree.created`, `worktree.removed`, `terminal.opened`, `terminal.exited` (`{ id, code, run }`), `notify`, `task.started`, `task.done`, `autopilot.acted`, `verify.done`, `run.started` and `run.done` (each with the run). |
 | `k.run(cmd, args, { cwd, input })` | Runs a command and resolves with its output, with your `env` settings set. |
 | `k.terminal({ cwd, title, command, args, run })` | Opens a cockpit terminal. With `run: { kind, name, ticket }`, its command is recorded as a run with its output and exit code, and the result has the run's id as `runId`. |
-| `k.claude({ cwd, prompt, title })` | Starts Claude in a terminal. |
+| `k.claude({ cwd, prompt, title })` | Opens the main agent in a terminal with the prompt: Claude Code, or the agent picked in Settings → Board and automation. For another agent, a prompt that calls a skill as `/name ...` becomes "Use the name skill. ...", which is how those agents find skills. |
 | `k.notify({ title, body, link, urgent })` | Shows a cockpit notification. `urgent` marks the second nudge for a session left waiting, and autopilot giving up. |
 | `k.sendToSession(sessionId, text)` | Types a message into a running Claude session and presses Enter. Resolves to `false` when the session isn't in a cockpit terminal. |
 | `k.task({ title, prompt, ticket, attempts, model, dependsOn })` | Queues work: cockpit creates a worktree and branch, then starts Claude there with the prompt. Resolves with the tasks it created. |

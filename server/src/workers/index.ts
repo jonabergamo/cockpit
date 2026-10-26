@@ -34,9 +34,50 @@ async function versionOf(p: AgentProvider) {
   return version;
 }
 
+// whether it's logged in, asked the same way and kept for a minute, since logging in happens in a terminal
+const authSeen = new Map<string, { at: number; authed?: boolean }>();
+async function authedOf(p: AgentProvider) {
+  if (!p.authed) return;
+  const known = authSeen.get(p.id);
+  if (known && Date.now() - known.at < 60_000) return known.authed;
+  const authed = await run("bash", ["-lc", 'exec "$@"', "bash", agentBin(p), ...p.authed], { timeout: 15_000 }).then(
+    () => true,
+    () => false,
+  );
+  authSeen.set(p.id, { at: Date.now(), authed });
+  return authed;
+}
+
 export async function agentInfo(p: AgentProvider): Promise<AgentInfo> {
   const version = await versionOf(p);
-  return { id: p.id, name: p.name, about: p.about, installed: !!version, enabled: !agentOff(p.id), version, models: (await Promise.resolve(p.models?.() ?? []).catch(() => [])) ?? [], terminal: !!p.terminal };
+  const authed = version ? await authedOf(p) : undefined;
+  return { id: p.id, name: p.name, about: p.about, installed: !!version, enabled: !agentOff(p.id), version, authed, models: (await Promise.resolve(p.models?.() ?? []).catch(() => [])) ?? [], terminal: !!p.terminal };
+}
+
+// The main coding agent, from Settings → Board and automation; undefined is Claude Code, which everything that
+// opens an agent did before there were others
+export function mainAgent(): AgentProvider | undefined {
+  const id = getSettings().tasks.defaultAgent;
+  const p = id && id !== "claude" ? agentProvider(id) : undefined;
+  return p && !agentOff(p.id) ? p : undefined;
+}
+export const mainAgentName = () => mainAgent()?.name ?? "Claude";
+
+// A skill called the way Claude Code does it, "/name what to do", put the way other agents take it: they find
+// skills by name in what they're asked
+export function forAgent(p: AgentProvider | undefined, prompt: string) {
+  if (!p) return prompt;
+  const m = prompt.match(/^\/([\w:.-]+)(?:\s+([\s\S]*))?$/);
+  return m ? `Use the ${m[1]} skill.${m[2] ? ` ${m[2]}` : ""}` : prompt;
+}
+
+// What opens the main agent's own screen in a terminal, with a first prompt. On Claude Code, claudeArgs (resume,
+// a system prompt...) when given; other agents start a new conversation with the prompt.
+export function agentLaunch(prompt?: string, claudeArgs?: string[]): { command: string; args: string[]; agent?: AgentProvider } {
+  const p = mainAgent();
+  if (!p?.terminal) return { command: "claude", args: claudeArgs ?? (prompt ? [prompt] : []) };
+  const first = prompt ? forAgent(p, prompt) : undefined;
+  return { command: agentBin(p), args: [...p.terminal(), ...(first ? (p.start?.(first) ?? [first]) : [])], agent: p };
 }
 
 export const listAgents = () => Promise.all(agentProviders().map(agentInfo));

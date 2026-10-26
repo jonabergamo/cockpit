@@ -11,6 +11,8 @@ import { onEvent } from "./events.ts";
 import { notify } from "./notify.ts";
 import { parsePr, prInfo } from "./providers.ts";
 import { spawnTerm } from "./pty.ts";
+import { mainAgent } from "./workers/index.ts";
+import { startAgent } from "./workers/runner.ts";
 import { run } from "./util.ts";
 import { listWorktrees } from "./worktrees.ts";
 
@@ -140,8 +142,11 @@ export async function catchUp(worktree: string) {
   if (session && (session.agent || session.status === "idle") && canSend(session.id) && (await sendText(session.id, prompt))) how = "Told its session";
   else {
     const args = session ? ["--resume", session.id, prompt] : [prompt];
-    spawnTerm({ cwd: worktree, command: "claude", args, title: `catch up #${r.pr}`, session: session?.id });
-    how = session ? "Resumed its session" : "Started Claude";
+    // with no session to go on, a main agent other than Claude Code starts one of its own, run a turn at a time
+    const main = !session ? mainAgent() : undefined;
+    if (main) startAgent({ agent: main.id, cwd: worktree, prompt, title: `catch up #${r.pr}` });
+    else spawnTerm({ cwd: worktree, command: "claude", args, title: `catch up #${r.pr}`, session: session?.id });
+    how = session ? "Resumed its session" : `Started ${main?.name ?? "Claude"}`;
   }
   // after a merge the work lives on the target, so there's nothing left to follow
   if (r.state === "merged") db.prepare("update stacked set state = 'gone', note = ? where worktree = ?").run(`${how} to move onto ${r.target ?? "the base"}`, worktree);

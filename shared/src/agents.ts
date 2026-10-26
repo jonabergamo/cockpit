@@ -49,8 +49,23 @@ export interface AgentProvider {
   parse(line: string, state: Record<string, unknown>): AgentEvent[];
   // the arguments to open the conversation in its own interactive UI, in a terminal
   terminal?(resume?: string, model?: string): string[];
+  // the arguments to open its interactive UI with a first prompt; [prompt] when left out
+  start?(prompt: string): string[];
+  // the arguments for a one-off answer that changes nothing: the prompt goes in on stdin, the answer comes out
+  // on stdout. Cockpit's notes, summaries and "ask" use it when this is the main agent.
+  ask?(model?: string): string[];
   // the arguments that log it in, run in a terminal
   login?: string[];
+  // the arguments that say whether it's logged in, by exiting 0
+  authed?: string[];
+  // how to install it without root, for Settings → Setup; docs is where to read more
+  install?: string;
+  docs?: string;
+  // its own folder of skills (name/SKILL.md, as Claude Code has), so cockpit's and the plugins' skills go there
+  skillsDir?(): string;
+  // the arguments that add an MCP server to it for every folder, and that say whether one is there
+  mcpAdd?(name: string, env: Record<string, string>, command: string[]): string[];
+  mcpGet?(name: string): string[];
   // whether the conversation is in the middle of a turn right now, as the agent's own files say, for when it's
   // open in its own screen rather than run a turn at a time by cockpit; undefined when it can't tell
   busy?(resume: string): boolean | undefined;
@@ -65,6 +80,8 @@ export interface AgentInfo {
   // false when it's turned off in Settings
   enabled: boolean;
   version?: string;
+  // undefined when there's no way to tell
+  authed?: boolean;
   models: AgentModel[];
   terminal: boolean;
 }

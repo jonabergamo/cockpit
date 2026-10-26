@@ -9,7 +9,7 @@ import { onEvent } from "../src/events.ts";
 import { claude } from "../src/workers/claude.ts";
 import { codex } from "../src/workers/codex.ts";
 import { gemini } from "../src/workers/gemini.ts";
-import { agentProvider, useExtraAgents } from "../src/workers/index.ts";
+import { agentLaunch, agentProvider, forAgent, mainAgent, useExtraAgents } from "../src/workers/index.ts";
 import { agentRow, closeAgent, sendAgent, startAgent } from "../src/workers/runner.ts";
 import { sendText } from "../src/agents.ts";
 import { getSettings, putSettings } from "../src/settings.ts";
@@ -68,7 +68,7 @@ describe("agent output", () => {
 
   it("asks each CLI for one turn, resumed and with the access given", () => {
     const turn = { prompt: "x", cwd: "/w", access: "sandbox" as const, writable: ["/repo/.git"] };
-    expect(codex.headless(turn)).toEqual(["exec", "--json", "--skip-git-repo-check", "-c", 'sandbox_mode="workspace-write"', "-c", 'approval_policy="never"', "-c", 'sandbox_workspace_write.writable_roots=["/repo/.git"]', "-"]);
+    expect(codex.headless(turn)).toEqual(["exec", "--json", "--skip-git-repo-check", "-c", 'sandbox_mode="workspace-write"', "-c", 'approval_policy="never"', "-c", "sandbox_workspace_write.network_access=true", "-c", 'sandbox_workspace_write.writable_roots=["/repo/.git"]', "-"]);
     expect(codex.headless({ ...turn, resume: "t1", model: "m", access: "readonly" })).toEqual(["exec", "resume", "--json", "--skip-git-repo-check", "-m", "m", "-c", 'sandbox_mode="read-only"', "-c", 'approval_policy="never"', "t1", "-"]);
     const c = claude.headless({ ...turn, resume: "s1" });
     expect(c.slice(0, 8)).toEqual(["-p", "--output-format", "stream-json", "--verbose", "--resume", "s1", "--permission-mode", "acceptEdits"]);
@@ -104,7 +104,8 @@ describe("agent sessions", () => {
     expect(existsSync(join(cwd, "touched.txt"))).toBe(true);
     const row = agentRow(id)!;
     expect(row.native_id).toMatch(/^thread-/);
-    expect([row.tokens_in, row.tokens_out]).toEqual([100, 12]);
+    // output_tokens already has the reasoning in it, as Codex counts
+    expect([row.tokens_in, row.tokens_out]).toEqual([100, 10]);
 
     // a follow-up goes on the same thread
     const next = idleOnce(id);
@@ -147,5 +148,46 @@ describe("agent sessions", () => {
       putSettings({ agents: { off: [] } });
     }
     expect(getSettings().agents.off).toEqual([]);
+  });
+});
+
+describe("the main agent", () => {
+  it("is Claude Code until Settings picks another, and opens with the prompt in its own screen", () => {
+    const tasks = getSettings().tasks;
+    try {
+      expect(mainAgent()).toBeUndefined();
+      expect(agentLaunch("do it", ["--append-system-prompt", "x", "do it"])).toEqual({ command: "claude", args: ["--append-system-prompt", "x", "do it"] });
+      putSettings({ tasks: { ...tasks, defaultAgent: "codex" } });
+      expect(mainAgent()?.id).toBe("codex");
+      const go = agentLaunch("/cockpit-pr-review https://x/pull/1", ["--resume", "abc"]);
+      expect([go.command, ...go.args]).toEqual(["codex", "Use the cockpit-pr-review skill. https://x/pull/1"]);
+      expect(agentLaunch().args).toEqual([]);
+      // turned off, it's back to Claude Code
+      putSettings({ agents: { off: ["codex"] } });
+      expect(mainAgent()).toBeUndefined();
+    } finally {
+      putSettings({ tasks, agents: { off: [] } });
+    }
+  });
+
+  it("only rewrites a prompt that calls a skill, and only for another agent", () => {
+    expect(forAgent(undefined, "/review now")).toBe("/review now");
+    expect(forAgent(codex, "Fix the build")).toBe("Fix the build");
+    expect(forAgent(codex, "/natoora-e2e APP-1")).toBe("Use the natoora-e2e skill. APP-1");
+    expect(forAgent(codex, "/plugin:skill")).toBe("Use the plugin:skill skill.");
+  });
+
+  it("answers one-off questions read-only, and adds cockpit's MCP server the CLI's way", () => {
+    expect(claude.ask?.("sonnet")).toEqual(["-p", "--model", "sonnet"]);
+    expect(codex.ask?.()).toEqual(["exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "-"]);
+    expect(codex.mcpAdd?.("cockpit", { COCKPIT_URL: "http://127.0.0.1:8770" }, ["tsx", "mcp.ts"])).toEqual(["mcp", "add", "cockpit", "--env", "COCKPIT_URL=http://127.0.0.1:8770", "--", "tsx", "mcp.ts"]);
+    expect(gemini.start?.("hi")).toEqual(["-i", "hi"]);
+  });
+
+  it("keeps Codex's retries out of the errors", () => {
+    const lines = [1, 2, 3].map((n) => JSON.stringify({ type: "error", message: `Reconnecting... ${n}/5 (401 Unauthorized)` }));
+    const out = parseAll(codex, [...lines, JSON.stringify({ type: "turn.failed", error: { message: "401 Unauthorized" } })]);
+    expect(out.filter((e) => e.kind === "thinking")).toHaveLength(1);
+    expect(out.filter((e) => e.kind === "error")).toEqual([{ kind: "error", text: "401 Unauthorized" }]);
   });
 });

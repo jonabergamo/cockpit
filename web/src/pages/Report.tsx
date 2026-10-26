@@ -7,6 +7,7 @@ import { Button, copy, ErrorNote, inputClass, Loading, PageHeader, StatusTag, st
 import { api, qs } from "../lib/api";
 import { ago, usd } from "../lib/format";
 import { useCost, useSaveSettings, useSettings } from "../lib/cost";
+import { useAgentName } from "../lib/agent";
 
 interface Person {
   name: string;
@@ -289,6 +290,7 @@ function CostChart({ days }: { days: DayActivity[] }) {
 // Notes for people outside the team, written by Claude from everything the report has: every ticket with its
 // status history, PRs, commits and sessions, day by day. It only runs when you press the button.
 function AdditionalNotes({ sprintId }: { sprintId: number }) {
+  const agent = useAgentName();
   const qc = useQueryClient();
   const settings = useSettings();
   const saveSettings = useSaveSettings();
@@ -322,7 +324,7 @@ function AdditionalNotes({ sprintId }: { sprintId: number }) {
     mutationFn: () => api.post<{ jobId: string }>("/report/notes", { id: sprintId }),
     onSuccess: (r) => setJobId(r.jobId),
   });
-  const failed = job.data?.code !== undefined && job.data.code !== 0 ? new Error(job.data.output.slice(-500) || "Claude stopped without writing anything") : undefined;
+  const failed = job.data?.code !== undefined && job.data.code !== 0 ? new Error(job.data.output.slice(-500) || `${agent} stopped without writing anything`) : undefined;
   const custom = settings.data?.settings.notes.prompt ?? "";
   const maxChars = settings.data?.settings.notes.maxChars ?? 0;
   const liveBranch = settings.data?.settings.notes.liveBranch ?? "";
@@ -336,11 +338,11 @@ function AdditionalNotes({ sprintId }: { sprintId: number }) {
         <div className="flex-1 min-w-[220px]">
           <h2 className="font-semibold">Additional notes</h2>
           <p className="text-[13px] text-muted">
-            {running ? `Claude is reading the sprint and writing, started ${ago(job.data?.startedAt ?? Date.now())}.` : saved ? `Written ${ago(saved.at)}. Edit them here before you copy them.` : "A write-up of the sprint for people outside the team, from every ticket, status change, PR and commit cockpit has. Runs only when you ask."}
+            {running ? `${agent} is reading the sprint and writing, started ${ago(job.data?.startedAt ?? Date.now())}.` : saved ? `Written ${ago(saved.at)}. Edit them here before you copy them.` : "A write-up of the sprint for people outside the team, from every ticket, status change, PR and commit cockpit has. Runs only when you ask."}
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={() => setShowSetup((v) => !v)}>
-          {showSetup ? "Hide what Claude gets" : "What Claude gets"}
+          {showSetup ? `Hide what ${agent} gets` : `What ${agent} gets`}
         </Button>
         <Button size="sm" onClick={() => generate.mutate()} disabled={!!running || generate.isPending}>
           {running ? "Writing" : saved ? "Write again" : "Write the notes"}
@@ -386,7 +388,7 @@ function AdditionalNotes({ sprintId }: { sprintId: number }) {
                   className={`${inputClass} w-24`}
                 />
               </label>
-              <label className="flex items-center gap-2 text-[12px] text-muted" title="A draft that comes out longer goes back to Claude to shorten. 0 is no limit">
+              <label className="flex items-center gap-2 text-[12px] text-muted" title={`A draft that comes out longer goes back to ${agent} to shorten. 0 is no limit`}>
                 At most
                 <input
                   key={maxChars}
@@ -404,7 +406,7 @@ function AdditionalNotes({ sprintId }: { sprintId: number }) {
             </div>
           </div>
           <div className="space-y-1.5 min-w-0">
-            <div className="text-[12px] text-muted">The sprint's data, as Claude reads it</div>
+            <div className="text-[12px] text-muted">The sprint's data, as {agent} reads it</div>
             <pre className="h-[236px] overflow-auto rounded-md border border-line bg-ground p-2 text-[12px] leading-relaxed whitespace-pre-wrap">{brief.data ?? (brief.isLoading ? "Gathering it" : "")}</pre>
           </div>
         </div>

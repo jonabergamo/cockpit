@@ -6,6 +6,7 @@ import { api, qs } from "../lib/api";
 import { useCost } from "../lib/cost";
 import { today, usd } from "../lib/format";
 import { Button, copy, ErrorNote, inputClass, Loading, PageHeader, Tag } from "../components/ui";
+import { useAgentName } from "../lib/agent";
 
 interface Weekly {
   from: string;
@@ -177,6 +178,7 @@ export function WeeklyPage() {
 }
 
 function DailyText() {
+  const agent = useAgentName();
   const daily = useQuery({ queryKey: ["daily"], queryFn: () => api.get<string>("/report/daily") });
   const [text, setText] = useState("");
   const [copied, setCopied] = useState(false);
@@ -197,7 +199,7 @@ function DailyText() {
           return j.output.trim();
         }
       }
-      throw new Error("Claude took too long");
+      throw new Error(`${agent} took too long`);
     },
     onSuccess: setText,
   });
@@ -210,7 +212,7 @@ function DailyText() {
           Rebuild
         </Button>
         <Button size="sm" onClick={() => refine.mutate()} disabled={refine.isPending || !text}>
-          {refine.isPending ? "Claude is rewriting" : "Polish with Claude"}
+          {refine.isPending ? `${agent} is rewriting` : `Polish with ${agent}`}
         </Button>
         <Button
           size="sm"

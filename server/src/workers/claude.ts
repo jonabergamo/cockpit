@@ -68,5 +68,6 @@ export const claude: AgentProvider = {
     return out;
   },
   terminal: (resume, model) => [...(model ? ["--model", model] : []), ...(resume ? ["--resume", resume] : [])],
+  ask: (model) => ["-p", ...(model ? ["--model", model] : [])],
   login: [],
 };

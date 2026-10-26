@@ -12,6 +12,7 @@ import { useCost } from "../lib/cost";
 import { useAppConfig, usePrs } from "../lib/queries";
 import { useBoard } from "./Board";
 import { useTickets } from "./Tickets";
+import { useAgentName, useClaudeMain } from "../lib/agent";
 
 interface DayRes {
   date: string;
@@ -72,6 +73,7 @@ const SHOWN = 4;
 // What's in flight, in a line: how much sits in each of Work's columns, and the first few that need you.
 // The lists themselves live on Work.
 function WorkSummary() {
+  const agent = useAgentName();
   const board = useBoard();
   const prs = usePrs();
   const refreshing = useRefreshing(["board"], ["prs"]);
@@ -136,7 +138,7 @@ function WorkSummary() {
               )}
             </div>
           )}
-          {!cards.length && <div className="px-4 py-3 text-[13px] text-muted border-t border-line">Nothing in flight. Start Claude in a worktree, or queue a task.</div>}
+          {!cards.length && <div className="px-4 py-3 text-[13px] text-muted border-t border-line">Nothing in flight. Start {agent} in a worktree, or queue a task.</div>}
         </>
       )}
     </section>
@@ -144,6 +146,8 @@ function WorkSummary() {
 }
 
 export function TodayPage() {
+  // the dollars are Claude Code's; another main agent's tokens show on its sessions
+  const claudeMain = useClaudeMain();
   const cost = useCost();
   const tickets = useTickets();
   const day = useQuery({ queryKey: ["day", today()], queryFn: () => api.get<DayRes>("/report/day") });
@@ -169,7 +173,7 @@ export function TodayPage() {
           <h1 className="text-[26px] font-semibold tracking-tight">{hello}.</h1>
           <p className="text-muted">
             {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
-            {day.data ? ` · ${day.data.commits.length} commits${cost.hidden ? "" : ` and ${usd(day.data.costUSD) || "$0"} ${cost.real ? "of Claude" : "of API value"}`} so far` : ""}
+            {day.data ? ` · ${day.data.commits.length} commits${cost.hidden || !claudeMain ? "" : ` and ${usd(day.data.costUSD) || "$0"} ${cost.real ? "of Claude" : "of API value"}`} so far` : ""}
           </p>
         </div>
         <RefreshButton
