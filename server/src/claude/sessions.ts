@@ -7,6 +7,7 @@ import { db } from "../db.ts";
 import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
 import { noteSession } from "../pty.ts";
+import { oneLine, quick, quickOn } from "../quick.ts";
 import { day, ticketOf, ticketOfPath } from "../util.ts";
 import { agentRow, agentRows, type AgentRow } from "../workers/runner.ts";
 import { codexTerminalFile, codexTerminalSessions, isCodexTerminal, scanCodexTerminals } from "./codexTerminal.ts";
@@ -215,6 +216,26 @@ async function refreshBranches() {
   for (const cwd of currentBranch.keys()) if (!cwds.has(cwd)) currentBranch.delete(cwd);
 }
 
+// A session Claude Code never titled (a claude -p run, one closed after its first prompt) gets a few words from
+// the local model, from its prompt. Kept apart from the index, which would write over them.
+db.exec("create table if not exists session_titles (id text primary key, title text not null)");
+const quickTitles = new Map(db.prepare<[], { id: string; title: string }>("select id, title from session_titles").all().map((r) => [r.id, r.title]));
+async function titleSessions() {
+  if (!quickOn()) return;
+  const rows = db
+    .prepare<[], { id: string; last_prompt: string }>("select id, last_prompt from sessions where coalesce(title, '') = '' and coalesce(last_prompt, '') != '' and id not in (select id from session_titles) order by last_ts desc limit 40")
+    .all();
+  for (const r of rows) {
+    const title = oneLine(
+      await quick(`Write a title of at most 6 words for a coding session that started with this request, like "Fix overlapping home product cards". Reply with the title only.\n\n<request>\n${r.last_prompt.slice(0, 2000)}\n</request>`, { max: 20 }),
+    );
+    if (!title) return;
+    if (title.length > 80) continue;
+    db.prepare("insert or replace into session_titles (id, title) values (?, ?)").run(r.id, title);
+    quickTitles.set(r.id, title);
+  }
+}
+
 function toSession(r: Row): Session {
   const l = live.get(r.id);
   const cwd = r.cwd ?? l?.cwd ?? "";
@@ -223,7 +244,7 @@ function toSession(r: Row): Session {
     id: r.id,
     project: r.project,
     cwd,
-    title: r.title ?? undefined,
+    title: r.title ?? quickTitles.get(r.id) ?? undefined,
     name: l?.name,
     status: l ? l.status : "ended",
     waitingFor: l?.waitingFor,
@@ -428,4 +449,6 @@ export function startSessions() {
     .catch((e) => console.error("session index", e));
   setInterval(() => poll().catch((e) => console.error("session poll", e)), 1500);
   setInterval(() => indexAll().catch(() => {}), 5 * 60_000);
+  setTimeout(() => void titleSessions().catch(() => {}), 2 * 60_000);
+  setInterval(() => void titleSessions().catch(() => {}), 10 * 60_000);
 }

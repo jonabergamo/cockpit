@@ -1,6 +1,7 @@
 // Runs: every test, lint, typecheck, audit, e2e, proof, verify and CI run, wherever it started (a Claude Bash hook,
 // `cockpit run`, a terminal, verify, a plugin, a script of yours). A run is a row in the runs table, its
 // output is data/runs/<id>.log and its files are in data/runs/<id>/.
+import { oneLine, quick, quickOn } from "./quick.ts";
 import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, openSync, readSync, closeSync, appendFileSync, renameSync, rmSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
@@ -451,6 +452,7 @@ export function finishRun(id: string, f: { status?: RunStatus; exitCode?: number
   // a pass makes the earlier failures' videos of the same thing redundant
   if (r.status === "pass") setImmediate(() => dropFailedVideos());
   changed(id, true);
+  void titleRun(r);
   if (failureIsNews(r)) {
     const what = { unit: "Tests", lint: "Lint", typecheck: "Typecheck", audit: "Audit", e2e: "E2E run", proof: "Proof run", verify: "Checks", ci: "CI check", other: "Run" }[r.kind];
     const last = outputTail(id, 30).filter((l) => l.trim()).at(-1);
@@ -458,6 +460,27 @@ export function finishRun(id: string, f: { status?: RunStatus; exitCode?: number
     notify({ title: `${what} failed: ${r.name}`, body: body.slice(0, 200), link: `/runs/${r.id}`, kind: "run" });
   }
   return r;
+}
+
+// A run named after its whole command (an agent's Bash call with no description) gets a few words from the local
+// model instead, once it's over; the command itself stays on the run's page
+const shellish = (name: string) => name.length > 50 || /&&|;|\||<<|\n/.test(name);
+const untitled = (r: Pick<Run, "name" | "command">) => !!r.command && r.name === r.command.slice(0, 120) && shellish(r.name);
+async function titleRun(r: Pick<Run, "id" | "name" | "command">) {
+  if (!quickOn() || !untitled(r)) return;
+  const title = oneLine(
+    await quick(`Write a title of at most 6 words for what this shell command does, like "Typecheck and build the web app" or "Run the orders unit tests". Reply with the title only.\n\n<command>\n${r.command!.slice(0, 2000)}\n</command>`, { max: 20 }),
+  );
+  if (!title || title.length > 80) return;
+  db.prepare("update runs set name = ? where id = ? and name = ?").run(title, r.id, r.name);
+  changed(r.id, true);
+}
+
+// the runs from before titles were a thing, a few at a time while nothing else is asking the model
+async function titleOldRuns() {
+  if (!quickOn()) return;
+  const rows = db.prepare<[], Pick<Run, "id" | "name" | "command">>("select id, name, command from runs where command is not null and name = substr(command, 1, 120) order by started_at desc limit 300").all();
+  for (const r of rows.filter(untitled)) await titleRun(r);
 }
 
 export type RecordInput = RunStart & { status: RunStatus; exitCode?: number; endedAt?: number; output?: string; summary?: RunSummary; artifacts?: RunArtifact[] | { path: string; name?: string; type?: string }[]; quiet?: boolean };
@@ -647,6 +670,7 @@ export function screenLines(out: string) {
 
 export function startRuns() {
   refreshWorktrees();
+  setTimeout(() => void titleOldRuns().catch(() => {}), 90_000);
   onEvent((event, data) => {
     if (event === "worktree.created" || event === "worktree.removed") refreshWorktrees();
     if (event !== "terminal.exited") return;

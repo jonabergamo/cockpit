@@ -59,6 +59,12 @@ describe("ticket pipeline", () => {
     expect(row({ tickets: [ticket("A-1")], prs: { mine: [pr(5, { ticket: "A-1", state: "CLOSED" })] } })).toMatchObject({ needsYou: true, next: "PR closed without merging" });
   });
 
+  it("puts aside a ticket the local model sorted as no code, unless work on it has started", () => {
+    const noCodeKeys = new Set(["A-1"]);
+    expect(row({ tickets: [ticket("A-1", { summary: "Cover for Sam at the stand-up" })], noCodeKeys })).toMatchObject({ kind: "nocode" });
+    expect(row({ tickets: [ticket("A-1", { summary: "Cover for Sam at the stand-up" })], noCodeKeys, prs: { mine: [pr(5, { ticket: "A-1" })] } })).toMatchObject({ kind: "code" });
+  });
+
   it("lets a plugin's road take a row over, and says when a plugin failed", () => {
     const plugins = [
       { plugin: "e2e", name: "Tests", roads: { roads: [{ key: "A-1", kind: "e2e", kindLabel: "E2E", steps: ["Flows pass", "PR"], at: 0, next: "Write the tests", actions: [{ id: "e2e-start", label: "Write the tests" }] }], badges: { "A-2": [{ label: "flows failing", tone: "red" as const }] }, extra: [ticket("X-9")] } },

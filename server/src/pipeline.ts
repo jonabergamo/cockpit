@@ -22,6 +22,8 @@ export interface PipelineInput {
   agent: string;
   // a regex over the summary for tickets with no code, and the branches a PR into ships
   noCode: string;
+  // tickets the local model sorted as no code, on top of the pattern
+  noCodeKeys?: Set<string>;
   mainBranches: string[];
 }
 
@@ -247,7 +249,7 @@ export function buildPipeline(i: PipelineInput): Pipeline {
       const { featurePr, branch } = featureChain(pr, every, i.mainBranches);
       return { ...common, featurePr, key: rt.key, kind: "feature", kindLabel: "Feature step", steps: featureSteps(i.agent, stages), ...placeFeature(rt, wt, pr, card, i.agent, stages, w, featurePr, branch) };
     }
-    if (!pr && !wt && noCode?.test(rt.summary)) return { ...common, key: rt.key, kind: "nocode", kindLabel: "No code", steps: [], at: 0, next: "No code: nothing to ship", actions: rt.url ? [{ id: "ticket", label: "Ticket", href: rt.url }] : [] };
+    if (!pr && !wt && (noCode?.test(rt.summary) || i.noCodeKeys?.has(rt.key))) return { ...common, key: rt.key, kind: "nocode", kindLabel: "No code", steps: [], at: 0, next: "No code: nothing to ship", actions: rt.url ? [{ id: "ticket", label: "Ticket", href: rt.url }] : [] };
     return { ...common, key: rt.key, kind: "code", steps: codeSteps(i.agent, stages), ...placeCode(rt, wt, pr, card, i.agent, stages, w) };
   }
 }

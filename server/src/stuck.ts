@@ -7,6 +7,23 @@ import { parseLine, readTail } from "./claude/transcript.ts";
 import { emit } from "./events.ts";
 import { notify } from "./notify.ts";
 import { getSettings } from "./settings.ts";
+import { capture } from "./agents.ts";
+import { decide, quickOn } from "./quick.ts";
+
+// Silence in the transcript is often a long test run or build. The local model looks at the screen first, and
+// only a session it can't see working counts as stuck; past three times the limit it counts anyway.
+async function seemsBusy(sessionId: string) {
+  if (!quickOn()) return false;
+  const screen = capture(sessionId, 40)?.trim();
+  if (!screen) return false;
+  return (
+    (await decide(
+      "Is the program in this terminal still busy with something that takes a while, like tests, a build, an install, a download or a long command, rather than stuck or hung?",
+      `The end of a coding agent's terminal:\n<screen>\n${screen.slice(-4000)}\n</screen>`,
+      10_000,
+    )) === true
+  );
+}
 
 const flags = new Map<string, string>();
 const grew = new Map<string, { size: number; at: number }>();
@@ -44,7 +61,10 @@ async function check() {
     if (!g || g.size !== s.size) grew.set(s.id, { size: s.size, at: now });
     let reason: string | undefined;
     // a long background job writes nothing to the transcript, and that's fine
-    if (s.status === "busy" && !s.background && g && g.size === s.size && now - g.at >= minutes * 60_000) reason = `No progress for ${Math.round((now - g.at) / 60_000)} minutes`;
+    if (s.status === "busy" && !s.background && g && g.size === s.size && now - g.at >= minutes * 60_000) {
+      const quiet = now - g.at;
+      if (quiet >= 3 * minutes * 60_000 || !(await seemsBusy(s.id))) reason = `No progress for ${Math.round(quiet / 60_000)} minutes`;
+    }
     const file = sessionFile(s.id);
     if (!reason && file && s.status === "busy" && !s.background) {
       const tail = await readTail(file, 192 * 1024).catch(() => undefined);

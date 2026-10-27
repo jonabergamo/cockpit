@@ -6,6 +6,8 @@ import { listTerms } from "./pty.ts";
 import { getSettings } from "./settings.ts";
 import { config } from "./config.ts";
 import { enqueue } from "./remote/outbox.ts";
+import { capture } from "./agents.ts";
+import { oneLine, quick, quickOn } from "./quick.ts";
 
 // a node has nobody looking at it: what it would show goes to its hub, which shows it once it has it
 const relay = config.role === "node";
@@ -48,7 +50,13 @@ export function sessionsChanged(sessions: Session[]) {
     const link = `/terminals?resume=${s.id}${s.pid ? `&pid=${s.pid}` : ""}`;
     const body = s.title ?? shortPath(s.cwd);
     if (s.status === "waiting" && before !== "waiting" && (before !== undefined || fresh)) {
-      notify({ title: s.waitingFor === "input needed" ? "Claude needs your input" : "Claude is waiting for you", body: s.waitingFor ? `${body} · ${s.waitingFor}` : body, link });
+      const send = (what?: string) => {
+        if (what) wants.set(s.id, what);
+        const why = what ?? s.waitingFor;
+        notify({ title: s.waitingFor === "input needed" ? "Claude needs your input" : "Claude is waiting for you", body: why ? `${body} · ${why}` : body, link });
+      };
+      if (quickOn()) void whatItWants(s.id).then(send, () => send());
+      else send();
       continue;
     }
     if (s.status !== "idle" || !(before === "busy" || fresh)) continue;
@@ -60,8 +68,24 @@ export function sessionsChanged(sessions: Session[]) {
     if (seen.has(id)) continue;
     last.delete(id);
     waitingSince.delete(id);
+    wants.delete(id);
     emit("session.ended", { id });
   }
+}
+
+// What a waiting session wants, read off its screen by the local model: "wants to run pnpm db:reset" says more
+// than "waiting". Given a few seconds at most, so a model still loading doesn't hold the notification up.
+const wants = new Map<string, string>();
+async function whatItWants(sessionId: string) {
+  const screen = capture(sessionId, 40)?.trim();
+  if (!screen) return;
+  const line = oneLine(
+    await quick(
+      `This is the end of a coding agent's terminal. The agent has stopped and is waiting for its user.\n\n<screen>\n${screen.slice(-4000)}\n</screen>\n\nIn one short line of at most 12 words, say what it wants from the user, starting with a verb, like "wants to run pnpm db:reset" or "asks whether to keep the old API". When it asks to run a command, name the command. Reply with that line only.`,
+      { max: 30, timeoutMs: 4000 },
+    ),
+  );
+  return line && line.length <= 120 ? line : undefined;
 }
 
 // A session left waiting gets one more, urgent nudge after a while; a phone push plugin sends that one loudly.
@@ -78,7 +102,7 @@ export function escalate(sessions: Session[]) {
     waitingSince.set(s.id, w);
     if (!minutes || w.nudged || Date.now() - w.at < minutes * 60_000) continue;
     w.nudged = true;
-    notify({ title: `Still waiting: ${s.title ?? s.name ?? shortPath(s.cwd)}`, body: `Claude has been waiting on you for ${minutes} minutes${s.waitingFor ? ` (${s.waitingFor})` : ""}.`, link: `/sessions/${s.id}`, urgent: true });
+    notify({ title: `Still waiting: ${s.title ?? s.name ?? shortPath(s.cwd)}`, body: `Claude has been waiting on you for ${minutes} minutes${wants.get(s.id) ? `: it ${wants.get(s.id)}` : s.waitingFor ? ` (${s.waitingFor})` : ""}.`, link: `/sessions/${s.id}`, urgent: true });
   }
 }
 

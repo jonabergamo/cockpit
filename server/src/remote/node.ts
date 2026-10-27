@@ -3,6 +3,7 @@
 // Pairing lives in <data>/node.json: { id, name, hubs: [{ hub, key, pairedAt }] }, where key is the hash of the
 // token the hub showed. `cockpit node pair` writes it; it's read again on every connection, so pairing needs no
 // restart.
+import { quickHere, type QuickAsk } from "../quick.ts";
 import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { hostname } from "node:os";
@@ -179,6 +180,8 @@ export function serve(c: Channel) {
   const offJobs = onJobStart((j) => c.emit("job.start", j));
   // claude -p for the hub, when Settings → Machines puts it here
   c.handle("job.headless", (h: Headless) => headlessHere(h));
+  // a quick answer from the local model here, for a hub without one
+  c.handle("quick.ask", ({ q, timeoutMs }: { q: QuickAsk; timeoutMs: number }) => quickHere(q, timeoutMs));
   // a plugin of the hub's calling the same plugin here, and the files it hands over
   c.handle("plugin.file", (f: Parameters<typeof receiveFile>[0]) => receiveFile(f));
   c.handle("plugin.call", ({ plugin, name, args, files }: { plugin: string; name: string; args: unknown; files: Record<string, string> }) => callExposed(plugin, name, args, files, fileOf));

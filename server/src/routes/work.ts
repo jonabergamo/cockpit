@@ -1,3 +1,4 @@
+import { noCodeKeys } from "../ticketKinds.ts";
 import { Hono } from "hono";
 import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
@@ -73,7 +74,7 @@ async function pipeline(fresh: boolean) {
   const input = { tickets, prs: { mine: prs[0], review: prs[1] }, worktrees, cards };
   const agent = mainAgentName();
   const plugins = await allTicketRoads({ tickets: roadTickets(input), agent, fresh });
-  return buildPipeline({ ...input, plugins, agent, noCode: s.noCodePattern, mainBranches: s.mainBranches.split(",").map((x) => x.trim()).filter(Boolean) });
+  return buildPipeline({ ...input, plugins, agent, noCode: s.noCodePattern, noCodeKeys: noCodeKeys(tickets), mainBranches: s.mainBranches.split(",").map((x) => x.trim()).filter(Boolean) });
 }
 
 export const work = new Hono()
