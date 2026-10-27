@@ -11,6 +11,7 @@ import { db } from "../db.ts";
 import { emit } from "../events.ts";
 import { notify } from "../notify.ts";
 import { spawnLines } from "../util.ts";
+import { countsOf, kindOf, recordRun } from "../runs.ts";
 import { agentBin, agentOff, agentProvider } from "./index.ts";
 
 export interface AgentRow {
@@ -115,6 +116,26 @@ export function closeAgent(id: string) {
   emit("session.ended", { id });
 }
 
+// An agent's shell commands come wrapped, like /bin/bash -lc 'pnpm test'; what it ran is the inside
+export function unwrapShell(command: string) {
+  const m = command.match(/^\S*\b(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/);
+  if (!m) return command;
+  return m[1] === "'" ? m[2].replace(/'\\''/g, "'") : m[2].replace(/\\(["\\$`])/g, "$1");
+}
+
+// The tests, lint, typechecks and audits an agent runs show on the Runs screen, as Claude Code's do through its hook.
+// Claude Code's own are left to the hook, which sees them too.
+const commands = new Map<string, { command: string; at: number }>();
+function recordCommand(row: AgentRow, id: string, text: string, isError: boolean) {
+  const c = commands.get(`${row.id}:${id}`);
+  if (!c) return;
+  commands.delete(`${row.id}:${id}`);
+  const kind = kindOf(c.command);
+  if (!kind) return;
+  const output = text.split("\n");
+  recordRun({ kind, name: c.command.slice(0, 120), command: c.command, cwd: row.cwd, status: isError ? "fail" : "pass", output: text, summary: countsOf(output), startedAt: c.at, endedAt: Date.now(), meta: { session: row.id } }, row.agent);
+}
+
 function apply(row: AgentRow, ev: AgentEvent, turnState: { ok?: boolean; last?: string; error?: string }) {
   switch (ev.kind) {
     case "session":
@@ -128,10 +149,14 @@ function apply(row: AgentRow, ev: AgentEvent, turnState: { ok?: boolean; last?: 
     case "thinking":
       write(row, { kind: "thinking", text: ev.text });
       break;
-    case "tool":
+    case "tool": {
       write(row, { kind: "tool", toolUseId: ev.id, name: ev.name, input: ev.input });
+      const command = (ev.input as { command?: unknown } | undefined)?.command;
+      if (ev.name === "Bash" && typeof command === "string" && row.agent !== "claude") commands.set(`${row.id}:${ev.id}`, { command: unwrapShell(command), at: Date.now() });
       break;
+    }
     case "tool_result":
+      recordCommand(row, ev.id, ev.text, ev.isError);
       write(row, { kind: "tool_result", toolUseId: ev.id, text: ev.text.length > 20_000 ? `${ev.text.slice(0, 20_000)}…` : ev.text, isError: ev.isError });
       break;
     case "usage": {

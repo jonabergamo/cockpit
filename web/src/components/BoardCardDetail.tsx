@@ -160,6 +160,7 @@ interface CiCompare {
 
 // A failing CI check, run here too, with both ends side by side
 function CiHere({ c }: { c: BoardCard }) {
+  const agent = useAgentName();
   const qc = useQueryClient();
   const jobs = useJobs();
   const [err, setErr] = useState<unknown>();
@@ -191,7 +192,7 @@ function CiHere({ c }: { c: BoardCard }) {
         </h3>
         {r?.verdict === "passes-here" && c.session && c.session.status !== "ended" && (
           <Button size="sm" onClick={() => go("/ci/compare/send")}>
-            Ask Claude why
+            Ask {agent} why
           </Button>
         )}
         <Button size="sm" disabled={r?.state === "running"} onClick={() => go("/ci/compare")} title="Run the failing check's job in this worktree and compare">
@@ -239,6 +240,7 @@ function CiHere({ c }: { c: BoardCard }) {
 }
 
 function Verify({ c }: { c: BoardCard }) {
+  const agent = useAgentName();
   const qc = useQueryClient();
   const cfg = useAppConfig();
   const jobs = useJobs();
@@ -263,7 +265,7 @@ function Verify({ c }: { c: BoardCard }) {
         </h3>
         {v?.state === "fail" && c.session && c.session.status !== "ended" && (
           <Button size="sm" onClick={() => go("/verify/send")}>
-            Send the failure to Claude
+            Send the failure to {agent}
           </Button>
         )}
         <Button size="sm" disabled={v?.state === "running"} onClick={() => go("/verify")}>

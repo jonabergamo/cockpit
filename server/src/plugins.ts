@@ -1,3 +1,4 @@
+import { headless } from "./placement/headless.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve, sep } from "node:path";
@@ -296,6 +297,10 @@ function makeApi(p: Plugin): Cockpit {
     },
     notify: (n) => void (speaks(id) && notify({ title: n.title, body: n.body ?? "", link: n.link ?? "/", urgent: n.urgent })),
     sendToSession: (sessionId, text) => sendText(sessionId, text),
+    ask: (prompt, o = {}) =>
+      new Promise((resolve, reject) => {
+        headless({ label: o.label ?? `${p.manifest.name}: ask`, prompt, cwd: o.cwd, model: o.model }, (j) => resolve({ ok: j.code === 0, output: j.output })).catch(reject);
+      }),
     task: (t) => createTasks(t),
     job: (label, command, cwd) => new Promise((resolve) => startJob(label, command, cwd, (j) => resolve({ code: j.code ?? 1, output: j.output }))),
     where: (cap) => where(cap),

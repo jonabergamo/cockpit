@@ -109,7 +109,8 @@ What `k` offers:
 | `k.terminal({ cwd, title, command, args, run })` | Opens a cockpit terminal. With `run: { kind, name, ticket }`, its command is recorded as a run with its output and exit code, and the result has the run's id as `runId`. |
 | `k.claude({ cwd, prompt, title })` | Opens the main agent in a terminal with the prompt: Claude Code, or the agent picked in Settings → Board and automation. For another agent, a prompt that calls a skill as `/name ...` becomes "Use the name skill. ...", which is how those agents find skills. |
 | `k.notify({ title, body, link, urgent })` | Shows a cockpit notification. `urgent` marks the second nudge for a session left waiting, and autopilot giving up. |
-| `k.sendToSession(sessionId, text)` | Types a message into a running Claude session and presses Enter. Resolves to `false` when the session isn't in a cockpit terminal. |
+| `k.sendToSession(sessionId, text)` | Types a message into a running session (Claude Code, or Codex in a cockpit terminal) and presses Enter. For an agent cockpit runs a turn at a time, it becomes the next prompt. Resolves to `false` when the session can't be reached. |
+| `k.ask(prompt, { label, cwd, model })` | One answer from the main agent, whichever it is, run without a terminal on the machine Settings → Machines picks. Resolves to `{ ok, output }`, where `output` is the answer. `model` is a Claude model and is left out for other agents. |
 | `k.task({ title, prompt, ticket, attempts, model, dependsOn })` | Queues work: cockpit creates a worktree and branch, then starts Claude there with the prompt. Resolves with the tasks it created. |
 | `k.job(label, command, cwd)` | Runs a shell command as a cockpit job, so its output shows in the job log. Resolves with the exit code and output. |
 | `k.where(cap)` | The machine a kind of work is set to run on in Settings → Machines: `"headless"` (claude -p) or `"whisper"`. Returns a machine's id, or `undefined` for this machine. |

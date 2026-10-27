@@ -179,9 +179,9 @@ function drawLeft() {
     <div class="card" id="new">
       <h2>New meeting</h2>
       ${rec ? recorderHtml() : `
-        <input type="text" id="new-title" placeholder="What's it about? (optional, Claude names it otherwise)" value="${esc(title)}" />
+        <input type="text" id="new-title" placeholder="What's it about? (optional, named for you otherwise)" value="${esc(title)}" />
         <div class="kinds" role="radiogroup" aria-label="Kind of meeting">${[{ id: "", name: "Any kind" }, ...kinds].map((x) => `<button type="button" class="chip ${x.id === newKind ? "on" : ""}" data-kind="${esc(x.id)}">${esc(x.name)}</button>`).join("")}</div>
-        <input type="text" id="new-series" list="series-list" placeholder="Part of a series? (optional, Claude spots them too)" value="${esc(seriesNow)}" />
+        <input type="text" id="new-series" list="series-list" placeholder="Part of a series? (optional, spotted for you too)" value="${esc(seriesNow)}" />
         <datalist id="series-list">${allSeries.map((x) => `<option value="${esc(x)}"></option>`).join("")}</datalist>
         <div class="row" style="margin-top:8px">
           <button class="primary" data-rec="mac" title="Your mic, plus the sound of the meeting app on this computer">Record with the computer's sound</button>
@@ -344,9 +344,9 @@ function drawDetail() {
       ${s.topics.length ? `<div class="sec"><h3>Topics</h3>${s.topics.map((t) => `<div class="topic">${m.mode === "paste" ? "" : `<button class="time" data-seek="${t.at}">${clock(t.at)}</button>`}<div><strong style="font-weight:500">${esc(t.title)}</strong> ${esc(t.summary)}</div></div>`).join("")}</div>` : ""}
       ${m.marks?.length ? `<div class="sec"><h3>Marked moments</h3>${m.marks.map((x) => `<div class="topic"><button class="time" data-seek="${x.at}">${clock(x.at)}</button><div>${esc(x.text || "Marked")}</div></div>`).join("")}</div>` : ""}`
     : m.status === "summarising"
-      ? '<p class="muted">Claude is writing it up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
+      ? '<p class="muted">Writing it up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
       : m.status === "transcribing"
-        ? '<p class="muted">Transcribing the rest of the recording, then Claude writes it up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
+        ? '<p class="muted">Transcribing the rest of the recording, then it's written up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
         : '<p class="muted">No write-up yet.</p>';
 
   // while recording only the captions move, so notes being typed keep their place
@@ -365,7 +365,7 @@ function drawDetail() {
         <div class="meta">${esc(m.title)} · ${when(m.startedAt)} · ${m.mode === "file" ? "importing" : "recording"}</div>
         <div class="said" id="said">${m.segments.length ? transcriptHtml(m.segments) : `<p class="faint">${m.mode === "file" ? "The recording is on its way." : "The transcript shows here a few seconds after things are said."}</p>`}</div>
       </div>
-      <div class="card"><h2>Your notes</h2><textarea id="notes" rows="5" placeholder="Claude reads these with the transcript">${esc(notes)}</textarea></div>`;
+      <div class="card"><h2>Your notes</h2><textarea id="notes" rows="5" placeholder="Read with the transcript when it's written up">${esc(notes)}</textarea></div>`;
     const said = $("#said");
     said.scrollTop = said.scrollHeight;
   } else {
@@ -380,7 +380,7 @@ function drawDetail() {
           <div class="tabs"><button data-tab="summary" class="${tab === "summary" ? "on" : ""}">Summary</button><button data-tab="transcript" class="${tab === "transcript" ? "on" : ""}">Transcript</button><button data-tab="notes" class="${tab === "notes" ? "on" : ""}">Notes</button></div>
           <span style="flex:1"></span>
           ${s ? '<button class="small" id="copy">Copy</button>' : ""}
-          <button class="small" id="ask" ${busy(m) ? "disabled" : ""}>Ask Claude</button>
+          <button class="small" id="ask" ${busy(m) ? "disabled" : ""}>Ask about it</button>
           <select id="again-kind" class="small" title="Kind of meeting" ${busy(m) ? "disabled" : ""}><option value="">Any kind</option>${kinds.map((x) => `<option value="${esc(x.id)}" ${x.id === m.kind ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>
           <button class="small ghost" id="again" ${busy(m) ? "disabled" : ""}>${m.status === "failed" ? "Try again" : "Write it up again"}</button>
           <button class="small ghost" id="del">Delete</button>
@@ -391,7 +391,7 @@ function drawDetail() {
             ? summary
             : tab === "transcript"
               ? `<input type="text" id="tfilter" placeholder="Find in the transcript" value="${esc(filter)}" style="margin-bottom:6px" /><div class="said" id="said">${transcriptHtml(m.segments, filter) || '<p class="faint">No transcript.</p>'}</div>`
-              : `<textarea id="notes" rows="10" placeholder="Your notes. Claude reads them when it writes the meeting up again">${esc(notes)}</textarea>
+              : `<textarea id="notes" rows="10" placeholder="Your notes, read with the transcript when the meeting is written up again">${esc(notes)}</textarea>
                 <label class="faint" style="font-size:13px;display:block;margin-top:10px">Series <input type="text" id="series" list="series-list-d" value="${esc(m.series ?? "")}" placeholder="Not part of a series" /></label>
                 <p class="faint" style="font-size:12px">Change it and write the meeting up again to compare it with the series' last meeting.</p>`
         }</div>

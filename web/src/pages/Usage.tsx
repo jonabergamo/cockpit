@@ -198,7 +198,7 @@ export function UsagePage() {
   const [picked, setPicked] = useState(savedAgent);
   const offered = agents.data ?? [];
   // what was picked here before, else the main agent, else whichever has something
-  const agent = (picked && offered.includes(picked) ? picked : offered.includes(claudeMain ? "claude" : "codex") ? (claudeMain ? "claude" : "codex") : offered[0]) ?? "claude";
+  const agent = (picked && offered.includes(picked) ? picked : offered.includes(claudeMain ? "claude" : "codex") ? (claudeMain ? "claude" : "codex") : offered[0]) ?? (claudeMain ? "claude" : "codex");
   const pick = (a: string) => {
     setPicked(a);
     try {

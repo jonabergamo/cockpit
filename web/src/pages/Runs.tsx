@@ -1,3 +1,4 @@
+import { useAgentName, useClaudeMain } from "../lib/agent";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
@@ -29,7 +30,7 @@ const kindLabel = (k: RunKind) => KINDS.find((x) => x.value === k)?.label ?? k;
 const STATUSES: RunStatus[] = ["running", "pass", "fail", "cancelled"];
 const statusTone = (s: RunStatus) => (s === "running" ? "cobalt" : s === "pass" ? "green" : s === "fail" ? "red" : "faint");
 const statusLabel = (r: Run) => (r.status === "running" ? (r.meta.phase && r.meta.phase !== "running" ? r.meta.phase : "running") : r.status === "pass" ? "passed" : r.status === "fail" ? (r.exitCode ? `failed (${r.exitCode})` : "failed") : "cancelled");
-const SOURCES: Record<string, string> = { hook: "Claude", wrapper: "cockpit run", terminal: "terminal", manual: "you", verify: "verify", ci: "CI", mcp: "Claude", script: "script" };
+const SOURCES: Record<string, string> = { hook: "Claude", wrapper: "cockpit run", terminal: "terminal", manual: "you", verify: "verify", ci: "CI", mcp: "Claude", script: "script", codex: "Codex", gemini: "Gemini" };
 const sourceLabel = (s: string) => SOURCES[s] ?? (s.startsWith("plugin:") ? s.slice(7) : s);
 const took = (r: Run) => duration((r.endedAt ?? Date.now()) - r.startedAt);
 
@@ -256,6 +257,8 @@ function Group({ g, folded, onToggle, onSummary }: { g: RunGroup; folded: boolea
 
 export function RunsPage() {
   useSeen();
+  const agent = useAgentName();
+  const claudeMain = useClaudeMain();
   const search = useSearch({ from: "/runs" });
   const navigate = useNavigate({ from: "/runs" });
   const f: RunsFilter = {
@@ -336,7 +339,10 @@ export function RunsPage() {
           <Empty>No runs match these filters.</Empty>
         ) : (
           <Empty>
-            No runs yet. Install the Claude hook in Settings → Board and automation to record the tests, lint and audits Claude runs, or wrap a command in <code className="font-mono">bin/cockpit run --</code>.
+            {claudeMain
+              ? "No runs yet. Install the Claude hook in Settings → Board and automation to record the tests, lint and audits Claude runs, or wrap a command in "
+              : `No runs yet. The tests, lint and audits ${agent} runs in cockpit's tasks show up here. Wrap any other command in `}
+            <code className="font-mono">bin/cockpit run --</code>.
           </Empty>
         ))}
       {search.summary && <PrSummary ticket={search.summary} open onClose={() => navigate({ search: (s) => ({ ...s, summary: undefined }), replace: true })} />}

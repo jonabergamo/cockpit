@@ -187,7 +187,8 @@ export async function doctor(): Promise<DoctorIssue[]> {
       }
     }
   } catch (e) {
-    issues.push({ level: "error", where: "settings.json", message: `can't parse: ${(e as Error).message}` });
+    // none at all is fine: Claude Code isn't set up here, or never changed a setting
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") issues.push({ level: "error", where: "settings.json", message: `can't parse: ${(e as Error).message}` });
   }
 
   for (const p of await ls(projectsDir)) {

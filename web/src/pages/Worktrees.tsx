@@ -1,3 +1,4 @@
+import { useAgentName } from "../lib/agent";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -13,6 +14,7 @@ import { LaunchModal } from "./Sessions";
 import { PrBadge, useTickets } from "./Tickets";
 
 export function WorktreesPage() {
+  const agent = useAgentName();
   const wts = useWorktrees();
   const tickets = useTickets();
   const prs = usePrs();
@@ -114,7 +116,7 @@ export function WorktreesPage() {
                   Code
                 </Button>
                 <Button size="sm" onClick={() => setLaunch(w.path)}>
-                  Claude
+                  {agent}
                 </Button>
                 {!w.main && (
                   <Button size="sm" variant="danger" onClick={() => setConfirm(w)}>

@@ -191,3 +191,13 @@ describe("the main agent", () => {
     expect(out.filter((e) => e.kind === "error")).toEqual([{ kind: "error", text: "401 Unauthorized" }]);
   });
 });
+
+describe("an agent's shell commands", () => {
+  it("are unwrapped from the shell they're run through", async () => {
+    const { unwrapShell } = await import("../src/workers/runner.ts");
+    expect(unwrapShell("/bin/bash -lc 'python3 test_calc.py; git diff'")).toBe("python3 test_calc.py; git diff");
+    expect(unwrapShell(`/bin/bash -lc 'echo '\\''hi'\\'' && pnpm test'`)).toBe("echo 'hi' && pnpm test");
+    expect(unwrapShell(`bash -c "pnpm \\"lint\\""`)).toBe('pnpm "lint"');
+    expect(unwrapShell("pnpm test")).toBe("pnpm test");
+  });
+});

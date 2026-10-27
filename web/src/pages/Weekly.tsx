@@ -251,7 +251,7 @@ function BragBox() {
     `Week of ${nice(d.from)} to ${nice(d.to)}`,
     ...d.released.map((t) => `- Released ${t.key} ${t.summary}`),
     ...d.prsMerged.map((p) => `- Merged #${p.number} ${p.title}`),
-    `- ${d.commits} commits, ${d.sessions} Claude sessions`,
+    `- ${d.commits} commits, ${d.sessions} sessions`,
   ].join("\n");
   return (
     <section className="bg-panel border border-line rounded-lg p-4">

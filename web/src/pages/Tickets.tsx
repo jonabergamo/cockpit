@@ -196,7 +196,7 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
               <div className="text-[13px] text-muted truncate">{t.summary}</div>
             </div>
             {wt && (
-              <Button size="sm" disabled={busy} onClick={() => work(t)} title={e.lastSession ? `Types ${t.url ?? t.key} into the epic's session` : `Starts the epic's Claude session with ${t.url ?? t.key}`}>
+              <Button size="sm" disabled={busy} onClick={() => work(t)} title={e.lastSession ? `Types ${t.url ?? t.key} into the epic's session` : `Starts the epic's ${agent} session with ${t.url ?? t.key}`}>
                 {e.lastSession ? "Send to epic session" : "Start with this one"}
               </Button>
             )}

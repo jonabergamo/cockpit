@@ -5,6 +5,12 @@ let keyRe = new RegExp(config.repo.keyPattern, "i");
 // the active tracker's pattern wins over repo.keyPattern
 export const setKeyPattern = (p?: string) => void (keyRe = new RegExp(p || config.repo.keyPattern, "i"));
 
+// A key in a folder path. Paths are matched with the key's own case: worktree folders carry it in capitals, and any
+// folder like claude-1000 (Claude Code's temp folder) or node-18 would otherwise read as one.
+export function ticketOfPath(path?: string) {
+  return path?.match(new RegExp(keyRe.source))?.[0];
+}
+
 export function ticketOf(...hay: (string | undefined)[]) {
   for (const s of hay) {
     const m = s?.match(keyRe);

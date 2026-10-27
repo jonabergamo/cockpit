@@ -1,3 +1,4 @@
+import { useAgentName } from "../lib/agent";
 import { useEffect, useState } from "react";
 import { type SettingsRes, useSaveSettings, useSettings } from "../lib/cost";
 import { useAppConfig } from "../lib/queries";
@@ -58,6 +59,7 @@ function Row({ t, vars, onChange, onRemove, onMove }: { t: Template; vars: strin
 
 // Kinds of work: what a ticket's worktree and Claude session start with, picked by the first pattern that matches.
 export function TemplateSettings() {
+  const agent = useAgentName();
   const q = useSettings();
   const cfg = useAppConfig();
   const save = useSaveSettings();
@@ -104,7 +106,7 @@ export function TemplateSettings() {
       <div>
         <h2 className="font-semibold">Kinds of work</h2>
         <p className="text-[13px] text-muted mt-0.5">
-          What a ticket's worktree and Claude session start with: its model, its first prompt, autopilot, and values for repo.createCommand. The first pattern that matches the ticket's summary or type wins, so put one with no pattern last as the default.
+          What a ticket's worktree and {agent} session start with: its model, its first prompt, autopilot, and values for repo.createCommand. The first pattern that matches the ticket's summary or type wins, so put one with no pattern last as the default.
           {placeholders.length > 0 && ` Your createCommand uses ${placeholders.map((p) => `{${p}}`).join(", ")}, so every kind of work should set ${placeholders.length === 1 ? "it" : "them"}.`}
         </p>
       </div>

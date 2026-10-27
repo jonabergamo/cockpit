@@ -3,7 +3,7 @@
   "name": "GitHub",
   "version": "1.0.0",
   "api": 1,
-  "description": "Your pull requests, their checks and the review queue, through the gh CLI. Feeds PR badges, PR reviews and fixing failed checks with Claude.",
+  "description": "Your pull requests, their checks and the review queue, through the gh CLI. Feeds PR badges, PR reviews and fixing failed checks with your coding agent.",
   "author": "cockpit",
   "defaultOn": false,
   "settings": [

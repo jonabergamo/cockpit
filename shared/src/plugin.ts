@@ -353,6 +353,9 @@ export interface Cockpit {
   notify(n: { title: string; body?: string; link?: string; urgent?: boolean }): void;
   // types a message into a running Claude session cockpit hosts, and presses Enter; false when it can't reach it
   sendToSession(sessionId: string, text: string): Promise<boolean>;
+  // one answer from the main agent (Claude Code, Codex...), run without a terminal where Settings → Machines puts
+  // it. model is Claude's and is left out for other agents. The output is the answer.
+  ask(prompt: string, opts?: { label?: string; cwd?: string; model?: string }): Promise<{ ok: boolean; output: string }>;
   // queues work for a new worker: a worktree and branch, then Claude with the prompt
   task(t: { title: string; prompt?: string; ticket?: string; attempts?: number; model?: string; dependsOn?: string[] }): Promise<Task[]>;
   // a shell command whose output streams to cockpit's job log

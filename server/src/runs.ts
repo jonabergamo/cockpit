@@ -15,7 +15,7 @@ import { knownPrs, knownQueue, myPrs, sprintTickets } from "./providers.ts";
 import { branchAt, branchMoves, headOf, prFor, prMeta, reflogOf } from "./runPr.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
 import { getSettings, type Settings } from "./settings.ts";
-import { run, ticketOf } from "./util.ts";
+import { run, ticketOf, ticketOfPath } from "./util.ts";
 import { listWorktrees } from "./worktrees.ts";
 
 export const KINDS: RunKind[] = ["unit", "lint", "typecheck", "audit", "e2e", "proof", "verify", "ci", "other"];
@@ -145,7 +145,7 @@ export function placeOf(r: { cwd?: string; branch?: string; name?: string; ticke
     worktrees.find((w) => w.path === r.worktree) ??
     worktrees.filter((w) => !w.main && inside(w.path, r.cwd)).sort((a, b) => b.path.length - a.path.length)[0] ??
     (r.branch ? worktrees.find((w) => !w.main && w.branch === r.branch) : undefined);
-  return { worktree: r.worktree ?? wt?.path, ticket: r.ticket || wt?.ticket || ticketOf(r.name, r.branch, wt?.branch, r.cwd) };
+  return { worktree: r.worktree ?? wt?.path, ticket: r.ticket || wt?.ticket || ticketOf(r.name, r.branch, wt?.branch) || ticketOfPath(r.cwd) };
 }
 
 // Counts and failing tests from the end of a runner's output: vitest, jest, mocha, pytest, go and the like.

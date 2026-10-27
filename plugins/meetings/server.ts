@@ -311,7 +311,10 @@ export default function setup(k: Cockpit) {
     const file = join(dir, `${id}.prompt.txt`);
     writeFileSync(file, prompt, { mode: 0o600 });
     const model = k.setting<string>("summaryModel");
-    const r = await k.job(`summarise ${m.title}`, `claude -p ${model ? `--model ${q(model)} ` : ""}< ${q(file)}`, dir);
+    // the main agent, whichever it is; an older cockpit without k.ask runs Claude Code
+    const r = k.ask
+      ? await k.ask(prompt, { label: `summarise ${m.title}`, cwd: dir, model: model || undefined }).then((x) => ({ code: x.ok ? 0 : 1, output: x.output }))
+      : await k.job(`summarise ${m.title}`, `claude -p ${model ? `--model ${q(model)} ` : ""}< ${q(file)}`, dir);
     rmSync(file, { force: true });
     const json = r.output.slice(r.output.indexOf("{"), r.output.lastIndexOf("}") + 1);
     type Out = Summary & { kind?: string; continues?: string; seriesName?: string; since?: { changed?: string[]; closed?: string[]; carried?: string[] } };
