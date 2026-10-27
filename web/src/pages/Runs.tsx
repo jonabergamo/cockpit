@@ -581,34 +581,39 @@ export function RunPage() {
 
       {live && <LiveScreen runId={r.id} steps={r.steps} />}
 
-      {r.panels.map((p) => (
-        <RunPanel key={p.url} src={`${p.url}${p.url.includes("?") ? "&" : "?"}run=${encodeURIComponent(r.id)}`} title={p.plugin} />
-      ))}
+      {(() => {
+        // what the plugins and the run say about it, beside its video when it has one
+        const info = (
+          <>
+          {r.panels.map((p) => (
+            <RunPanel key={p.url} src={`${p.url}${p.url.includes("?") ? "&" : "?"}run=${encodeURIComponent(r.id)}`} title={p.plugin} />
+          ))}
 
-      {!!r.summary.failing?.length && (
-        <section>
-          <h2 className="font-semibold mb-1.5">Failing</h2>
-          <ul className="bg-panel border border-line rounded-lg px-3 py-2 text-[13px] text-red space-y-0.5">
-            {r.summary.failing.map((f) => (
-              <li key={f} className="break-words">
-                {f}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+          {!!r.summary.failing?.length && (
+            <section>
+              <h2 className="font-semibold mb-1.5">Failing</h2>
+              <ul className="bg-panel border border-line rounded-lg px-3 py-2 text-[13px] text-red space-y-0.5">
+                {r.summary.failing.map((f) => (
+                  <li key={f} className="break-words">
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
-      {r.steps.length > 0 && !live && !r.panels.some((p) => p.steps) && (
-        <section>
-          <h2 className="font-semibold mb-1.5">Steps</h2>
-          <Steps steps={r.steps} done={r.status !== "running"} passed={r.status === "pass"} />
-        </section>
-      )}
-
-      {r.artifacts.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="font-semibold">Files</h2>
-          {r.artifacts.map((a) =>
+          {r.steps.length > 0 && !live && !r.panels.some((p) => p.steps) && (
+            <section>
+              <h2 className="font-semibold mb-1.5">Steps</h2>
+              <Steps steps={r.steps} done={r.status !== "running"} passed={r.status === "pass"} />
+            </section>
+          )}
+          </>
+        );
+        const videos = r.artifacts.filter((a) => a.type === "video");
+        const rest = r.artifacts.filter((a) => a.type !== "video");
+        const fileList = (list: typeof r.artifacts) =>
+          list.map((a) =>
             a.type === "video" ? (
               <RunVideo key={a.name} runId={r.id} a={a} url={files(a.name)} />
             ) : a.type === "image" ? (
@@ -620,9 +625,27 @@ export function RunPage() {
                 {a.name}
               </a>
             ),
-          )}
-        </section>
-      )}
+          );
+        const side = !live && videos.length > 0;
+        return (
+          <>
+            {side ? (
+              <div className="flex flex-wrap items-start gap-4">
+                <div className="space-y-2 max-w-full">{fileList(videos)}</div>
+                <div className="flex-1 min-w-[280px] space-y-4">{info}</div>
+              </div>
+            ) : (
+              info
+            )}
+            {(side ? rest : r.artifacts).length > 0 && (
+              <section className="space-y-2">
+                <h2 className="font-semibold">Files</h2>
+                {fileList(side ? rest : r.artifacts)}
+              </section>
+            )}
+          </>
+        );
+      })()}
 
       <section>
         <div className="flex items-center gap-3 mb-1.5">
