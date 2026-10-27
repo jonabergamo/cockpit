@@ -73,9 +73,9 @@ function lineOf(row: RunRow, ticket: string): Line | undefined {
   return { key: r.id, kind: r.kind, name, ok: r.status === "pass", worth, detail: counts, more, took: ranFor(r), at: r.startedAt };
 }
 
-// the card, at twice the size it shows, so it stays sharp on GitHub
+// a slim card like an alert, one line a check, at twice the size it shows so it stays sharp on GitHub
 function draw(canvas: HTMLCanvasElement, ticket: string, lines: Line[], sub: string, credit: boolean) {
-  const W = 920, row = 56, top = 92, bottom = 56;
+  const W = 760, row = 26, top = 44, bottom = 10, pad = 16;
   const H = top + Math.max(1, lines.length) * row + bottom;
   const s = 2;
   canvas.width = W * s;
@@ -84,61 +84,77 @@ function draw(canvas: HTMLCanvasElement, ticket: string, lines: Line[], sub: str
   const c = canvas.getContext("2d")!;
   c.scale(s, s);
   const font = (w: number, px: number) => `${w} ${px}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
-  c.fillStyle = "#ffffff";
+  const fit = (text: string, max: number) => {
+    let t = text;
+    while (c.measureText(t).width > max && t.length > 4) t = `${t.slice(0, -2)}…`;
+    return c.measureText(t).width > max ? "" : t;
+  };
+  const passed = lines.filter((l) => l.ok).length;
+  const good = passed === lines.length;
+  const tone = good ? { bg: "#f0fbf3", line: "#b7e4c7", ink: "#1a7f37" } : { bg: "#fff5f5", line: "#f5c2c0", ink: "#cf222e" };
+  c.fillStyle = tone.bg;
   c.beginPath();
-  c.roundRect(0, 0, W, H, 14);
+  c.roundRect(0.5, 0.5, W - 1, H - 1, 8);
   c.fill();
-  c.strokeStyle = "#d0d7de";
+  c.strokeStyle = tone.line;
   c.lineWidth = 1;
   c.stroke();
-  const passed = lines.filter((l) => l.ok).length;
-  c.fillStyle = "#1f2328";
-  c.font = font(700, 22);
-  c.fillText(`${ticket} · checks`, 28, 42);
-  c.fillStyle = "#59636e";
-  c.font = font(400, 14);
-  c.fillText(sub, 28, 66);
-  const badge = `${passed}/${lines.length} passed`;
-  c.font = font(600, 14);
-  const bw = c.measureText(badge).width + 24;
-  c.fillStyle = passed === lines.length ? "#dafbe1" : "#ffebe9";
+  // the alert's edge
+  c.fillStyle = tone.ink;
   c.beginPath();
-  c.roundRect(W - 28 - bw, 26, bw, 28, 14);
+  c.roundRect(0.5, 0.5, 4, H - 1, [8, 0, 0, 8]);
   c.fill();
-  c.fillStyle = passed === lines.length ? "#1a7f37" : "#cf222e";
-  c.fillText(badge, W - 28 - bw + 12, 45);
-  lines.forEach((l, i) => {
-    const y = top + i * row;
-    c.fillStyle = i % 2 ? "#ffffff" : "#f6f8fa";
-    c.fillRect(1, y, W - 2, row);
-    c.fillStyle = l.ok ? "#1a7f37" : "#cf222e";
-    c.font = font(700, 16);
-    c.fillText(l.ok ? "✓" : "✗", 28, y + 24);
-    c.fillStyle = "#59636e";
-    c.font = font(600, 12);
-    c.fillText((LABEL[l.kind] ?? l.kind).toUpperCase(), 52, y + 23);
-    c.fillStyle = "#1f2328";
-    c.font = font(500, 15);
-    let name = l.name;
-    while (c.measureText(name).width > 430 && name.length > 4) name = `${name.slice(0, -2)}…`;
-    c.fillText(name, 140, y + 24);
-    c.fillStyle = "#59636e";
-    c.font = font(400, 13);
-    c.fillText(l.detail, 590, y + 24);
-    c.textAlign = "right";
-    c.fillText(duration(l.took) || "–", W - 28, y + 24);
-    c.textAlign = "left";
-    // what it ran and when, under its name
-    c.fillStyle = "#6e7781";
-    c.font = font(400, 12);
-    let more = l.more.join("   ·   ");
-    while (c.measureText(more).width > W - 140 - 28 && more.length > 4) more = `${more.slice(0, -2)}…`;
-    c.fillText(more, 140, y + 43);
-  });
+
+  // one line on top: the result, then when and how long
+  c.font = font(700, 15);
+  c.fillStyle = tone.ink;
+  const head = `${good ? "✓" : "✗"} ${ticket}`;
+  c.fillText(head, pad + 4, 27);
+  let x = pad + 4 + c.measureText(head).width + 8;
+  c.fillStyle = "#1f2328";
+  c.font = font(600, 14);
+  const result = `${passed}/${lines.length} checks passed`;
+  c.fillText(result, x, 27);
+  x += c.measureText(result).width + 12;
   const total = lines.reduce((n, l) => n + l.took, 0);
   c.fillStyle = "#59636e";
   c.font = font(400, 12);
-  c.fillText(`${lines.length} checks, ${duration(total) || "0s"} of runs in all${credit ? " · recorded by cockpit" : ""}`, 28, H - 22);
+  c.textAlign = "right";
+  c.fillText(fit(`${sub} · ${duration(total) || "0s"} of runs${credit ? " · recorded by cockpit" : ""}`, W - pad - x), W - pad, 27);
+  c.textAlign = "left";
+
+  lines.forEach((l, i) => {
+    const y = top + i * row + 17;
+    if (i === 0) {
+      c.fillStyle = tone.line;
+      c.fillRect(pad + 4, top - 4, W - 2 * pad - 4, 1);
+    }
+    c.fillStyle = l.ok ? "#1a7f37" : "#cf222e";
+    c.font = font(700, 13);
+    c.fillText(l.ok ? "✓" : "✗", pad + 4, y);
+    c.fillStyle = "#59636e";
+    c.font = font(600, 10.5);
+    c.fillText((LABEL[l.kind] ?? l.kind).toUpperCase(), pad + 24, y - 1);
+    // right side: the counts, then how long
+    c.textAlign = "right";
+    c.font = font(400, 12);
+    c.fillText(duration(l.took) || "–", W - pad, y);
+    const detailRight = W - pad - 52;
+    c.fillText(l.detail, detailRight, y);
+    const detailW = l.detail ? c.measureText(l.detail).width + 16 : 0;
+    c.textAlign = "left";
+    // the name, and what it ran and when after it, in what room is left
+    const nameX = pad + 100;
+    const room = detailRight - detailW - nameX;
+    c.fillStyle = "#1f2328";
+    c.font = font(500, 13);
+    const name = fit(l.name, Math.min(room, 300));
+    c.fillText(name, nameX, y);
+    const after = nameX + c.measureText(name).width + 10;
+    c.fillStyle = "#6e7781";
+    c.font = font(400, 11.5);
+    c.fillText(fit(l.more.join(" · "), detailRight - detailW - after), after, y);
+  });
 }
 
 export function PrSummary({ ticket, open, onClose }: { ticket: string; open: boolean; onClose: () => void }) {
