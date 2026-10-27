@@ -43,7 +43,21 @@ export function TerminalsPage() {
   // a link to a split (a run, a server) opens the terminal it sits beside, with the split showing
   const picked = all.find((t) => t.id === id);
   const inSplit = !!picked?.parent && all.some((p) => p.id === picked.parent);
-  const active = inSplit ? picked!.parent : (id ?? tabs[0]?.id);
+  // with no terminal in the link (the sidebar's), the one you had open last, while it's still there
+  const last = (() => {
+    try {
+      return localStorage.getItem(LAST) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const active = inSplit ? picked!.parent : (id ?? (tabs.some((t) => t.id === last) ? last : tabs[0]?.id));
+  useEffect(() => {
+    if (!active || !all.some((t) => t.id === active)) return;
+    try {
+      localStorage.setItem(LAST, active);
+    } catch {}
+  }, [active, all]);
   const [showChanges, setShowChanges] = useState(() => {
     try {
       return localStorage.getItem(SIDE) !== "0";
@@ -222,6 +236,7 @@ export function TerminalsPage() {
   );
 }
 
+const LAST = "cockpit.lastTerminal";
 const SIDE = "cockpit.terminalChanges";
 const SPLIT = "cockpit.terminalSplitShown";
 const HISTORY = "cockpit.terminalHistoryShown";
