@@ -16,6 +16,7 @@ export interface SettingsRes {
     autopilot: { maxAttempts: number; onByDefault: boolean };
     tasks: { maxParallel: number; pauseAbovePct: number; defaultModel: string; defaultAgent: string };
     verify: { auto: boolean };
+    updates: { auto: boolean };
     pipeline: { openPrompt: string; reviewPrompt: string; noCodePattern: string; mainBranches: string };
     alerts: { stuckMinutes: number; escalateMinutes: number };
     away: { minutes: number };

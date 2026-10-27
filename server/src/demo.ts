@@ -403,6 +403,8 @@ export function mountDemo(app: Hono) {
     "/api/tickets": ok({ sprint, tickets: tickets.map((t) => ({ ...t, lastSession: (() => { const s = sessions.find((x) => x.ticket === t.key); return s ? { id: s.id, status: s.status, updatedAt: s.updatedAt } : null; })() })) }),
     "/api/tickets/new": ok({ types: ["Story", "Task", "Bug"], presets: ["Web", "Mobile"], fields: [{ key: "ac", label: "Acceptance criteria", kind: "lines" }, { key: "points", label: "Story points", kind: "number" }], sprint: true }),
     "/api/prs": ok(prs),
+    "/api/update": () => Response.json({ current: "demo", behind: 0, changes: [], service: false, checkedAt: Date.now(), nodes: [] }),
+    "/api/changelog": ok([]),
     "/api/pipeline": () => {
       const p = getSettings().pipeline;
       const withSessions = tickets.map((t) => {

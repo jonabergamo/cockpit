@@ -238,6 +238,20 @@ export function AutomationSettings() {
         </label>
       </div>
       <div className="space-y-2.5">
+        <h3 className="text-[12px] text-faint uppercase tracking-wide">Updates</h3>
+        <Toggle
+          label="Update cockpit by itself"
+          help="From its git remote, when nothing is working, then it restarts (when it runs as a service). Its nodes update with it. Otherwise it says when there's an update, at the foot of the sidebar"
+          on={s.updates.auto}
+          onChange={(v) => put("updates", { auto: v })}
+        />
+        <div>
+          <Button size="sm" onClick={() => dispatchEvent(new Event("cockpit:updates"))}>
+            Check for updates
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Ticket pipeline</h3>
         <Text label="Asking for the PR" help="Typed into a ticket's session by Ask for the PR on Work" value={s.pipeline.openPrompt} lines={2} onSave={(v) => put("pipeline", { openPrompt: v })} />
         <Text label="Answering a review" help="Typed in by Answer the review. {pr} is the PR's number" value={s.pipeline.reviewPrompt} lines={2} onSave={(v) => put("pipeline", { reviewPrompt: v })} />

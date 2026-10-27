@@ -28,6 +28,7 @@ import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
 import { gpuProbed, hasGpu } from "../placement/where.ts";
 import { headlessHere, type Headless } from "../placement/headless.ts";
+import { applyUpdate, updateStatus } from "../update.ts";
 import { actPluginRoad, callExposed, listPlugins, pluginFile, pluginTicketRoads } from "../plugins.ts";
 import { onPluginBadges, pluginBadges } from "../badges.ts";
 import { fileOf, receiveFile } from "./plugincalls.ts";
@@ -192,6 +193,9 @@ export function serve(c: Channel) {
   c.handle("api", (r: ApiReq) => handleApi(r));
   c.handle("board", ({ offline }: { offline?: boolean }) => localBoard({ offline }));
   // what its plugins add to the hub's ticket pipeline, and running one of their actions
+  // updating along with its hub, which asks how far behind it is first
+  c.handle("update.status", ({ force }: { force?: boolean }) => updateStatus(!!force));
+  c.handle("update.apply", () => applyUpdate({ nodes: false }));
   c.handle("pipeline.roads", (ctx: Parameters<typeof pluginTicketRoads>[0]) => pluginTicketRoads(ctx));
   c.handle("pipeline.act", ({ plugin, action, key }: { plugin: string; action: string; key: string }) => actPluginRoad(plugin, action, key));
   c.handle("reviews.states", () => reviewStates());

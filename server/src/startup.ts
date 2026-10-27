@@ -19,6 +19,10 @@ import { startUsage } from "./usage.ts";
 import { startCodexUsage } from "./codexUsage.ts";
 import { startVerify } from "./verify.ts";
 import { startWeekly } from "./weekly.ts";
+import { board } from "./board.ts";
+import { tracked, nodesUp, requestWork } from "./remote/work.ts";
+import { startUpdates, useBusyCheck, useNodeUpdates } from "./update.ts";
+import type { Job } from "./jobs.ts";
 
 // what belongs to the machine itself: its Claude sessions, their usage and search index, runs and terminals
 export function startHostServices() {
@@ -50,4 +54,17 @@ export function startHubServices() {
   startSnapshots();
   startWeekly();
   startBadges();
+  // updates: the nodes go first, in the same go, and nothing updates while work is going on anywhere
+  useNodeUpdates(async () =>
+    Promise.all(
+      nodesUp().map((node) =>
+        requestWork<Job>(node, "update.apply", {}, 60_000).then(
+          (j) => (tracked(node, j), `${node} is updating too (its own job shows how it goes).`),
+          (e: Error) => `${node} didn't update: ${e.message}`,
+        ),
+      ),
+    ),
+  );
+  useBusyCheck(async () => (await board().catch(() => [])).some((c) => c.column === "working" || c.column === "queued"));
+  startUpdates();
 }

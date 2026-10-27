@@ -20,6 +20,7 @@ import { ReportScreen, SessionsScreen, TicketsScreen, UsageScreen, WeekScreen } 
 import { listen } from "./lib/live";
 import { show } from "./lib/notifications";
 import { installPluginHost } from "./lib/pluginHost";
+import { watchForUpdates } from "./lib/update";
 import type { Job } from "./lib/queries";
 import type { Machine } from "@cockpit/shared";
 import "./lib/theme";
@@ -81,6 +82,7 @@ const queryClient = new QueryClient({
 });
 
 installPluginHost((to) => router.history.push(to));
+watchForUpdates();
 
 listen((ev) => {
   if (ev.type === "terms") queryClient.setQueryData(["terms"], ev.terms);

@@ -9,6 +9,7 @@ import { fontStore } from "../lib/fonts";
 import { themeStore } from "../lib/theme";
 import { CommandPalette } from "./CommandPalette";
 import { UsageMini } from "./UsageMini";
+import { UpdateNotice, WhatsNew } from "./Updates";
 import { TerminalLauncher } from "./TerminalLauncher";
 import { RunSomething } from "./RunSomething";
 import { NewTaskModal } from "./NewTask";
@@ -132,6 +133,7 @@ export function Layout() {
             </>
           )}
         </nav>
+        <UpdateNotice />
         <UsageMini />
         <div className="px-4 py-3 border-t border-line flex items-center gap-2 text-[12px] text-muted">
           <span className={`size-2 rounded-full ${connected ? "bg-green" : "bg-red"}`} />
@@ -179,6 +181,7 @@ export function Layout() {
       <NewTaskModal />
       <RunSomething />
       <AskPanel />
+      <WhatsNew />
     </div>
   );
 }

@@ -19,7 +19,9 @@ import { migrateLegacy, statusConfig } from "./providers.ts";
 import { install, installSkill, login, setupStatus } from "./requirements.ts";
 import { detectBilling, getSettings, putSettings } from "./settings.ts";
 import { repoState } from "./worktrees.ts";
-import { repoNode, requestWork } from "./remote/work.ts";
+import { nodesUp, repoNode, requestWork } from "./remote/work.ts";
+import { applyUpdate, changesBetween, currentCommit, updateStatus } from "./update.ts";
+import type { UpdateStatus } from "@cockpit/shared";
 import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
 import { tasks } from "./routes/tasks.ts";
 import { agents } from "./routes/agents.ts";
@@ -182,10 +184,53 @@ const machines = new Hono()
     }
   });
 
+// the page's main script, named by a hash of its contents, so a new build has a new name
+function webBuild() {
+  try {
+    return readFileSync(join(paths.web, "index.html"), "utf8").match(/\/assets\/(index-[\w-]+\.js)/)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
 // on a hub, what a node does is asked of that node; see remote/forward.ts
 const api = new Hono()
   .use("*", forward)
   .get("/health", (c) => c.json({ ok: true, role: config.role }))
+  // which build of the screens this server hands out (and the commit it runs), so an open page can tell it was
+  // updated, reload and say what's new
+  .get("/version", async (c) => c.json({ build: webBuild(), commit: await currentCommit() }))
+  // what's new upstream, with how far behind each node is; and updating
+  .get("/update", async (c) => {
+    const force = c.req.query("force") === "1";
+    const s = await updateStatus(force);
+    const nodes = await Promise.all(
+      nodesUp().map((machine) =>
+        requestWork<UpdateStatus>(machine, "update.status", { force }, 90_000).then(
+          (n) => ({ machine, behind: n.behind, blocked: n.blocked, error: n.error }),
+          (e: Error) => ({ machine, behind: 0, error: e.message }),
+        ),
+      ),
+    );
+    return c.json({ ...s, nodes });
+  })
+  .post("/update", async (c) => {
+    try {
+      return c.json(await applyUpdate());
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 500) as 409);
+    }
+  })
+  // what changed between two commits, for the What's new dialog
+  .get("/changelog", async (c) => {
+    try {
+      return c.json(await changesBetween(c.req.query("from") ?? "", c.req.query("to") || (await currentCommit())));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 500) as 400);
+    }
+  })
   .get("/config", (c) => c.json(appConfig()))
   .get("/settings", async (c) => c.json({ settings: getSettings(), billing: await detectBilling() }))
   .put("/settings", async (c) => {

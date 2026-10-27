@@ -22,6 +22,8 @@ function connect() {
   ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws.onopen = () => {
     retry = 500;
+    if (opened) reconnects.forEach((fn) => fn());
+    opened = true;
     setConnected(true);
     for (const w of watches.values()) ws!.send(JSON.stringify(w));
     flushHeld();
@@ -40,6 +42,11 @@ function connect() {
     retry = Math.min(retry * 2, 8000);
   };
 }
+
+let opened = false;
+const reconnects = new Set<() => void>();
+// called each time the socket comes back after it dropped, as it does when the server restarts
+export const onReconnect = (fn: () => void) => (reconnects.add(fn), () => void reconnects.delete(fn));
 
 connect();
 

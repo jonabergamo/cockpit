@@ -292,6 +292,7 @@ export type ServerEvent =
   | { type: "plugins" }
   // something on the Board changed: tasks, verify results, autopilot
   | { type: "board" }
+  | { type: "update"; status: UpdateStatus }
   // a run started, moved on or finished; its output is fetched, not pushed
   | { type: "run"; run: Run }
   // what the sidebar shows next to each screen, by its nav id
@@ -568,3 +569,36 @@ export interface Pipeline {
   rows: PipelineRow[];
   warnings: { text: string; plugin?: string }[];
 }
+
+// ---- cockpit updating itself from its git remote ----
+
+export interface Change {
+  sha: string;
+  // feat, fix, perf, refactor, docs... from the conventional commit subject; "other" when it doesn't have one
+  type: string;
+  scope?: string;
+  subject: string;
+  // the body's first paragraph, which says what it means for you
+  detail?: string;
+  at: number;
+}
+
+export interface UpdateStatus {
+  // the commit running now, and the one upstream
+  current: string;
+  latest?: string;
+  branch?: string;
+  behind: number;
+  changes: Change[];
+  // why it can't update itself: uncommitted changes, no upstream, not a git checkout
+  blocked?: string;
+  // it restarts itself after updating only when a service runs it
+  service: boolean;
+  // the nodes this hub updates along with itself, and how far behind each is
+  nodes?: { machine: string; behind: number; blocked?: string; error?: string }[];
+  // updated and about to restart
+  restarting?: boolean;
+  checkedAt: number;
+  error?: string;
+}
+

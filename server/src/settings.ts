@@ -57,6 +57,8 @@ const schema = z.object({
     })
     .prefault({}),
   verify: z.object({ auto: z.boolean().default(true) }).prefault({}),
+  // cockpit updating itself from its git remote when nothing is working, and restarting; otherwise it only says so
+  updates: z.object({ auto: z.boolean().default(false) }).prefault({}),
   // the ticket pipeline on the Work screen: what its Ask for the PR and Answer the review buttons type into a
   // ticket's session, the tickets with no code (a regex over the summary) and the branches a PR into ships, which
   // tell a feature's steps from the rest
