@@ -2,7 +2,8 @@
 // or one set on the ticket itself. Crossing the warning level and then the budget each notify once.
 // It counts dollars, or tokens when costs are hidden (on a plan the dollars mean little). Tokens are the new
 // ones, input, output and cache writes; cache reads would dwarf them and cost next to nothing.
-import type { TicketSpend } from "@cockpit/shared";
+import type { Session, TicketSpend } from "@cockpit/shared";
+import { mainAgent } from "./workers/index.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { db } from "./db.ts";
 import { notify } from "./notify.ts";
@@ -17,7 +18,8 @@ interface Use {
   lastAt: number;
 }
 
-export const unitOf = (): Unit => (getSettings().costs === "hide" ? "tokens" : "usd");
+// tokens when costs are hidden, or when the main agent isn't Claude Code: only Claude Code says what a session cost
+export const unitOf = (): Unit => (getSettings().costs === "hide" || !!mainAgent() ? "tokens" : "usd");
 const row = (unit: Unit) => (unit === "usd" ? "budgets" : "budgets-tokens");
 const toldRow = (unit: Unit) => `budget-told-${unit}`;
 const overrides = (unit: Unit) => readRow<Record<string, number>>(row(unit)) ?? {};
@@ -49,13 +51,17 @@ const tokensBySession = () =>
       .map((r) => [r.session_id, r.n]),
   );
 
+// Claude Code's tokens come from its usage index; another agent's session says its own
+const agentTokens = (s: Pick<Session, "tokens">) => (s.tokens ? s.tokens.input + s.tokens.output : 0);
+
 // what these sessions used together, in the unit that's showing
 export function sessionsSpend(ids: string[], unit = unitOf()) {
   if (!ids.length) return 0;
   const want = new Set(ids);
   if (unit === "tokens") {
     const tokens = tokensBySession();
-    return ids.reduce((n, id) => n + (tokens.get(id) ?? 0), 0);
+    const other = new Map(listSessions({ limit: 100_000 }).filter((s) => want.has(s.id)).map((s) => [s.id, agentTokens(s)]));
+    return ids.reduce((n, id) => n + (tokens.get(id) ?? other.get(id) ?? 0), 0);
   }
   return +listSessions({ limit: 100_000 })
     .filter((s) => want.has(s.id))
@@ -68,7 +74,7 @@ function usage(): Map<string, Use> {
   const out = new Map<string, Use>();
   for (const s of listSessions({ limit: 100_000 })) {
     if (!s.ticket) continue;
-    const n = tokens.get(s.id) ?? 0;
+    const n = tokens.get(s.id) ?? agentTokens(s);
     if (!s.costUSD && !n) continue;
     const t = out.get(s.ticket) ?? { usd: 0, tokens: 0, sessions: 0, lastAt: 0 };
     t.usd += s.costUSD ?? 0;

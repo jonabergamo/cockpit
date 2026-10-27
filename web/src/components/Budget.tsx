@@ -22,7 +22,7 @@ export function SpendTag({ spend }: { spend?: TicketSpend }) {
   const what = spend.unit === "usd" ? cost.label : "New tokens";
   const text = spend.unit === "usd" ? `${amount(spend.spent, "usd")}${spend.limit ? ` of ${amount(spend.limit, "usd")}` : ""}` : `${tokens(spend.spent)}${spend.limit ? ` of ${tokens(spend.limit)}` : ""} tokens`;
   return (
-    <Tag tone={toneOf(spend)} title={`${what} across this ticket's Claude sessions${spend.limit ? `, against a budget of ${amount(spend.limit, spend.unit)}` : ""}`}>
+    <Tag tone={toneOf(spend)} title={`${what} across this ticket's sessions${spend.limit ? `, against a budget of ${amount(spend.limit, spend.unit)}` : ""}`}>
       {text}
     </Tag>
   );
@@ -89,7 +89,7 @@ export function BudgetEditor({ ticket, spend }: { ticket: string; spend?: Ticket
         </div>
       )}
       <p className="text-[12px] text-faint">
-        Every Claude session on this ticket counts{unit === "tokens" ? ", in new tokens (input, output and cache writes)" : ""}. Cockpit tells you at {spend?.warnPct ?? 80}% and again when it goes over.
+        Every session on this ticket counts, whichever agent ran it{unit === "tokens" ? ", in new tokens (input, output and cache writes)" : ""}. Cockpit tells you at {spend?.warnPct ?? 80}% and again when it goes over.
       </p>
       <ErrorNote error={err} />
     </section>

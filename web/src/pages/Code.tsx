@@ -6,6 +6,7 @@ import { FileTree } from "../components/FileTree";
 import { RootPicker } from "../components/RootPicker";
 import { Terminal } from "../components/Terminal";
 import { Button, Empty, ErrorNote, inputClass, Loading, Tabs } from "../components/ui";
+import { useAgentName } from "../lib/agent";
 import { api, qs } from "../lib/api";
 import { ago } from "../lib/format";
 import { useEditorFont } from "../lib/fonts";
@@ -44,6 +45,7 @@ export function CodePage() {
 }
 
 function Workspace({ root, initialFile, initialDiff }: { root: string; initialFile?: string; initialDiff?: boolean }) {
+  const agent = useAgentName();
   const editorFont = useEditorFont();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -141,7 +143,7 @@ function Workspace({ root, initialFile, initialDiff }: { root: string; initialFi
             Terminal
           </Button>
           <Button size="sm" onClick={() => openTerminal(true)}>
-            Claude here
+            {agent} here
           </Button>
           <Button size="sm" variant="primary" onClick={() => api.post("/worktrees/open", { path: root }).catch(setErr)}>
             VS Code

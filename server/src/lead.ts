@@ -1,6 +1,7 @@
 // The lead: one Claude session per repo that plans with you and runs the work through cockpit's workers, and one
 // more per epic you lead on its own. Each one's terminal and session are remembered, so the button goes back to
 // the running one, or resumes the conversation when the terminal has gone.
+import { isCodexTerminal } from "./claude/codexTerminal.ts";
 import { existsSync } from "node:fs";
 import type { Session } from "@cockpit/shared";
 import { getSession, listSessions } from "./claude/sessions.ts";
@@ -8,7 +9,7 @@ import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { onEvent } from "./events.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
-import { agentLaunch } from "./workers/index.ts";
+import { agentLaunch, resumeLaunch } from "./workers/index.ts";
 import { readRow, writeRow } from "./settings.ts";
 
 interface Lead {
@@ -42,6 +43,12 @@ export function openLead(epic?: EpicRef) {
     const live = listSessions({ liveOnly: true }).find((s) => runsIn(s, term));
     if (live && live.id !== saved.session) writeRow(key, { ...saved, session: live.id });
     return term;
+  }
+  // a lead Codex ran goes back into its own conversation
+  if (saved.session && isCodexTerminal(saved.session) && getSession(saved.session)) {
+    const t = spawnTerm({ cwd: config.repo.path, ...resumeLaunch(saved.session), title: `lead · ${epic?.key ?? config.repo.name}`, session: saved.session });
+    writeRow(key, { ...saved, term: t.id });
+    return t;
   }
   const resume = saved.session && getSession(saved.session) ? ["--resume", saved.session] : [];
   const first = !resume.length && epic ? [epicPrompt(epic)] : [];

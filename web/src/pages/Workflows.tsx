@@ -1,3 +1,4 @@
+import { ClaudeOnly } from "../components/ClaudeOnly";
 import Editor from "@monaco-editor/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
@@ -19,6 +20,9 @@ export function WorkflowsPage() {
   return (
     <div className="max-w-[1100px]">
       <PageHeader title="Workflows" sub="Multi-agent runs started from your Claude sessions." />
+      <ClaudeOnly what="Workflows" className="mb-4">
+        The ones below, if any, come from Claude Code sessions on this machine.
+      </ClaudeOnly>
       {runs.isLoading && <Loading />}
       <ErrorNote error={runs.error} />
       {runs.data?.length === 0 && <Empty>No workflow runs yet.</Empty>}

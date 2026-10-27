@@ -11,7 +11,7 @@ import { onEvent } from "./events.ts";
 import { notify } from "./notify.ts";
 import { parsePr, prInfo } from "./providers.ts";
 import { spawnTerm } from "./pty.ts";
-import { mainAgent } from "./workers/index.ts";
+import { mainAgent, resumeLaunch } from "./workers/index.ts";
 import { startAgent } from "./workers/runner.ts";
 import { run } from "./util.ts";
 import { listWorktrees } from "./worktrees.ts";
@@ -141,11 +141,10 @@ export async function catchUp(worktree: string) {
   // only an idle session is told; one waiting on a question would take it as the answer
   if (session && (session.agent || session.status === "idle") && canSend(session.id) && (await sendText(session.id, prompt))) how = "Told its session";
   else {
-    const args = session ? ["--resume", session.id, prompt] : [prompt];
     // with no session to go on, a main agent other than Claude Code starts one of its own, run a turn at a time
     const main = !session ? mainAgent() : undefined;
     if (main) startAgent({ agent: main.id, cwd: worktree, prompt, title: `catch up #${r.pr}` });
-    else spawnTerm({ cwd: worktree, command: "claude", args, title: `catch up #${r.pr}`, session: session?.id });
+    else spawnTerm({ cwd: worktree, ...(session ? resumeLaunch(session.id, prompt) : { command: "claude", args: [prompt] }), title: `catch up #${r.pr}`, session: session?.id });
     how = session ? "Resumed its session" : `Started ${main?.name ?? "Claude"}`;
   }
   // after a merge the work lives on the target, so there's nothing left to follow

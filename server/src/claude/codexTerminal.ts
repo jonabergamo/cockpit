@@ -212,6 +212,12 @@ export function codexTerminalSessions(): Session[] {
 
 export const codexTerminalFile = (id: string) => tuis.get(id)?.file;
 export const isCodexTerminal = (id: string) => tuis.has(id);
+// for search: each session's file, and what to show for a hit
+export const codexTerminalFiles = () => [...tuis.values()].map((t) => ({ id: t.id, file: t.file }));
+export const codexTerminalMeta = (id: string) => {
+  const t = tuis.get(id);
+  return t && { title: titles.get(id) ?? t.title ?? null, cwd: t.cwd || null, last_ts: new Date(t.updatedAt).toISOString() };
+};
 // the tmux pane a message for it goes into, when it runs in one of cockpit's terminals
 export const codexTerminalPane = (id: string) => {
   const term = tuis.has(id) ? terminalsOf([...tuis.values()]).get(id) : undefined;

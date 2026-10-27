@@ -7,7 +7,7 @@ import { Button, copy, ErrorNote, inputClass, Loading, PageHeader, StatusTag, st
 import { api, qs } from "../lib/api";
 import { ago, usd } from "../lib/format";
 import { useCost, useSaveSettings, useSettings } from "../lib/cost";
-import { useAgentName } from "../lib/agent";
+import { useAgentName, useClaudeMain } from "../lib/agent";
 
 interface Person {
   name: string;
@@ -495,6 +495,7 @@ function PaceStat({ r }: { r: SprintReport }) {
 
 export function ReportPage() {
   const cost = useCost();
+  const claudeMain = useClaudeMain();
   const { sprint, scope: s } = useSearch({ from: "/report" });
   const scope = s ?? "team";
   const navigate = useNavigate();
@@ -596,6 +597,7 @@ export function ReportPage() {
         {activity.data && (
           <>
             {!cost.hidden && <CostChart days={activity.data} />}
+            {!cost.hidden && !claudeMain && <p className="text-[12px] text-faint mt-1">Only Claude Code puts a dollar figure on its sessions, so the chart leaves out other agents' sessions.</p>}
             <Activity days={activity.data} />
           </>
         )}

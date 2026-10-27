@@ -1,3 +1,4 @@
+import { useAgentName, useClaudeMain } from "../lib/agent";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
@@ -98,12 +99,19 @@ function RunSettings({ patterns, onSave, videoHours, onVideoHours }: { patterns?
   const hook = useQuery({ queryKey: ["runs-hook"], queryFn: () => api.get<HookState>("/runs/hook") });
   const set = useMutation({ mutationFn: (on: boolean) => api.post<HookState>("/runs/hook", { on }), onSuccess: (h) => qc.setQueryData(["runs-hook"], h) });
   const h = hook.data;
+  const claudeMain = useClaudeMain();
+  const agent = useAgentName();
   return (
     <div className="space-y-2.5">
       <h3 className="text-[12px] text-faint uppercase tracking-wide">Runs</h3>
+      {!claudeMain && (
+        <p className="text-[12px] text-muted">
+          {agent} has no hook like this. What it runs in cockpit's tasks shows on Runs anyway; what it runs in a terminal of yours doesn't, unless you wrap the command in <code className="font-mono">bin/cockpit run --</code>.
+        </p>
+      )}
       <div className="flex items-center gap-3 text-[13px]">
         <span className="flex-1 min-w-0">
-          <span className="block">Record the runs Claude does</span>
+          <span className="block">Record the runs Claude Code does</span>
           <span className="block text-[12px] text-faint">
             {h?.installed ? "The hook is in " : h?.partly ? "Only part of the hook is in " : "Adds a PostToolUse and PostToolUseFailure hook for Bash to "}
             {h?.file ?? "~/.claude/settings.json"}, so test, lint, typecheck, audit and E2E commands show on Runs. Your other hooks stay as they are. New sessions pick it up.
@@ -163,8 +171,11 @@ export function AutomationSettings() {
   const agents = useAgents();
   const [err, setErr] = useState<unknown>();
   // runs isn't in the shared settings type yet
+  const claudeMain = useClaudeMain();
   const s = q.data?.settings as S | undefined;
   if (!s) return null;
+  // only Claude Code says what a session cost, so another main agent counts tokens
+  const tokens = s.costs === "hide" || !claudeMain;
   const put = <K extends keyof S>(key: K, patch: Partial<NonNullable<S[K]>>) => {
     setErr(undefined);
     save({ [key]: { ...(s[key] as object), ...patch } } as Partial<SettingsRes["settings"]>).catch(setErr);
@@ -179,7 +190,7 @@ export function AutomationSettings() {
       <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Task queue</h3>
         <Num label="Tasks running at once" value={s.tasks.maxParallel} min={1} max={12} onSave={(n) => put("tasks", { maxParallel: n })} />
-        <Num label="Hold new tasks above" help="Of the 5 hour limit, as the status line reports it" value={s.tasks.pauseAbovePct} min={10} max={100} unit="% used" onSave={(n) => put("tasks", { pauseAbovePct: n })} />
+        <Num label="Hold new tasks above" help="Of each agent's plan limit, for its own tasks: Claude Code's 5 hour window from its status line, Codex's shortest window from its own files" value={s.tasks.pauseAbovePct} min={10} max={100} unit="% used" onSave={(n) => put("tasks", { pauseAbovePct: n })} />
         <label className="flex items-center gap-3 text-[13px]">
           <span className="flex-1">
             <span className="block">Main agent</span>
@@ -208,7 +219,7 @@ export function AutomationSettings() {
       <CodingAgents off={s.agents?.off ?? []} onChange={(off) => put("agents", { off })} />
       <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Overnight queue</h3>
-        {s.costs === "hide" ? (
+        {tokens ? (
           <Num label="A night may use" help="New tokens across the night's tasks. 0 is no cap" value={s.overnight.capMTokens} min={0} max={100000} unit="M tokens" onSave={(n) => put("overnight", { capMTokens: n })} />
         ) : (
           <Num label="A night may use" help="Across the night's tasks. 0 is no cap" value={s.overnight.capUSD} min={0} max={10000} unit="dollars" onSave={(n) => put("overnight", { capUSD: n })} />
@@ -293,10 +304,10 @@ export function AutomationSettings() {
       <CiLines lines={s.ci?.local ?? []} onSave={(local) => put("ci", { local })} />
       <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Budgets</h3>
-        {s.costs === "hide" ? (
-          <Num label="Budget per ticket" help="Costs are hidden, so it counts new tokens (input, output and cache writes) across a ticket's sessions. A ticket can set its own from its Board card. 0 is no budget" value={s.budget.perTicketMTokens} min={0} max={100000} unit="M tokens" onSave={(n) => put("budget", { perTicketMTokens: n })} />
+        {tokens ? (
+          <Num label="Budget per ticket" help="It counts new tokens across a ticket's sessions, whichever agent ran them. A ticket can set its own from its Board card. 0 is no budget" value={s.budget.perTicketMTokens} min={0} max={100000} unit="M tokens" onSave={(n) => put("budget", { perTicketMTokens: n })} />
         ) : (
-          <Num label="Budget per ticket" help="Every Claude session on a ticket counts. A ticket can set its own from its Board card. 0 is no budget" value={s.budget.perTicketUSD} min={0} max={100000} unit="dollars" onSave={(n) => put("budget", { perTicketUSD: n })} />
+          <Num label="Budget per ticket" help="Every Claude Code session on a ticket counts. A ticket can set its own from its Board card. 0 is no budget" value={s.budget.perTicketUSD} min={0} max={100000} unit="dollars" onSave={(n) => put("budget", { perTicketUSD: n })} />
         )}
         <Num label="Warn at" help="Then again when it goes over" value={s.budget.warnPct} min={10} max={100} unit="%" onSave={(n) => put("budget", { warnPct: n })} />
       </div>

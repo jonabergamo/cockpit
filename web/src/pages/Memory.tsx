@@ -1,3 +1,4 @@
+import { ClaudeOnly } from "../components/ClaudeOnly";
 import Editor, { DiffEditor, type OnMount } from "@monaco-editor/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -51,7 +52,11 @@ export function MemoryPage() {
     });
 
   return (
-    <div className="h-full flex">
+    <div className="h-full flex flex-col">
+      <ClaudeOnly what="Memory & skills" className="m-3 mb-0">
+        It shows Claude Code's memory, CLAUDE.md, skills and settings. Codex reads AGENTS.md in your repo and its skills in ~/.codex/skills, which you edit there.
+      </ClaudeOnly>
+      <div className="flex-1 min-h-0 flex">
       <aside className="w-[300px] shrink-0 border-r border-line bg-panel flex flex-col min-h-0 max-md:hidden">
         <div className="p-2 border-b border-line">
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter memory, skills, config" className={`${inputClass} w-full h-7 text-[13px]`} />
@@ -103,6 +108,7 @@ export function MemoryPage() {
       </aside>
       <div className="flex-1 min-w-0">{path ? <FileEditor key={path} path={path} /> : <Empty>Pick a file. Every save keeps a backup you can diff and restore.</Empty>}</div>
       {creating && <NewMemory project={creating} onClose={() => setCreating(undefined)} onCreated={select} />}
+    </div>
     </div>
   );
 }

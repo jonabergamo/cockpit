@@ -1,6 +1,8 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import type { Entry } from "@cockpit/shared";
 import { db } from "../db.ts";
+import { codexEntries, codexTerminalFiles, codexTerminalMeta } from "./codexTerminal.ts";
 import { projectsDir } from "./sessions.ts";
 import { parseLine, readFrom } from "./transcript.ts";
 
@@ -19,7 +21,7 @@ const putFile = db.prepare("insert or replace into search_files (file, offset, s
 const putText = db.prepare("insert into session_text (text, session_id, entry_id, ts, role) values (?, ?, ?, ?, ?)");
 const dropSession = db.prepare("delete from session_text where session_id = ?");
 
-async function indexOne(file: string, id: string) {
+async function indexOne(file: string, id: string, parse: (line: string) => Entry[] = parseLine) {
   const { size } = await stat(file);
   const prev = getFile.get(file);
   if (prev && prev.size === size) return;
@@ -31,8 +33,8 @@ async function indexOne(file: string, id: string) {
     db.transaction(() => {
       for (const line of chunk.lines) {
         // cheap check before parsing: only prompts and answers are worth searching
-        if (!line.includes('"type":"user"') && !line.includes('"type":"assistant"')) continue;
-        for (const e of parseLine(line)) {
+        if (parse === parseLine ? !line.includes('"type":"user"') && !line.includes('"type":"assistant"') : !line.includes('"type":"message"')) continue;
+        for (const e of parse(line)) {
           if ((e.kind === "user" || e.kind === "assistant") && e.text.trim()) putText.run(e.text.slice(0, 8000), id, e.id, e.ts, e.kind);
         }
       }
@@ -52,6 +54,8 @@ export function indexSearch() {
         if (f.endsWith(".jsonl")) await indexOne(join(projectsDir, d.name, f), f.slice(0, -6)).catch(() => {});
       }
     }
+    // and Codex's, the ones in a terminal
+    for (const c of codexTerminalFiles()) await indexOne(c.file, c.id, codexEntries).catch(() => {});
   })().finally(() => (running = null));
   return running;
 }
@@ -78,13 +82,14 @@ const meta = db.prepare<[string], { title: string | null; cwd: string | null; la
 export function searchSessions(q: string, limit = 20, any = false) {
   const match = toMatch(q, any);
   if (!match) return [];
-  const by = new Map<string, { id: string; title: string | null; cwd: string | null; lastTs: string | null; hits: { entryId: string; ts: string; role: string; snippet: string }[] }>();
+  const by = new Map<string, { id: string; title: string | null; cwd: string | null; lastTs: string | null; agent?: string; hits: { entryId: string; ts: string; role: string; snippet: string }[] }>();
   for (const r of find.all(match, 200)) {
     let s = by.get(r.session_id);
     if (!s) {
       if (by.size >= limit) continue;
-      const m = meta.get(r.session_id);
-      s = { id: r.session_id, title: m?.title ?? null, cwd: m?.cwd ?? null, lastTs: m?.last_ts ?? null, hits: [] };
+      const claude = meta.get(r.session_id);
+      const m = claude ?? codexTerminalMeta(r.session_id);
+      s = { id: r.session_id, title: m?.title ?? null, cwd: m?.cwd ?? null, lastTs: m?.last_ts ?? null, agent: claude ? "Claude" : "Codex", hits: [] };
       by.set(r.session_id, s);
     }
     if (s.hits.length < 3) s.hits.push({ entryId: r.entry_id, ts: r.ts, role: r.role, snippet: r.snip });

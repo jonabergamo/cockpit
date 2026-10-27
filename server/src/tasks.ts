@@ -1,5 +1,6 @@
 // Tasks: work you hand to cockpit to run in a fresh worktree with its own Claude. Several attempts of one
 // task form a group, so the results can be compared. A queue keeps how many run at once in check.
+import { codexLimits } from "./codexUsage.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -162,6 +163,15 @@ export async function createTasks(input: NewTask) {
 }
 
 // how full the 5 hour limit is, from what the status line last wrote
+// how much of an agent's plan limit is used: Claude Code's 5 hour window from its status line, Codex's shortest
+// window from its own session files
+const usedOf = (agent: string) => {
+  if (agent === "claude") return fivePct();
+  if (agent !== "codex") return undefined;
+  const w = codexLimits(Date.now()).latest;
+  return w?.five.pct ?? w?.seven.pct;
+};
+
 function fivePct() {
   try {
     return db.prepare<[], { five_pct: number | null }>("select five_pct from rate_limits order by at desc limit 1").get()?.five_pct ?? 0;
@@ -178,14 +188,16 @@ export function depsMet(t: Pick<Task, "dependsOn">, all: Pick<Task, "id" | "grou
   });
 }
 
-// which queued tasks may start now: in order, within the slots left, and not while usage is near the limit;
-// Claude's 5 hour limit only holds back tasks on Claude
-export function pickNext(all: Task[], maxParallel: number, usedPct: number, pauseAbove: number) {
-  const paused = usedPct >= pauseAbove;
+// which queued tasks may start now: in order, within the slots left, and not while usage is near the limit. Each
+// agent's own limit holds back its own tasks: usedPct says how much of it is used, by agent ("claude" for Claude
+// Code), and an agent that doesn't say isn't held back
+export function pickNext(all: Task[], maxParallel: number, usedPct: number | ((agent: string) => number | undefined), pauseAbove: number) {
+  const used = (agent: string) => (typeof usedPct === "number" ? (agent === "claude" ? usedPct : undefined) : usedPct(agent));
+  const paused = (t: Task) => (used(t.agent ?? "claude") ?? 0) >= pauseAbove;
   const active = all.filter((t) => t.status === "starting" || t.status === "running").length;
   const free = Math.max(0, maxParallel - active);
   return all
-    .filter((t) => t.status === "queued" && (!paused || !!t.agent) && depsMet(t, all))
+    .filter((t) => t.status === "queued" && !paused(t) && depsMet(t, all))
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(0, free);
 }
@@ -341,7 +353,7 @@ async function tick() {
   }
   // overnight tasks wait for the night, out of the list rather than counted as running
   const night = nightOn();
-  for (const t of pickNext(listTasks().filter((x) => night || !x.overnight || x.status !== "queued"), s.maxParallel, fivePct(), s.pauseAbovePct)) start(t);
+  for (const t of pickNext(listTasks().filter((x) => night || !x.overnight || x.status !== "queued"), s.maxParallel, usedOf, s.pauseAbovePct)) start(t);
 }
 
 const trusted = new Set<string>();

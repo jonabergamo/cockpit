@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { agentTerminal } from "./agents.ts";
-import { agentBin, agentLaunch, agentProvider } from "../workers/index.ts";
+import { agentBin, agentLaunch, agentProvider, resumePicker } from "../workers/index.ts";
 import { headless } from "../placement/headless.ts";
 import { where } from "../placement/where.ts";
 import { findOwner } from "../remote/work.ts";
@@ -50,8 +50,8 @@ export const claude = new Hono()
     if (node && node !== "local") {
       if (!cwd) return c.json({ error: "say which folder on that machine" }, 400);
       try {
-        const go = picker ? { command: "claude", args: ["--resume"] } : agentLaunch(prompt);
-        return c.json(await spawnRemote(node, { cwd, command: go.command, args: go.args, title: title ?? (picker ? "claude --resume" : (go.agent?.name.toLowerCase() ?? "claude")) }));
+        const go: { command: string; args: string[]; agent?: { name: string } } = picker ? resumePicker() : agentLaunch(prompt);
+        return c.json(await spawnRemote(node, { cwd, command: go.command, args: go.args, title: title ?? (picker ? `${go.command} resume` : go.agent?.name.toLowerCase() ?? "claude") }));
       } catch (e) {
         return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 500) as 500);
       }
@@ -102,8 +102,8 @@ export const claude = new Hono()
       return c.json(spawnTerm({ cwd, command: go.command, args: go.args, title: title ?? ticket }));
     }
     // the resume picker lists Claude Code's sessions; anything else opens the main agent
-    const go = picker ? { command: "claude", args: ["--resume"] } : agentLaunch(prompt);
-    return c.json(spawnTerm({ cwd, command: go.command, args: go.args, title: title ?? (picker ? "claude --resume" : (go.agent?.name.toLowerCase() ?? "claude")) }));
+    const go: { command: string; args: string[]; agent?: { name: string } } = picker ? resumePicker() : agentLaunch(prompt);
+    return c.json(spawnTerm({ cwd, command: go.command, args: go.args, title: title ?? (picker ? `${go.command} resume` : go.agent?.name.toLowerCase() ?? "claude") }));
   })
   // The lead: one long-running Claude per repo that plans with you and runs the work through cockpit's tools.
   // Opens its terminal when it's running, resumes it when it isn't, or starts one.

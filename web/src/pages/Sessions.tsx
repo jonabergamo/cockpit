@@ -23,6 +23,8 @@ export interface SaidHit {
   title: string | null;
   cwd: string | null;
   lastTs: string | null;
+  // whose session: Claude or Codex
+  agent?: string;
   hits: { entryId: string; ts: string; role: string; snippet: string }[];
   // the machine it was found on, when that's a node
   node?: string;
@@ -66,7 +68,7 @@ function Said({ q }: { q: string }) {
             </div>
             {s.hits.map((h) => (
               <div key={h.entryId} className="text-[13px] text-muted mt-1 line-clamp-2">
-                <span className="text-faint">{h.role === "user" ? "You: " : "Claude: "}</span>
+                <span className="text-faint">{h.role === "user" ? "You: " : `${s.agent ?? "Claude"}: `}</span>
                 <Snippet text={h.snippet} />
               </div>
             ))}
@@ -100,7 +102,7 @@ export function SessionsPage() {
 
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <Tabs value={tab} onChange={setTab} items={[{ value: "sessions", label: "Sessions" }, { value: "said", label: "What was said" }, { value: "prompts", label: "Prompt history" }]} />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tab === "sessions" ? "Search title, ticket, folder or branch" : tab === "said" ? "Search what you and Claude said in every session" : "Search everything you've typed"} className={`${inputClass} flex-1 min-w-[220px]`} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tab === "sessions" ? "Search title, ticket, folder or branch" : tab === "said" ? "Search what was said in every session" : "Search everything you've typed"} className={`${inputClass} flex-1 min-w-[220px]`} />
       </div>
 
       {tab === "said" ? (

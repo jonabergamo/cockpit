@@ -1,4 +1,5 @@
 // The coding agents cockpit can hand work to: the ones that ship with it, and any a plugin adds with k.agent
+import { isCodexTerminal } from "../claude/codexTerminal.ts";
 import type { AgentInfo, AgentProvider } from "@cockpit/shared";
 import { config } from "../config.ts";
 import { getSettings } from "../settings.ts";
@@ -78,6 +79,24 @@ export function agentLaunch(prompt?: string, claudeArgs?: string[]): { command: 
   if (!p?.terminal) return { command: "claude", args: claudeArgs ?? (prompt ? [prompt] : []) };
   const first = prompt ? forAgent(p, prompt) : undefined;
   return { command: agentBin(p), args: [...p.terminal(), ...(first ? (p.start?.(first) ?? [first]) : [])], agent: p };
+}
+
+// Back into a session in its own agent's terminal, with a prompt when given: a Codex session opened in its terminal
+// app with codex resume, anything else as Claude Code's (an agent cockpit runs a turn at a time takes the prompt
+// as its next turn instead, through sendText)
+export function resumeLaunch(sessionId: string, prompt?: string): { command: string; args: string[] } {
+  const codex = isCodexTerminal(sessionId) ? agentProvider("codex") : undefined;
+  if (codex?.terminal) return { command: agentBin(codex), args: [...codex.terminal(sessionId), ...(prompt ? [prompt] : [])] };
+  return { command: "claude", args: ["--resume", sessionId, ...(prompt ? [prompt] : [])] };
+}
+
+// The terminal launcher's "resume": the main agent's own list of past conversations, which Claude Code and Codex
+// both have; another agent just opens
+export function resumePicker(): { command: string; args: string[] } {
+  const p = mainAgent();
+  if (!p) return { command: "claude", args: ["--resume"] };
+  if (p.id === "codex") return { command: agentBin(p), args: ["resume"] };
+  return { command: agentBin(p), args: p.terminal?.() ?? [] };
 }
 
 export const listAgents = () => Promise.all(agentProviders().map(agentInfo));

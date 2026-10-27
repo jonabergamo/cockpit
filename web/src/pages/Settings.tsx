@@ -7,6 +7,7 @@ import { PluginsSection, ScreensSection } from "../components/PluginSettings";
 import { SetupSection } from "../components/SetupSection";
 import { TemplateSettings } from "../components/TemplateSettings";
 import { Button, ErrorNote, Loading, PageHeader, Tabs } from "../components/ui";
+import { useAgentName, useClaudeMain } from "../lib/agent";
 import { type CostMode, useCost, useSaveSettings, useSettings } from "../lib/cost";
 import { useNavGroups } from "../lib/nav";
 
@@ -23,6 +24,8 @@ export function SettingsPage() {
   const [err, setErr] = useState<unknown>();
   const s = q.data;
   const pages = useNavGroups().settingsPages;
+  const claudeMain = useClaudeMain();
+  const agent = useAgentName();
 
   const choose = (costs: CostMode) => {
     setErr(undefined);
@@ -70,6 +73,7 @@ export function SettingsPage() {
           />
           <p className="text-[13px] text-muted">{explain[s.settings.costs]}</p>
           {!cost.hidden && <p className="text-[12px] text-faint">{cost.hint}.</p>}
+          {!claudeMain && <p className="text-[12px] text-faint">{agent} puts no dollar figure on its sessions, so budgets and the overnight cap count tokens while it's your main agent. These dollars are for your Claude Code sessions.</p>}
         </section>
       )}
       {tab === "general" && <FontSection />}

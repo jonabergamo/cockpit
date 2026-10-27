@@ -6,7 +6,7 @@ import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { deletePending, lastReview, parsePr, pendingReview, prInfo } from "./providers.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
-import { agentBin, agentLaunch, agentProvider } from "./workers/index.ts";
+import { agentLaunch, resumeLaunch } from "./workers/index.ts";
 import { codexEntries, isCodexTerminal } from "./claude/codexTerminal.ts";
 
 db.exec(`
@@ -170,10 +170,7 @@ export async function reopenReview(id: number) {
 
   const cwd = config.reviews.cwd || config.repo.path;
   // a review Codex did resumes in Codex, by its id for the conversation
-  const codex = isCodexTerminal(r.session_id) ? agentProvider("codex") : undefined;
-  const next = codex?.terminal
-    ? spawnTerm({ cwd, command: agentBin(codex), args: codex.terminal(r.session_id), title: `review #${r.pr}`, session: r.session_id })
-    : spawnTerm({ cwd, command: "claude", args: ["--resume", r.session_id], title: `review #${r.pr}`, session: r.session_id });
+  const next = spawnTerm({ cwd, ...resumeLaunch(r.session_id), title: `review #${r.pr}`, session: r.session_id });
   db.prepare("update reviews set term_id = ?, pid = ?, status = 'running' where id = ?").run(next.id, next.pid ?? null, id);
   return { id, termId: next.id };
 }

@@ -217,7 +217,7 @@ export function MachinesSection() {
           <h2 className="font-semibold">Machines</h2>
           <p className="text-[13px] text-muted mt-0.5">
             Other machines this cockpit works with. A node keeps the terminals,
-            Claude sessions, the repo and the automations on its machine, and
+            agent sessions, the repo and the automations on its machine, and
             keeps them going while this one sleeps. Run{" "}
             <code className="text-[12px]">cockpit node</code> on it, add it here
             with its address, then run the pairing command it gives you on the

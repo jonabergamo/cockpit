@@ -47,7 +47,7 @@ const NOTIFY_LABEL: Record<NotifyMode, string> = { background: "Alerts when away
 function NotifyToggle() {
   const mode = useNotifyMode();
   return (
-    <button onClick={() => notifyStore.set(NOTIFY_NEXT[mode])} className={`hover:text-ink ${mode === "off" ? "line-through" : ""}`} title="Notify me when Claude is waiting, a review or call is ready, or usage passes 80%">
+    <button onClick={() => notifyStore.set(NOTIFY_NEXT[mode])} className={`hover:text-ink ${mode === "off" ? "line-through" : ""}`} title="Notify me when a session is waiting, a review or call is ready, or usage passes 80%">
       {NOTIFY_LABEL[mode]}
     </button>
   );
