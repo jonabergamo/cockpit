@@ -12,6 +12,7 @@ import { stackRows } from "./stacked.ts";
 import { stuckReason } from "./stuck.ts";
 import { listTasks } from "./tasks.ts";
 import { listWorktrees } from "./worktrees.ts";
+import { agentProvider } from "./workers/index.ts";
 
 const inside = (root: string, cwd?: string) => !!cwd && (cwd === root || cwd.startsWith(root + "/"));
 const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
@@ -25,11 +26,11 @@ export function matchWorker(wt: Pick<Worktree, "path" | "branch" | "ticket">, pr
 }
 
 export interface ColumnInput {
-  session?: Pick<Session, "status" | "updatedAt" | "waitingFor" | "background">;
+  session?: Pick<Session, "status" | "updatedAt" | "waitingFor" | "background" | "agent">;
   pr?: Pick<PullRequest, "state" | "checks" | "reviewDecision" | "mergeable" | "isDraft" | "reviewers">;
   verify?: { state: string };
   autopilot?: { on: boolean; gaveUp: boolean; busy?: boolean };
-  task?: { status: string; error?: string; overnight?: boolean };
+  task?: { status: string; error?: string; overnight?: boolean; agent?: string };
   stuck?: string;
   // the teammate's PR the work is built on
   stacked?: { pr: number; state: string };
@@ -52,15 +53,19 @@ export function reviewState(pr?: Pick<PullRequest, "reviewers">) {
 }
 
 // Most urgent first: anything that can't move without you, then work in progress, then what's waiting on others.
+// the agent a card's reasons name: its session's, else its task's, which is Claude Code's when it says none
+const agentName = (agent?: string) => (agent && agent !== "claude" ? (agentProvider(agent)?.name ?? agent) : "Claude");
+
 export function columnOf(c: ColumnInput): { column: BoardColumn; reason: string } {
+  const name = agentName(c.session?.agent ?? c.task?.agent);
   const pr = c.pr;
   const open = pr?.state === "OPEN";
   if (c.stuck) return { column: "needs", reason: c.stuck };
-  if (c.task?.status === "running" && !c.session) return c.task.error ? { column: "needs", reason: c.task.error } : { column: "working", reason: "Starting Claude" };
+  if (c.task?.status === "running" && !c.session) return c.task.error ? { column: "needs", reason: c.task.error } : { column: "working", reason: `Starting ${name}` };
   if (c.task && (c.task.status === "queued" || c.task.status === "starting") && !c.session) return { column: "queued", reason: c.task.status === "starting" ? "Setting up its worktree" : c.task.overnight ? "In the overnight queue" : "Waiting for a free slot" };
-  if (c.session?.status === "waiting") return { column: "needs", reason: c.session.waitingFor === "input needed" ? "Claude needs your input" : c.session.waitingFor ? `Claude is waiting: ${c.session.waitingFor}` : "Claude is waiting for you" };
+  if (c.session?.status === "waiting") return { column: "needs", reason: c.session.waitingFor === "input needed" ? `${name} needs your input` : c.session.waitingFor ? `${name} is waiting: ${c.session.waitingFor}` : `${name} is waiting for you` };
   if (pr?.state === "MERGED") return { column: "ready", reason: "Merged" };
-  if (c.session?.status === "busy") return { column: "working", reason: c.session.background ? (c.session.background > 1 ? `${c.session.background} shells running in the background` : "Running in the background") : "Claude is working" };
+  if (c.session?.status === "busy") return { column: "working", reason: c.session.background ? (c.session.background > 1 ? `${c.session.background} shells running in the background` : "Running in the background") : `${name} is working` };
   if (c.verify?.state === "running") return { column: "working", reason: "Running the checks" };
   const autopilot = !!c.autopilot?.on && !c.autopilot.gaveUp;
   const who = reviewState(pr);
@@ -76,7 +81,7 @@ export function columnOf(c: ColumnInput): { column: BoardColumn; reason: string 
   if (open && pr.reviewDecision === "APPROVED" && pr.checks !== "pending") return { column: "ready", reason: "Approved" };
   if (open) return { column: "review", reason: pr.isDraft ? "Draft PR" : pr.checks === "pending" ? (who.waiting ? `Checks running, then ${who.waiting}` : "Checks running") : who.waiting ? `Waiting on ${who.waiting}` : "Waiting for review" };
   // a finished turn with nothing else going on isn't a call for you
-  if (c.session?.status === "idle") return { column: "quiet", reason: "Claude finished its turn" };
+  if (c.session?.status === "idle") return { column: "quiet", reason: `${name} finished its turn` };
   return { column: "quiet", reason: "Nothing running" };
 }
 

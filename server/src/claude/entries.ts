@@ -2,6 +2,7 @@
 // following it live. A node answers both for its own sessions, so the hub reads them the same way.
 import { agentFile, sessionFile } from "./sessions.ts";
 import { parseLine, readFrom, readTail } from "./transcript.ts";
+import { codexEntries, isCodexTerminal } from "./codexTerminal.ts";
 
 const fileOf = async (id: string, agent?: string) => (agent ? await agentFile(id, agent) : sessionFile(id));
 
@@ -9,12 +10,14 @@ export async function tailEntries(id: string, agent?: string, bytes = 3 * 1024 *
   const file = await fileOf(id, agent);
   if (!file) return;
   const tail = await readTail(file, Math.min(bytes, 64 * 1024 * 1024));
-  return { entries: tail.lines.flatMap((l) => parseLine(l)), offset: tail.offset, truncated: tail.truncated };
+  const parse = !agent && isCodexTerminal(id) ? codexEntries : (l: string) => parseLine(l);
+  return { entries: tail.lines.flatMap(parse), offset: tail.offset, truncated: tail.truncated };
 }
 
 export async function entriesSince(id: string, agent: string | undefined, offset: number) {
   const file = await fileOf(id, agent);
   if (!file) return;
   const chunk = await readFrom(file, offset);
-  return { offset: chunk.offset, entries: chunk.lines.flatMap((l) => parseLine(l)) };
+  const parse = !agent && isCodexTerminal(id) ? codexEntries : (l: string) => parseLine(l);
+  return { offset: chunk.offset, entries: chunk.lines.flatMap(parse) };
 }

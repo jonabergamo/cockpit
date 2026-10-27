@@ -1,8 +1,9 @@
+import { isCodexTerminal } from "../claude/codexTerminal.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { agentTerminal } from "./agents.ts";
-import { agentLaunch } from "../workers/index.ts";
+import { agentBin, agentLaunch, agentProvider } from "../workers/index.ts";
 import { headless } from "../placement/headless.ts";
 import { where } from "../placement/where.ts";
 import { findOwner } from "../remote/work.ts";
@@ -70,6 +71,9 @@ export const claude = new Hono()
           await refreshTerms(s.node);
           return c.json({ ...body, node: s.node });
         }
+        // one opened in Codex's own terminal app goes back into it, by Codex's id for it
+        const p = isCodexTerminal(resume) ? agentProvider("codex") : undefined;
+        if (p?.terminal && s.cwd && existsSync(s.cwd)) return c.json(spawnTerm({ cwd: s.cwd, command: agentBin(p), args: p.terminal(resume), title: `${p.name} · ${s.title ?? resume.slice(0, 8)}`, session: resume }));
         const term = agentTerminal(resume);
         return term ? c.json(term) : c.json({ error: "This agent can't be opened in a terminal" }, 400);
       }

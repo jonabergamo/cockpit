@@ -6,8 +6,12 @@ import { liveInfo, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
 import { tmuxIn } from "./pty.ts";
 import { agentRow, sendAgent } from "./workers/runner.ts";
+import { codexTerminalPane } from "./claude/codexTerminal.ts";
 
 export function paneOf(sessionId: string) {
+  // Codex in one of cockpit's terminals: that terminal's tmux session
+  const codex = codexTerminalPane(sessionId);
+  if (codex) return codex;
   const t = liveInfo(sessionId)?.tmux;
   const m = t?.match(/^(cockpit-[^:]+):@\d+\.(%\d+)$/);
   if (!m) return;

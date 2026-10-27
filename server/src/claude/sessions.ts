@@ -6,8 +6,9 @@ import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
-import { day, ticketOf } from "../util.ts";
+import { day, ticketOf, ticketOfPath } from "../util.ts";
 import { agentRow, agentRows, type AgentRow } from "../workers/runner.ts";
+import { codexTerminalFile, codexTerminalSessions, isCodexTerminal, scanCodexTerminals } from "./codexTerminal.ts";
 import { agentProvider } from "../workers/index.ts";
 import { backgroundShells } from "./background.ts";
 import { readFrom } from "./transcript.ts";
@@ -202,7 +203,9 @@ async function headOf(cwd: string) {
 }
 
 async function refreshBranches() {
-  const cwds = new Set([...[...live.values()].map((l) => l.cwd), ...agentRows().filter((a) => a.status !== "ended").map((a) => a.cwd)].filter(Boolean) as string[]);
+  const cwds = new Set(
+    [...[...live.values()].map((l) => l.cwd), ...agentRows().filter((a) => a.status !== "ended").map((a) => a.cwd), ...codexTerminalSessions().filter((s) => s.status !== "ended").map((s) => s.cwd)].filter(Boolean) as string[],
+  );
   for (const cwd of cwds) {
     const branch = await headOf(cwd).catch(() => undefined);
     if (branch) currentBranch.set(cwd, branch);
@@ -229,7 +232,7 @@ function toSession(r: Row): Session {
     updatedAt: Math.max(l?.updatedAt ?? 0, r.last_ts ? Date.parse(r.last_ts) : 0),
     branch,
     // the worktree folder in the path beats the branch, which moves between tickets in an epic worktree
-    ticket: ticketOf(cwd, branch, r.title ?? undefined),
+    ticket: ticketOfPath(cwd) || ticketOf(branch, r.title ?? undefined),
     worktree: worktreeOf(cwd),
     costUSD: r.cost ?? undefined,
     linesAdded: r.lines_added ?? undefined,
@@ -257,7 +260,7 @@ function agentSession(r: AgentRow): Session {
     startedAt: r.started_at,
     updatedAt: r.updated_at,
     branch,
-    ticket: ticketOf(r.cwd, branch, title),
+    ticket: ticketOfPath(r.cwd) || ticketOf(branch, title),
     worktree: worktreeOf(r.cwd),
     costUSD: r.cost ?? undefined,
     size: existsSync(r.file) ? 1 : 0,
@@ -272,7 +275,11 @@ function mine() {
   const agents = agentRows();
   const native = new Set(agents.filter((a) => a.agent === "claude" && a.native_id).map((a) => a.native_id));
   const claude = db.prepare<[], Row>("select * from sessions order by last_ts desc").all().filter((r) => !native.has(r.id));
-  return [...claude.map(toSession), ...agents.map(agentSession)];
+  const tui = codexTerminalSessions().map((s) => {
+    const branch = currentBranch.get(s.cwd);
+    return { ...s, branch, ticket: ticketOfPath(s.cwd) || ticketOf(branch, s.title), worktree: worktreeOf(s.cwd) };
+  });
+  return [...claude.map(toSession), ...agents.map(agentSession), ...tui];
 }
 
 // Sessions on other machines, which a hub lists next to its own; set once nodes can be reached
@@ -313,10 +320,12 @@ export function getSession(id: string) {
   const r = getRow.get(id);
   if (r) return toSession(r);
   const a = agentRow(id);
-  return a ? agentSession(a) : remote?.get(id);
+  if (a) return agentSession(a);
+  if (isCodexTerminal(id)) return mine().find((s) => s.id === id);
+  return remote?.get(id);
 }
 
-export const sessionFile = (id: string) => getRow.get(id)?.file ?? agentRow(id)?.file;
+export const sessionFile = (id: string) => getRow.get(id)?.file ?? agentRow(id)?.file ?? codexTerminalFile(id);
 
 export async function agentFile(sessionId: string, agentId: string) {
   const file = sessionFile(sessionId);
@@ -396,6 +405,7 @@ async function poll() {
     if (file) await indexFile(file, basename(dirname(file))).catch(() => {});
     else await indexAll();
   }
+  await scanCodexTerminals().catch((e) => console.error("codex sessions", e));
   await refreshBranches();
   const sessions = listSessions({ liveOnly: true });
   const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.waitingFor, s.background, s.title, s.costUSD, s.updatedAt, s.branch]));
@@ -404,9 +414,10 @@ async function poll() {
     broadcast({ type: "sessions", sessions });
     // a node's sessions are its to tell about, through its outbox, so they still arrive after this one slept;
     // agents run a turn at a time say when they start and finish themselves
-    sessionsChanged(sessions.filter((s) => !s.node && !s.agent));
+    // Codex in a terminal says nothing itself either, so it goes with Claude Code's
+    sessionsChanged(sessions.filter((s) => !s.node && (!s.agent || isCodexTerminal(s.id))));
   }
-  escalate(sessions.filter((s) => !s.node && !s.agent));
+  escalate(sessions.filter((s) => !s.node && (!s.agent || isCodexTerminal(s.id))));
 }
 
 export function startSessions() {
