@@ -55,7 +55,7 @@ function liveRun(r: PipelineRow, runs: Run[]) {
   return runs.find((x) => x.ticket === r.key || (!!r.worktree && !!x.cwd && (x.cwd === r.worktree || x.cwd.startsWith(r.worktree + "/"))));
 }
 
-function Row({ r, run, onAct }: { r: PipelineRow; run?: Run; onAct: (r: PipelineRow, a: RoadAction) => Promise<unknown> }) {
+function Row({ r, run, home, onAct }: { r: PipelineRow; run?: Run; home?: string; onAct: (r: PipelineRow, a: RoadAction) => Promise<unknown> }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState<string>();
   const go = (a: RoadAction) => {
@@ -100,7 +100,7 @@ function Row({ r, run, onAct }: { r: PipelineRow; run?: Run; onAct: (r: Pipeline
             </>
           )}
           {r.ticket.status && ` · ${r.ticket.status}`}
-          {r.node && ` · on ${r.node}`}
+          {r.node && r.node !== home && ` · on ${r.node}`}
           {run && (
             <>
               {" · "}
@@ -212,6 +212,10 @@ export function PipelineList() {
     ["Not code", rows.filter((r) => r.kind === "nocode" && !r.needsYou)],
   ];
   const warnings = q.data?.warnings ?? [];
+  // the machine most of the work is on goes without saying; only the others are named
+  const count = new Map<string, number>();
+  for (const r of rows) if (r.node) count.set(r.node, (count.get(r.node) ?? 0) + 1);
+  const home = [...count].sort((a, b) => b[1] - a[1])[0]?.[0];
 
   return (
     <div className={`space-y-4 max-w-[1150px] ${refreshing ? "wave" : ""}`}>
@@ -268,7 +272,7 @@ export function PipelineList() {
                 {[...list]
                   .sort((a, b) => progress(b) - progress(a))
                   .map((r) => (
-                    <Row key={r.key} r={r} run={liveRun(r, runs)} onAct={act} />
+                    <Row key={r.key} r={r} run={liveRun(r, runs)} home={home} onAct={act} />
                   ))}
               </div>
             </section>
