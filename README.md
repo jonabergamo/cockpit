@@ -72,7 +72,7 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 - **Previews.** With `repo.devCommand` set, the Board starts a worktree's dev server on a free port and shows it.
 - **While you were away.** After a break, Today lists what finished, failed or waited for you. The Phone push plugin sends notifications to ntfy or Pushover, plus a second, urgent one for a session left waiting.
 - **Transcripts.** Any session in full, with tool calls, subagents and cost, updating as it runs. Full-text search covers everything said in every session.
-- **Browser terminals.** They run in tmux, so they survive a page reload or a server restart. You get split shells next to Claude, search, copy on select and clickable links, and you can paste or drop images straight into Claude.
+- **Browser terminals.** They run in tmux, so they survive a page reload or a server restart. After a reboot, cockpit opens them again: Claude Code and Codex sessions resume where they were, and plain shells open in the same folder. You get split shells next to Claude, search, copy on select and clickable links, and you can paste or drop images straight into Claude.
 - **Git next to the terminal.** The changes in the terminal's repo and its commit history with a branch graph. A commit opens to its files, and a file opens to its diff.
 - **Worktrees.** A tab on Tickets with each worktree's size on disk, dirty files and ahead/behind, plus a cleaner that finds the ones whose work has shipped.
 - **Code.** A file tree, the Monaco editor, a diff against HEAD, git grep, and stage, commit and push.

@@ -130,6 +130,8 @@ function startTmux() {
   );
   // only works when our tmux server is already up, which is the case after a cockpit restart
   if (spawnSync("tmux", ["-L", SOCKET, "source-file", tmuxConf]).status === 0) return syncEnv();
+  // a new tmux server: whatever cockpit had open went down with the last one, a reboot say
+  tmuxFresh = true;
   // a scope of its own keeps the tmux server out of the service's cgroup, so a restart doesn't take it down
   const scoped = spawnSync("systemd-run", ["--user", "--scope", "--quiet", "--collect", "tmux", "-L", SOCKET, "-f", tmuxConf, "start-server"]);
   if (scoped.status !== 0) tmux("start-server");
@@ -148,6 +150,7 @@ function syncEnv() {
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !SERVICE_ENV.test(k) && had.get(k) !== v) spawnSync("tmux", ["-L", SOCKET, "set-environment", "-g", k, v]);
 }
 
+let tmuxFresh = false;
 if (hasTmux) startTmux();
 
 const name = (id: string) => `cockpit-${id}`;
@@ -266,6 +269,41 @@ export function spawnTerm(opts: { cwd: string; title?: string; command?: string;
   return info(t);
 }
 
+// The terminals open, kept on disk so the ones a reboot takes down with tmux can be opened again after it.
+// While tmux itself is going down every terminal ends at once, and that mustn't empty the list.
+const openFile = join(paths.data, "terms.json");
+type Saved = Pick<Meta, "id" | "title" | "cwd" | "command" | "createdAt" | "session" | "parent">;
+function tmuxUp() {
+  const r = spawnSync("tmux", ["-L", SOCKET, "list-sessions"], { encoding: "utf8" });
+  return r.status === 0 || !/no server running|error connecting/i.test(r.stderr ?? "");
+}
+function saveOpen() {
+  if (!hasTmux || demo || !tmuxUp()) return;
+  const open: Saved[] = [...terms.values()].filter((t) => t.exited === undefined && !t.run).map(({ id, title, cwd, command, createdAt, session, parent }) => ({ id, title, cwd, command, createdAt, session, parent }));
+  try {
+    writeFileSync(openFile, JSON.stringify(open));
+  } catch {}
+}
+
+// the session running in a terminal, once the sessions poll has matched them, so it can be resumed after a reboot
+export function noteSession(id: string, session: string) {
+  const t = terms.get(id);
+  if (!t || t.session === session) return;
+  t.session = session;
+  saveOpen();
+}
+
+// What was open before tmux started afresh (a reboot), parents first; nothing after a plain cockpit restart
+export function lostTerms(): Saved[] {
+  if (!tmuxFresh) return [];
+  tmuxFresh = false;
+  let saved: Saved[] = [];
+  try {
+    saved = JSON.parse(readFileSync(openFile, "utf8"));
+  } catch {}
+  return saved.filter((t) => !terms.has(t.id)).sort((a, b) => Number(!!a.parent) - Number(!!b.parent) || a.createdAt - b.createdAt);
+}
+
 // Pick up the terminals that kept running while cockpit was down.
 export function restoreTerms() {
   if (!hasTmux) return 0;
@@ -312,6 +350,7 @@ export const listTerms = () => [...localTerms(), ...(remote?.list() ?? [])];
 
 // every client keeps its tab list from this push instead of polling
 export function announce() {
+  saveOpen();
   broadcast({ type: "terms", terms: listTerms() });
   for (const fn of changed) fn();
 }

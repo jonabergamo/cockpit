@@ -22,7 +22,10 @@ import { board } from "./board.ts";
 import { tracked, nodesUp, requestWork } from "./remote/work.ts";
 import { startUpdates, useBusyCheck, useNodeUpdates } from "./update.ts";
 import { listJobs, type Job } from "./jobs.ts";
-import { hasTmux, restoreTerms } from "./pty.ts";
+import { existsSync } from "node:fs";
+import { scanCodexTerminals } from "./claude/codexTerminal.ts";
+import { hasTmux, lostTerms, restoreTerms, spawnTerm } from "./pty.ts";
+import { resumeLaunch } from "./workers/index.ts";
 
 // what belongs to the machine itself: its Claude sessions, their usage and search index, runs and terminals
 export function startHostServices() {
@@ -35,6 +38,27 @@ export function startHostServices() {
   startRecordings();
   const restored = restoreTerms();
   if (restored) console.log(`reattached ${restored} terminals`);
+  void reopenLost().catch((e) => console.error("reopen terminals", e));
+}
+
+// After a reboot: the sessions that were open come back resumed in their folders, and the plain shells open again.
+// Other commands (a dev server, say) aren't started again unasked.
+async function reopenLost() {
+  const lost = lostTerms();
+  if (!lost.length) return;
+  // a Codex session resumes with codex, which it can only tell once it has read Codex's files
+  await scanCodexTerminals().catch(() => {});
+  const shell = process.env.SHELL || "bash";
+  const ids = new Map<string, string>();
+  for (const t of lost) {
+    if (!existsSync(t.cwd)) continue;
+    const launch = t.session ? resumeLaunch(t.session) : t.command === shell ? {} : undefined;
+    if (!launch) continue;
+    const parent = t.parent ? ids.get(t.parent) : undefined;
+    if (t.parent && !parent) continue;
+    ids.set(t.id, spawnTerm({ cwd: t.cwd, title: t.title, ...launch, session: t.session, parent }).id);
+  }
+  if (ids.size) console.log(`reopened ${ids.size} terminals from before the reboot`);
 }
 
 // what acts on its own and has to keep going while nobody's looking

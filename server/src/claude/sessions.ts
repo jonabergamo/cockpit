@@ -6,6 +6,7 @@ import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { escalate, sessionsChanged } from "../notify.ts";
 import { broadcast } from "../hub.ts";
+import { noteSession } from "../pty.ts";
 import { day, ticketOf, ticketOfPath } from "../util.ts";
 import { agentRow, agentRows, type AgentRow } from "../workers/runner.ts";
 import { codexTerminalFile, codexTerminalSessions, isCodexTerminal, scanCodexTerminals } from "./codexTerminal.ts";
@@ -408,6 +409,7 @@ async function poll() {
   await scanCodexTerminals().catch((e) => console.error("codex sessions", e));
   await refreshBranches();
   const sessions = listSessions({ liveOnly: true });
+  for (const s of sessions) if (s.term && !s.node) noteSession(s.term, s.id);
   const snap = JSON.stringify(sessions.map((s) => [s.id, s.status, s.waitingFor, s.background, s.title, s.costUSD, s.updatedAt, s.branch]));
   if (snap !== lastSnapshot) {
     lastSnapshot = snap;
