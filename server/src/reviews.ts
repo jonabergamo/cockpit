@@ -6,7 +6,8 @@ import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { deletePending, lastReview, parsePr, pendingReview, prInfo } from "./providers.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
-import { agentLaunch } from "./workers/index.ts";
+import { agentBin, agentLaunch, agentProvider } from "./workers/index.ts";
+import { codexEntries, isCodexTerminal } from "./claude/codexTerminal.ts";
 
 db.exec(`
   create table if not exists reviews (
@@ -113,13 +114,15 @@ async function refresh(r: ReviewRow, offline = false): Promise<ReviewRow> {
 
   const term = listTerms().find((t) => t.id === r.term_id);
   const live = listSessions({ liveOnly: true });
-  const session = (r.session_id && live.find((s) => s.id === r.session_id)) || live.find((s) => !!r.pid && s.pid === r.pid);
+  // Claude Code's by its process, another agent's by the terminal it runs in
+  const session = (r.session_id && live.find((s) => s.id === r.session_id)) || live.find((s) => !!r.pid && s.pid === r.pid) || live.find((s) => !!r.term_id && s.term === r.term_id);
   const next = { ...r, session_id: session?.id ?? r.session_id };
 
   const file = next.session_id ? sessionFile(next.session_id) : undefined;
   if (file) {
     const tail = await readTail(file, 512 * 1024).catch(() => undefined);
-    const texts = (tail?.lines ?? []).flatMap((l) => parseLine(l)).flatMap((e) => (e.kind === "assistant" ? [e.text] : []));
+    const parse = isCodexTerminal(next.session_id!) ? codexEntries : (l: string) => parseLine(l);
+    const texts = (tail?.lines ?? []).flatMap(parse).flatMap((e) => (e.kind === "assistant" ? [e.text] : []));
     const out = readOutcome(texts);
     next.review_url = out.reviewUrl ?? next.review_url;
     next.verdict = out.verdict ?? next.verdict;
@@ -163,10 +166,14 @@ export async function reopenReview(id: number) {
   if (!r) throw new Error("review not found");
   const term = listTerms().find((t) => t.id === r.term_id);
   if (term && term.exited === undefined) return { id, termId: term.id };
-  if (!r.session_id) throw new Error("No Claude session was recorded for this review, so start it again from the PR.");
+  if (!r.session_id) throw new Error("No session was recorded for this review, so start it again from the PR.");
 
   const cwd = config.reviews.cwd || config.repo.path;
-  const next = spawnTerm({ cwd, command: "claude", args: ["--resume", r.session_id], title: `review #${r.pr}`, session: r.session_id });
+  // a review Codex did resumes in Codex, by its id for the conversation
+  const codex = isCodexTerminal(r.session_id) ? agentProvider("codex") : undefined;
+  const next = codex?.terminal
+    ? spawnTerm({ cwd, command: agentBin(codex), args: codex.terminal(r.session_id), title: `review #${r.pr}`, session: r.session_id })
+    : spawnTerm({ cwd, command: "claude", args: ["--resume", r.session_id], title: `review #${r.pr}`, session: r.session_id });
   db.prepare("update reviews set term_id = ?, pid = ?, status = 'running' where id = ?").run(next.id, next.pid ?? null, id);
   return { id, termId: next.id };
 }

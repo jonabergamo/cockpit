@@ -135,10 +135,15 @@ const same = (a: string, b: string) => {
 };
 function terminalsOf(list: Tui[]) {
   const terms = listTerms().filter((t) => t.exited === undefined && (!t.node || t.node === "local") && /(^|\/)codex\b/.test(t.command));
+  // each terminal opened with a prompt began one session: of those with its prompt, the first to start after it
+  // opened, so two terminals given the same prompt (reviewing one PR twice) each get their own
   const byPrompt = new Map<string, string>();
-  for (const t of list) {
-    const term = terms.find((x) => t.title && same(promptOf(x.command), t.title));
-    if (term) byPrompt.set(t.id, term.id);
+  const taken = new Set<string>();
+  for (const t of [...list].sort((a, b) => a.startedAt - b.startedAt)) {
+    const term = terms
+      .filter((x) => !taken.has(x.id) && x.createdAt <= t.startedAt + 5000 && !!t.title && same(promptOf(x.command), t.title))
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (term) byPrompt.set(t.id, term.id), taken.add(term.id);
   }
   const prompted = new Map([...byPrompt].map(([sid, tid]) => [tid, list.find((x) => x.id === sid)!]));
   const newest = new Map<string, Tui>();

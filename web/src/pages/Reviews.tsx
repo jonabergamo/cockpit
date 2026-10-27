@@ -262,7 +262,7 @@ function SinceYourReview({ url, busy, onAgain }: { url: string; busy: boolean; o
   );
 }
 
-// Open terminals just get selected; closed ones resume the review's Claude session in a new terminal.
+// Open terminals just get selected; closed ones resume the review's session (Claude Code or Codex) in a new terminal.
 function ReopenButton({ review: r, label }: { review: Review; label?: string }) {
   const terms = useTerms();
   const qc = useQueryClient();
