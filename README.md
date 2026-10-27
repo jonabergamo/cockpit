@@ -230,6 +230,8 @@ Plan limits, tokens by model and when you use Claude.
 
 Setup, costs, fonts, screens and plugins, all in the app.
 
+Quick answers, under Automation, can come from a small local model in [Ollama](https://ollama.com) instead of the main agent. Plugins ask for them with `k.ask(..., { quick: true })` when they want a label or a yes or no fast. On a GPU a 7B model like `qwen2.5-coder:7b` answers in about a tenth of a second, and it's free. Settings → Machines puts it on the machine with the GPU.
+
 <img src="docs/settings.webp" alt="Settings page with the setup checklist">
 
 ## Plugins

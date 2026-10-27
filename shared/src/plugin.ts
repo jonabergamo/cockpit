@@ -354,8 +354,10 @@ export interface Cockpit {
   // types a message into a running Claude session cockpit hosts, and presses Enter; false when it can't reach it
   sendToSession(sessionId: string, text: string): Promise<boolean>;
   // one answer from the main agent (Claude Code, Codex...), run without a terminal where Settings → Machines puts
-  // it. model is Claude's and is left out for other agents. The output is the answer.
-  ask(prompt: string, opts?: { label?: string; cwd?: string; model?: string }): Promise<{ ok: boolean; output: string }>;
+  // it. model is Claude's and is left out for other agents. The output is the answer. quick is for short answers
+  // wanted fast (a label, a yes or no, a one-line summary): the local model in Settings → Automation answers them
+  // when one is set, the main agent otherwise.
+  ask(prompt: string, opts?: { label?: string; cwd?: string; model?: string; quick?: boolean }): Promise<{ ok: boolean; output: string }>;
   // queues work for a new worker: a worktree and branch, then Claude with the prompt
   task(t: { title: string; prompt?: string; ticket?: string; attempts?: number; model?: string; dependsOn?: string[] }): Promise<Task[]>;
   // a shell command whose output streams to cockpit's job log

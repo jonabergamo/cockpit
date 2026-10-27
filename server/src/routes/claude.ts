@@ -1,3 +1,4 @@
+import { getSettings } from "../settings.ts";
 import { isCodexTerminal } from "../claude/codexTerminal.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -124,6 +125,19 @@ export const claude = new Hono()
     const { question } = await c.req.json<{ question?: string }>();
     if (!question?.trim() || question.length > 1000) return c.json({ error: "ask a question, up to 1000 characters" }, 400);
     return c.json(await ask(question.trim()));
+  })
+  // the quick answers' model, tried with a one-word question; how long it took comes back with the answer
+  .post("/quick/test", async (c) => {
+    if (!getSettings().quick.model) return c.json({ error: "name a model first" }, 400);
+    const started = Date.now();
+    try {
+      const out = await new Promise<{ ok: boolean; output: string }>((done, fail) =>
+        headless({ label: "quick answer test", prompt: "Reply with one word: ready", quick: true }, (j) => done({ ok: j.code === 0, output: j.output.trim() })).catch(fail),
+      );
+      return c.json({ ...out, ms: Date.now() - started });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502);
+    }
   })
   .post("/ask", async (c) => {
     const { cwd, prompt } = await c.req.json<{ cwd?: string; prompt: string }>();

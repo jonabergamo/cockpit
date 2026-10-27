@@ -217,6 +217,7 @@ export function AutomationSettings() {
         </label>
       </div>
       <CodingAgents off={s.agents?.off ?? []} onChange={(off) => put("agents", { off })} />
+      <QuickAnswers model={s.quick.model} url={s.quick.url} onSave={(patch) => put("quick", patch)} />
       <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Overnight queue</h3>
         {tokens ? (
@@ -323,6 +324,44 @@ export function AutomationSettings() {
 }
 
 // The agents work can go to besides Claude Code's terminal, and whether each is ready on the machine that runs them
+// A local model through Ollama for the short answers plugins ask for with quick, tried with the Test button
+function QuickAnswers({ model, url, onSave }: { model: string; url: string; onSave: (p: { model?: string; url?: string }) => void }) {
+  const [said, setSaid] = useState<string>();
+  const [err, setErr] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const test = async () => {
+    setSaid(undefined);
+    setErr(undefined);
+    setBusy(true);
+    try {
+      const r = await api.post<{ ok: boolean; output: string; ms: number }>("/claude/quick/test");
+      if (r.ok) setSaid(`"${r.output}" in ${r.ms < 1000 ? `${r.ms} ms` : `${(r.ms / 1000).toFixed(1)} s`}${r.ms > 5000 ? ", most of it loading the model; it stays loaded for a while after" : ""}`);
+      else setErr(new Error(r.output || "It didn't answer"));
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2.5">
+      <h3 className="text-[12px] text-faint uppercase tracking-wide">Quick answers</h3>
+      <p className="text-[12px] text-faint">
+        Short answers wanted fast, like a label or a yes or no, that plugins ask for. A small local model gives them in well under a second, free and off your plan limits. Empty leaves them to the main agent. Settings → Machines says which machine runs it.
+      </p>
+      <Text label="Model in Ollama" help="Like qwen2.5-coder:7b, pulled with ollama pull on the machine that runs it" value={model} mono onSave={(v) => onSave({ model: v })} />
+      <Text label="Ollama's address" help="On the machine that runs it" value={url} mono onSave={(v) => onSave({ url: v || "http://127.0.0.1:11434" })} />
+      <div className="flex items-center gap-3">
+        <Button size="sm" onClick={test} disabled={!model || busy}>
+          {busy ? "Asking…" : "Test"}
+        </Button>
+        {said && <span className="text-[13px] text-green">{said}</span>}
+      </div>
+      <ErrorNote error={err} />
+    </div>
+  );
+}
+
 function CodingAgents({ off, onChange }: { off: string[]; onChange: (off: string[]) => void }) {
   const agents = useAgents();
   const [err, setErr] = useState<unknown>();

@@ -6,7 +6,7 @@ import { config } from "../config.ts";
 import { getSettings } from "../settings.ts";
 import { run } from "../util.ts";
 
-export type Cap = "automations" | "headless" | "whisper";
+export type Cap = "automations" | "headless" | "whisper" | "quick";
 
 export interface CapView {
   id: Cap;
@@ -24,6 +24,7 @@ const CAPS: { id: Cap; label: string; help: string }[] = [
   { id: "automations", label: "Automations", help: "Tasks, the overnight queue, autopilot, checks after a session, stacked work and CI comparisons. They keep going while this machine sleeps when they're on another." },
   { id: "headless", label: "Claude without a terminal", help: "Asking cockpit a question, sprint notes and other one-off claude -p runs." },
   { id: "whisper", label: "Transcription", help: "Whisper for meetings. Much faster on a machine with an NVIDIA GPU." },
+  { id: "quick", label: "Quick answers", help: "The local model in Settings → Automation, through Ollama on that machine. Fastest where the GPU is." },
 ];
 
 // whether this machine has an NVIDIA GPU, found once at start
@@ -47,11 +48,11 @@ function auto(cap: Cap, list: Machine[]): { machine?: string; why: string } {
     const first = list[0];
     return first ? { machine: first.id, why: `${first.name} is the first machine added` } : { why: "no machine added yet" };
   }
-  if (cap === "whisper" && !gpu) {
+  if ((cap === "whisper" || cap === "quick") && !gpu) {
     const g = list.find((m) => up(m) && m.info?.gpu);
     if (g) return { machine: g.id, why: `${g.name} has a GPU` };
   }
-  return { why: cap === "whisper" && gpu ? "this machine has a GPU" : "this machine" };
+  return { why: (cap === "whisper" || cap === "quick") && gpu ? "this machine has a GPU" : "this machine" };
 }
 
 export function resolve(cap: Cap, value = getSettings().machines.placement[cap], list = machines()): { machine?: string; why: string } {

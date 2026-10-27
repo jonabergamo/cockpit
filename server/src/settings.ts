@@ -59,6 +59,9 @@ const schema = z.object({
   verify: z.object({ auto: z.boolean().default(true) }).prefault({}),
   // cockpit updating itself from its git remote when nothing is working, and restarting; otherwise it only says so
   updates: z.object({ auto: z.boolean().default(false) }).prefault({}),
+  // quick answers (a plugin's k.ask with quick, the Test button) from a local model through Ollama; no model leaves
+  // them to the main agent like every other one-off answer
+  quick: z.object({ model: z.string().max(100).default(""), url: z.string().max(200).default("http://127.0.0.1:11434") }).prefault({}),
   // the ticket pipeline on the Work screen: what its Ask for the PR and Answer the review buttons type into a
   // ticket's session, the tickets with no code (a regex over the summary) and the branches a PR into ships, which
   // tell a feature's steps from the rest
@@ -149,6 +152,7 @@ const schema = z.object({
           automations: z.string().max(40).default("auto"),
           headless: z.string().max(40).default("auto"),
           whisper: z.string().max(40).default("auto"),
+          quick: z.string().max(40).default("auto"),
         })
         .prefault({}),
       // plugins that run on a node instead of here, by id: the hub shows their screens and passes their routes on

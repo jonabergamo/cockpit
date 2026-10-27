@@ -17,6 +17,7 @@ export interface SettingsRes {
     tasks: { maxParallel: number; pauseAbovePct: number; defaultModel: string; defaultAgent: string };
     verify: { auto: boolean };
     updates: { auto: boolean };
+    quick: { model: string; url: string };
     pipeline: { openPrompt: string; reviewPrompt: string; noCodePattern: string; mainBranches: string };
     alerts: { stuckMinutes: number; escalateMinutes: number };
     away: { minutes: number };
