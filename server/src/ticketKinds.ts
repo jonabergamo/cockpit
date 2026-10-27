@@ -1,5 +1,6 @@
 // Which tickets have no code to write (leave, on-call, a meeting), sorted by the local model once per ticket and
-// kept, so a ticket worded differently from Settings' pattern still lands under Not code. Only ever adds to the
+// kept. Asked to say no code only when it's clearly not software work: a code ticket hidden under Not code is
+// worse than a meeting left among the code ones, so a ticket worded differently from Settings' pattern still lands under Not code. Only ever adds to the
 // pattern: without a model, or before a ticket is sorted, the pattern alone decides as before.
 import type { Ticket } from "@cockpit/shared";
 import { boardChanged } from "./board.ts";
@@ -33,7 +34,7 @@ async function sortTickets(list: Pick<Ticket, "key" | "summary" | "type">[]) {
   let changed = false;
   try {
     for (const t of list) {
-      const a = await quick(`A ticket on a software team's board is titled: "${t.summary}"${t.type ? ` (a ${t.type})` : ""}.\nDoes doing it mean changing code? Answer with one word, code or nocode.`, { max: 4 });
+      const a = await quick(`A ticket on a software team's board is titled: "${t.summary}"${t.type ? ` (a ${t.type})` : ""}.\nAnswer nocode only when it is clearly not software work, like leave, a holiday, on-call, a meeting, hiring or training. Anything that might change a product, a screen, an API, tests or tooling is code. Answer with one word, code or nocode.`, { max: 4 });
       const word = a?.toLowerCase().replace(/[^a-z]/g, "");
       // no answer (no model, Ollama down) leaves the rest for the next load
       if (!word) break;
