@@ -192,7 +192,16 @@ function Group({ g, folded, onToggle, onSummary }: { g: RunGroup; folded: boolea
   const prs = usePrs();
   const name = g.ticket ? tickets.data?.tickets.find((t) => t.key === g.ticket)?.summary : undefined;
   const titles = new Map((prs.data?.mine ?? []).map((p) => [p.number, p.title]));
-  const shown = g.prs.length || !g.ticket ? g.prs : (prs.data?.mine ?? []).filter((p) => p.ticket === g.ticket).map((p) => ({ number: p.number, url: p.url }));
+  const worktrees = useWorktrees();
+  const theirs = () => {
+    const mine = prs.data?.mine ?? [];
+    const own = mine.filter((p) => p.ticket === g.ticket);
+    if (own.length) return own;
+    // a story worked on a sub-task's branch: the PR of its worktree's branch
+    const branches = new Set((worktrees.data ?? []).filter((w) => w.ticket === g.ticket).map((w) => w.branch));
+    return mine.filter((p) => branches.has(p.branch));
+  };
+  const shown = g.prs.length || !g.ticket ? g.prs : theirs().map((p) => ({ number: p.number, url: p.url }));
   return (
     <section className="bg-panel border border-line rounded-lg overflow-hidden">
       {/* not a button: a ticket's link sits inside it */}
