@@ -28,7 +28,7 @@ import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
 import { gpuProbed, hasGpu } from "../placement/where.ts";
 import { headlessHere, type Headless } from "../placement/headless.ts";
-import { callExposed, listPlugins, pluginFile } from "../plugins.ts";
+import { actPluginRoad, callExposed, listPlugins, pluginFile, pluginTicketRoads } from "../plugins.ts";
 import { onPluginBadges, pluginBadges } from "../badges.ts";
 import { fileOf, receiveFile } from "./plugincalls.ts";
 import { ack, head as outboxHead, onEnqueue, since } from "./outbox.ts";
@@ -191,6 +191,9 @@ export function serve(c: Channel) {
   // its automations' screens, answered by its own API, and its board
   c.handle("api", (r: ApiReq) => handleApi(r));
   c.handle("board", ({ offline }: { offline?: boolean }) => localBoard({ offline }));
+  // what its plugins add to the hub's ticket pipeline, and running one of their actions
+  c.handle("pipeline.roads", (ctx: Parameters<typeof pluginTicketRoads>[0]) => pluginTicketRoads(ctx));
+  c.handle("pipeline.act", ({ plugin, action, key }: { plugin: string; action: string; key: string }) => actPluginRoad(plugin, action, key));
   c.handle("reviews.states", () => reviewStates());
   // its plugins' screens and badges, for the ones the hub has put here
   // a file of a plugin's screens, for a hub that shows a plugin running here
@@ -223,11 +226,13 @@ export function serve(c: Channel) {
 // the hubs connected right now, for pushing events to them
 export const hubs = new Set<Channel>();
 
+const tailscaleIp = () => localHost.exec("tailscale", ["ip", "-4"]).then((o) => o.trim().split("\n")[0], () => "");
+
 async function addresses(listen: string) {
   if (listen === "all") return ["0.0.0.0"];
   if (listen !== "tailscale") return [listen];
-  const ts = await localHost.exec("tailscale", ["ip", "-4"]).then((o) => o.trim().split("\n")[0], () => "");
-  if (!ts) console.warn("node: no Tailscale address found, listening on loopback only");
+  const ts = await tailscaleIp();
+  if (!ts) console.warn("node: no Tailscale address yet, listening on loopback until it has one");
   return ["127.0.0.1", ...(ts ? [ts] : [])];
 }
 
@@ -248,7 +253,7 @@ export async function startNodeServer() {
     });
   });
   const servers: Server[] = [];
-  for (const host of await addresses(listen)) {
+  const open = (host: string) => {
     const s = createServer((_req, res) => res.writeHead(426).end("cockpit node: connect with a websocket on /node\n"));
     s.on("upgrade", (req, socket, head) => {
       if (req.url !== "/node" || (listen === "tailscale" && !fromTailnet(req.socket.remoteAddress))) return socket.destroy();
@@ -257,6 +262,19 @@ export async function startNodeServer() {
     s.listen(config.node.port, host, () => console.log(`node ${pairing().id} waiting for its hub on ${host}:${config.node.port}`));
     s.on("error", (e) => console.error(`node: can't listen on ${host}:${config.node.port}:`, e.message));
     servers.push(s);
+  };
+  const hosts = await addresses(listen);
+  hosts.forEach(open);
+  // started with the machine, before Tailscale had its address: keep asking, and listen on it once it's there,
+  // or the hub can't reach this node until it's restarted
+  if (listen === "tailscale" && hosts.length === 1) {
+    const wait = setInterval(async () => {
+      const ts = await tailscaleIp();
+      if (!ts) return;
+      clearInterval(wait);
+      open(ts);
+    }, 5000);
+    wait.unref();
   }
   return servers;
 }

@@ -493,3 +493,78 @@ export interface RunDetail extends Run {
   steps: RunStep[];
   panels: { plugin: string; url: string; steps?: boolean }[];
 }
+
+// ---- the ticket pipeline: each of your tickets on the road its kind takes, on the Work screen ----
+
+// A button on a ticket's row: a link when href is set, else the action of the plugin that put it there. The ids
+// core runs itself mean the same on a plugin's road: pr, featurepr, ticket, session, board, epic, start (queue a
+// task), agent (start the main agent in its worktree), open (ask for the PR) and review (answer the review)
+export interface RoadAction {
+  id: string;
+  label: string;
+  primary?: boolean;
+  href?: string;
+  // the plugin that runs it, when it isn't the row's own
+  plugin?: string;
+}
+
+// A small tag on a row, like how its tests are doing
+export interface RoadBadge {
+  label: string;
+  tone?: "plain" | "green" | "amber" | "red" | "cobalt";
+  href?: string;
+  title?: string;
+}
+
+// Where a ticket is on its road. steps are the road's stops; at is the one it's on (steps.length when it's at the
+// end). open marks stops behind it that aren't actually done ("" open, "bad" failing).
+export interface RoadEntry {
+  key: string;
+  kind: string;
+  kindLabel?: string;
+  steps: string[];
+  at: number;
+  open?: Record<number, "" | "bad">;
+  bad?: boolean;
+  needsYou?: boolean;
+  shipping?: boolean;
+  // something is working on it right now
+  busy?: boolean;
+  next: string;
+  actions: RoadAction[];
+}
+
+// A ticket as the pipeline hands it to plugins: with its worktree, newest PR and queued task already found
+export type RoadTicket = Ticket & { worktree?: string; node?: string; pr?: PullRequest; task?: { id: string; status: TaskStatus } };
+
+// What a plugin adds to the pipeline: whole rows for the tickets it knows better (roads), where tickets were
+// deployed (where, a stage's name per key, with stages the stops after Merged), tickets that should get a row
+// though they aren't yours (extra), tags and buttons on other rows, and notes about what it couldn't read
+export interface TicketRoads {
+  roads?: RoadEntry[];
+  where?: Record<string, string>;
+  stages?: string[];
+  extra?: Ticket[];
+  badges?: Record<string, RoadBadge[]>;
+  actions?: Record<string, RoadAction[]>;
+  warnings?: string[];
+}
+
+export interface PipelineRow extends RoadEntry {
+  ticket: Ticket & { offBoard?: boolean };
+  pr?: PullRequest;
+  featurePr?: PullRequest;
+  worktree?: string;
+  node?: string;
+  // the Board card of its work, to open its drawer
+  card?: string;
+  session?: { id: string; status: string };
+  // the plugin whose road it is, which runs its actions
+  plugin?: string;
+  badges: RoadBadge[];
+}
+
+export interface Pipeline {
+  rows: PipelineRow[];
+  warnings: { text: string; plugin?: string }[];
+}

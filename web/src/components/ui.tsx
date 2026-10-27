@@ -82,7 +82,7 @@ export function Panel({
 export function PageHeader({ title, children, sub }: { title: string; sub?: ReactNode; children?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-end gap-3 mb-4">
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-[min(100%,260px)]">
         <h1 className="text-[22px] font-semibold tracking-tight leading-tight">{title}</h1>
         {sub && <p className="text-muted mt-0.5">{sub}</p>}
       </div>

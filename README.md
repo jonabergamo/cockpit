@@ -60,7 +60,7 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 ## Features
 
 - **Live sessions.** A strip of every running Claude session. It sweeps while Claude works, turns amber when Claude asks you something (a question, a permission prompt or a dialog) and goes grey once it has just finished its turn. You get a notification when one needs you, and the tab title shows the count.
-- **Work.** Every worktree, session outside a worktree and queued task is a card on the board. Each card sits in the column that says what it needs next: queued, working, needs you, in review or ready to merge. Cards show the PR, its checks and the session. A busy session that has written nothing new for a while is flagged as stuck.
+- **Work.** Opens on your tickets, each on its road from worktree to the main agent, PR, review, merged and done, with the step that moves it on: Start, Ask for the PR, Answer the review, Open PR. Stacked PRs into a feature branch are followed up to the PR that ships them. Plugins add roads of their own (E2E tests, discoveries) and deploy stages after Merged. The Board tab has every worktree, session outside a worktree and queued task as a card, in the column that says what it needs next: queued, working, needs you, in review or ready to merge. Cards show the PR, its checks and the session. A busy session that has written nothing new for a while is flagged as stuck.
 - **Replies without the terminal.** Answer a permission prompt or type a reply to a running session from the Board, Today, the session strip or its transcript. This works for sessions running in cockpit's terminals.
 - **Autopilot.** Turn it on for a worktree and its PR's failing checks and requested changes go back to its Claude session, with the check logs and the review comments. After a set number of tries it stops and tells you.
 - **Checks before the PR.** Set `repo.verifyCommand` and cockpit runs it in a worktree each time its session finishes. A failure moves the card to Needs you, with a button that sends the output to Claude.
@@ -188,7 +188,7 @@ The command runs on a virtual screen with `DISPLAY` set, plus `RECORDING=1` so a
 
 ### Work
 
-Every worktree, session and task, sorted by what it needs next. Open a card to reply to its session, review its changes, run its checks or turn on autopilot.
+Your tickets on their way to done, each with the step that moves it on, and the Board: every worktree, session and task, sorted by what it needs next. Open a card to reply to its session, review its changes, run its checks or turn on autopilot.
 
 <img src="docs/board.webp" alt="The Board with columns for queued, working, needs you, in review and ready to merge">
 

@@ -114,7 +114,7 @@ function WorkSummary() {
                   <div className="text-[12px] text-muted">{t.label}</div>
                 </Link>
               ) : (
-                <Link key={t.label} to="/board" search={{ filter: t.filter }} className="px-4 py-2.5 hover:bg-ground">
+                <Link key={t.label} to="/board" search={{ view: t.filter ?? "board" }} className="px-4 py-2.5 hover:bg-ground">
                   <div className={`text-[20px] font-semibold tabular-nums ${t.tone}`}>{t.n}</div>
                   <div className="text-[12px] text-muted">{t.label}</div>
                 </Link>

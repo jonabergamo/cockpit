@@ -1,4 +1,4 @@
-import type { Badge, LastReview, PullRequest, Reviewer, ReviewThread, Run, RunArtifact, RunKind, RunStatus, RunStep, RunSummary, Session, Sprint, Task, TermInfo, Ticket } from "./index.ts";
+import type { Badge, LastReview, PullRequest, Reviewer, ReviewThread, Run, RunArtifact, RunKind, RunStatus, RunStep, RunSummary, Session, Sprint, Task, TermInfo, Ticket, RoadTicket, TicketRoads } from "./index.ts";
 import type { Theme } from "./themes.ts";
 import type { AgentProvider } from "./agents.ts";
 
@@ -400,6 +400,10 @@ export interface Cockpit {
   // more things "Run something" offers for a worktree: list says what (asked each time the picker opens, kept
   // 30 seconds), start starts one of them by its id
   runOptions(o: { list(wt: RunTarget): Promise<RunOption[]>; start(id: string, wt: RunTarget): Promise<RunOptionStarted> }): void;
+  // more on the Work screen's ticket pipeline: list is asked each time it loads, with your tickets (and their
+  // worktree, PR and task) and the main agent's name for the step labels; act runs one of the actions its roads
+  // gave, by id, and says what it started like a "Run something" option does
+  ticketRoads(r: { list(c: { tickets: RoadTicket[]; agent: string; fresh: boolean }): Promise<TicketRoads>; act(action: string, key: string): Promise<RunOptionStarted> }): void;
   // the indicator next to one of this plugin's screens in the sidebar; null clears it, and untilSeen drops it once
   // the screen is opened
   badge(screenId: string, b: Badge | null): void;

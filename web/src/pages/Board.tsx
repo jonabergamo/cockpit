@@ -12,6 +12,7 @@ import { useLive, useLiveSessions } from "../lib/live";
 import { SpendTag } from "../components/Budget";
 import { statusLook } from "../lib/status";
 import { TasksList } from "./Tasks";
+import { PipelineList } from "./Pipeline";
 import { useAgentName } from "../lib/agent";
 
 const COLUMNS: { id: BoardColumn; title: string; hint: string }[] = [
@@ -96,13 +97,16 @@ function SetYourRepo() {
 
 export function BoardPage() {
   const agent = useAgentName();
-  const { card: openId, filter } = useSearch({ from: "/board" });
+  const { card: openId, filter, view: asked } = useSearch({ from: "/board" });
   const navigate = useNavigate();
+  const cfg = useAppConfig();
+  // the tickets' pipeline first, when there's a tracker to list them; a card asked for opens on the Board
+  const view = filter === "tasks" ? "tasks" : (asked ?? (openId || (cfg.data && !cfg.data.tracker) ? "board" : "tickets"));
   const q = useBoard();
   const [quiet, setQuiet] = useState(false);
   const cards = q.data ?? [];
   const open = cards.find((c) => c.id === openId);
-  const setOpen = (id?: string) => navigate({ to: "/board", search: { card: id, filter }, replace: true });
+  const setOpen = (id?: string) => navigate({ to: "/board", search: { card: id, view: "board" }, replace: true });
   const columns = quiet ? [...COLUMNS, { id: "quiet" as const, title: "Quiet", hint: "Worktrees with nothing going on lately" }] : COLUMNS;
   const quietCount = cards.filter((c) => c.column === "quiet").length;
   const qc = useQueryClient();
@@ -116,16 +120,20 @@ export function BoardPage() {
 
   return (
     <div className="space-y-4 h-full flex flex-col">
-      <PageHeader title="Work" sub={filter === "tasks" ? "Tasks cockpit runs in its own worktrees. Tasks that wait on others line up in waves." : "Everything in flight, by what it needs next."}>
-        <Tabs<"board" | "tasks">
-          value={filter ?? "board"}
-          onChange={(v) => navigate({ to: "/board", search: { card: openId, filter: v === "tasks" ? "tasks" : undefined } })}
+      <PageHeader
+        title="Work"
+        sub={view === "tasks" ? "Tasks cockpit runs in its own worktrees. Tasks that wait on others line up in waves." : view === "tickets" ? "Each of your tickets on its way to done, with the step that moves it on." : "Everything in flight, by what it needs next."}
+      >
+        <Tabs<"tickets" | "board" | "tasks">
+          value={view}
+          onChange={(v) => navigate({ to: "/board", search: { view: v } })}
           items={[
+            ...(cfg.data?.tracker ? [{ value: "tickets" as const, label: "Tickets" }] : []),
             { value: "board", label: "Board" },
             { value: "tasks", label: "Queued and attempts" },
           ]}
         />
-        {filter !== "tasks" && quietCount > 0 && (
+        {view === "board" && quietCount > 0 && (
           <Button variant="ghost" onClick={() => setQuiet((v) => !v)}>
             {quiet ? "Hide quiet" : `Show quiet (${quietCount})`}
           </Button>
@@ -137,10 +145,12 @@ export function BoardPage() {
           New task
         </Button>
       </PageHeader>
-      <ErrorNote error={filter === "tasks" ? lead.error : (q.error ?? lead.error)} />
+      <ErrorNote error={view === "board" ? (q.error ?? lead.error) : lead.error} />
       <SetYourRepo />
-      {filter === "tasks" ? (
+      {view === "tasks" ? (
         <TasksList />
+      ) : view === "tickets" ? (
+        <PipelineList />
       ) : q.isLoading ? (
         <Loading what="Gathering sessions, worktrees and PRs" shape="cards" rows={6} />
       ) : !cards.length ? (

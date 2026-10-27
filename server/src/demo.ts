@@ -6,6 +6,7 @@ import { paths } from "./config.ts";
 import { broadcast } from "./hub.ts";
 import { burndown, burnup, distribution, people, spans, workdays, type Transition } from "./report.ts";
 import { pluginScreens, pluginThemes } from "./plugins.ts";
+import { buildPipeline } from "./pipeline.ts";
 import { getSettings } from "./settings.ts";
 import { day } from "./util.ts";
 
@@ -402,6 +403,14 @@ export function mountDemo(app: Hono) {
     "/api/tickets": ok({ sprint, tickets: tickets.map((t) => ({ ...t, lastSession: (() => { const s = sessions.find((x) => x.ticket === t.key); return s ? { id: s.id, status: s.status, updatedAt: s.updatedAt } : null; })() })) }),
     "/api/tickets/new": ok({ types: ["Story", "Task", "Bug"], presets: ["Web", "Mobile"], fields: [{ key: "ac", label: "Acceptance criteria", kind: "lines" }, { key: "points", label: "Story points", kind: "number" }], sprint: true }),
     "/api/prs": ok(prs),
+    "/api/pipeline": () => {
+      const p = getSettings().pipeline;
+      const withSessions = tickets.map((t) => {
+        const s = sessions.find((x) => x.ticket === t.key);
+        return { ...t, lastSession: s ? { id: s.id, status: s.status, updatedAt: s.updatedAt } : null };
+      });
+      return Response.json(buildPipeline({ tickets: withSessions, prs, worktrees, cards: demoBoard(), plugins: [], agent: "Claude", noCode: p.noCodePattern, mainBranches: p.mainBranches.split(",").map((x) => x.trim()) }));
+    },
     "/api/sprints": ok([sprint]),
     "/api/worktrees": ok(worktrees),
     "/api/jobs": ok([]),

@@ -5,6 +5,12 @@ import { db } from "../db.ts";
 import { fixPlan } from "../fix.ts";
 import { activeSprint, createOptions, createTicket, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
 import type { NewTicket } from "@cockpit/shared";
+import { buildPipeline, roadTickets, type PluginRoads } from "../pipeline.ts";
+import { actPluginRoad, placedOn, pluginMachine, pluginTicketRoads } from "../plugins.ts";
+import { getSettings } from "../settings.ts";
+import { mainAgentName } from "../workers/index.ts";
+import { refreshTerms } from "../remote/terminals.ts";
+import type { RunOptionStarted } from "@cockpit/shared";
 import { ticketOf } from "../util.ts";
 import { getJob, listJobs, type Job } from "../jobs.ts";
 import { getReview, lastReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
@@ -33,6 +39,41 @@ function lastSessions() {
     if (!seen || s.updatedAt > seen.updatedAt) last.set(s.ticket, { id: s.id, status: s.status, updatedAt: s.updatedAt });
   }
   return last;
+}
+
+// Your tickets with their newest session, the epic whose worktree they're stacked in, spend and kind of work
+async function ticketsWithWork(fresh: boolean) {
+  const wtKeys = (await allWorktrees(false)).filter((w) => !w.main && w.ticket).map((w) => w.ticket!);
+  const [sprint, tickets, epics] = await Promise.all([activeSprint(), myTickets(fresh), worktreeEpics(wtKeys, fresh)]);
+  const last = lastSessions();
+  const costs = ticketSpend();
+  const spend = (key: string) => {
+    const t = costs.get(key);
+    return t && { spent: t.spent, limit: t.limit, unit: t.unit, warnPct: t.warnPct };
+  };
+  const epicOf = new Map(epics.flatMap((e) => e.children.map((k) => [k, e.key] as const)));
+  return {
+    sprint,
+    tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key), spend: spend(t.key), kind: templateFor(t)?.name })),
+    epics: epics.map((e) => ({ ...e, lastSession: last.get(e.key) ?? null, spend: spend(e.key) })),
+  };
+}
+
+// What the plugins on here and on each node add to the pipeline; a node that doesn't answer is a warning
+async function allTicketRoads(c: Parameters<typeof pluginTicketRoads>[0]): Promise<PluginRoads[]> {
+  const theirs = nodesUp()
+    .filter((node) => placedOn(node).length)
+    .map((node) => requestWork<PluginRoads[]>(node, "pipeline.roads", c, 30_000).catch((e: Error) => [{ plugin: "", name: node, roads: {}, error: e.message }]));
+  return [...(await pluginTicketRoads(c)), ...(await Promise.all(theirs)).flat()];
+}
+
+async function pipeline(fresh: boolean) {
+  const [{ tickets }, prs, worktrees, cards] = await Promise.all([ticketsWithWork(fresh), Promise.all([myPrs(fresh), reviewQueue(fresh)]), allWorktrees(false), board()]);
+  const s = getSettings().pipeline;
+  const input = { tickets, prs: { mine: prs[0], review: prs[1] }, worktrees, cards };
+  const agent = mainAgentName();
+  const plugins = await allTicketRoads({ tickets: roadTickets(input), agent, fresh });
+  return buildPipeline({ ...input, plugins, agent, noCode: s.noCodePattern, mainBranches: s.mainBranches.split(",").map((x) => x.trim()).filter(Boolean) });
 }
 
 export const work = new Hono()
@@ -131,22 +172,23 @@ export const work = new Hono()
     archive(id, on !== false);
     return c.json({ ok: true });
   })
-  .get("/tickets", async (c) => {
-    const fresh = c.req.query("fresh") === "1";
-    const wtKeys = (await allWorktrees(false)).filter((w) => !w.main && w.ticket).map((w) => w.ticket!);
-    const [sprint, tickets, epics] = await Promise.all([activeSprint(), myTickets(fresh), worktreeEpics(wtKeys, fresh)]);
-    const last = lastSessions();
-    const costs = ticketSpend();
-    const spend = (key: string) => {
-      const t = costs.get(key);
-      return t && { spent: t.spent, limit: t.limit, unit: t.unit, warnPct: t.warnPct };
-    };
-    const epicOf = new Map(epics.flatMap((e) => e.children.map((k) => [k, e.key] as const)));
-    return c.json({
-      sprint,
-      tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key), spend: spend(t.key), kind: templateFor(t)?.name })),
-      epics: epics.map((e) => ({ ...e, lastSession: last.get(e.key) ?? null, spend: spend(e.key) })),
-    });
+  .get("/tickets", async (c) => c.json(await ticketsWithWork(c.req.query("fresh") === "1")))
+  // the ticket pipeline: every ticket on its road, with what plugins add
+  .get("/pipeline", async (c) => c.json(await pipeline(c.req.query("fresh") === "1")))
+  // one of a plugin's pipeline actions, on the machine the plugin runs on
+  .post("/pipeline/act", async (c) => {
+    const { plugin, action, key } = await c.req.json<{ plugin: string; action: string; key: string }>();
+    if (![plugin, action, key].every((x) => typeof x === "string" && x)) return c.json({ error: "a plugin, an action and a ticket" }, 400);
+    try {
+      const node = pluginMachine(plugin);
+      if (!node) return c.json(await actPluginRoad(plugin, action, key));
+      const res = await requestWork<RunOptionStarted>(node, "pipeline.act", { plugin, action, key }, 60_000);
+      if (res.term) await refreshTerms(node).catch(() => {});
+      return c.json(res);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 500) as 400);
+    }
   })
   // a new ticket in the tracker, assigned to you, to start a task on: what it can ask for, and making one
   .get("/tickets/new", async (c) => c.json(await createOptions()))

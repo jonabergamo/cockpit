@@ -58,6 +58,25 @@ function Pattern({ label, value, onSave }: { label: string; value: string; onSav
   );
 }
 
+// A line of text, or a few lines, saved when you leave it
+function Text({ label, help, value, lines, mono, onSave }: { label: string; help?: string; value: string; lines?: number; mono?: boolean; onSave: (v: string) => void }) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  const commit = () => v.trim() !== value && onSave(v.trim());
+  const cls = `${inputClass} w-full ${mono ? "font-mono text-[12px]" : "text-[13px]"}`;
+  return (
+    <label className="block space-y-1 text-[13px]">
+      <span className="block">{label}</span>
+      {help && <span className="block text-[12px] text-faint">{help}</span>}
+      {lines ? (
+        <textarea value={v} rows={lines} onChange={(e) => setV(e.target.value)} onBlur={commit} className={`${cls} py-1.5 h-auto`} />
+      ) : (
+        <input value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} spellCheck={false} className={cls} />
+      )}
+    </label>
+  );
+}
+
 // how a failing CI check runs here, for "Run it here" on a card
 function CiLines({ lines, onSave }: { lines: string[]; onSave: (l: string[]) => void }) {
   const text = lines.join("\n");
@@ -217,6 +236,13 @@ export function AutomationSettings() {
             </select>
           )}
         </label>
+      </div>
+      <div className="space-y-2.5">
+        <h3 className="text-[12px] text-faint uppercase tracking-wide">Ticket pipeline</h3>
+        <Text label="Asking for the PR" help="Typed into a ticket's session by Ask for the PR on Work" value={s.pipeline.openPrompt} lines={2} onSave={(v) => put("pipeline", { openPrompt: v })} />
+        <Text label="Answering a review" help="Typed in by Answer the review. {pr} is the PR's number" value={s.pipeline.reviewPrompt} lines={2} onSave={(v) => put("pipeline", { reviewPrompt: v })} />
+        <Text label="Tickets with no code" help="A regular expression over the summary. Matching tickets with no worktree or PR go under Not code" value={s.pipeline.noCodePattern} mono onSave={(v) => put("pipeline", { noCodePattern: v })} />
+        <Text label="Branches that ship" help="Comma separated. A PR into any other branch is a step of a feature, and ships when that branch's own PR does" value={s.pipeline.mainBranches} mono onSave={(v) => put("pipeline", { mainBranches: v })} />
       </div>
       <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Autopilot</h3>

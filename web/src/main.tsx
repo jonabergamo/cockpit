@@ -41,7 +41,7 @@ const moved = (path: string, to: string, extra: Record<string, string>) =>
 
 const routes = [
   createRoute({ getParentRoute: () => root, path: "/", component: TodayPage }),
-  createRoute({ getParentRoute: () => root, path: "/board", component: BoardPage, validateSearch: (s): { card?: string; filter?: "tasks" } => ({ card: str(s.card), filter: s.filter === "tasks" ? "tasks" : undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/board", component: BoardPage, validateSearch: (s): { card?: string; filter?: "tasks"; view?: "tickets" | "board" | "tasks" } => ({ card: str(s.card), filter: s.filter === "tasks" ? "tasks" : undefined, view: s.view === "tickets" || s.view === "board" || s.view === "tasks" ? s.view : undefined }) }),
   moved("/tasks", "/board", { filter: "tasks" }),
   createRoute({ getParentRoute: () => root, path: "/tasks/$group", component: TaskGroupPage }),
   createRoute({ getParentRoute: () => root, path: "/sessions", component: SessionsScreen, validateSearch: (s): { tab?: "workflows" } => ({ tab: s.tab === "workflows" ? "workflows" : undefined }) }),

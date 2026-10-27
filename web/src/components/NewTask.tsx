@@ -92,7 +92,7 @@ export function NewTaskModal() {
       newTask.close();
       setTitle("");
       setPrompt("");
-      navigate({ to: "/board" });
+      navigate({ to: "/board", search: { view: "board" } });
     } catch (e) {
       setErr(e);
     } finally {

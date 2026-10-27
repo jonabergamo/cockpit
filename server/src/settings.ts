@@ -57,6 +57,17 @@ const schema = z.object({
     })
     .prefault({}),
   verify: z.object({ auto: z.boolean().default(true) }).prefault({}),
+  // the ticket pipeline on the Work screen: what its Ask for the PR and Answer the review buttons type into a
+  // ticket's session, the tickets with no code (a regex over the summary) and the branches a PR into ships, which
+  // tell a feature's steps from the rest
+  pipeline: z
+    .object({
+      openPrompt: z.string().max(2000).default("The change looks done. Run the checks, then show me the PR (title, body and labels) so I can approve it before you open it."),
+      reviewPrompt: z.string().max(2000).default("PR #{pr} has review comments. Read them, fix what they ask for, reply on each thread, and push."),
+      noCodePattern: z.string().max(300).refine(isRegex, "not a valid regular expression").default(String.raw`on[- ]?call|\brota\b|annual leave|holiday`),
+      mainBranches: z.string().max(300).default("main, master, staging, develop"),
+    })
+    .prefault({}),
   alerts: z
     .object({
       // busy this long without the transcript growing counts as stuck

@@ -120,6 +120,7 @@ What `k` offers:
 | `k.runs` | Records runs on the Runs screen and reads them back. See [Runs](#runs). |
 | `k.runPanel({ kinds, page, steps, meta })` | Adds a panel of yours to the page of each run of these kinds. With `meta`, only to runs that have that field in their meta. See [Runs](#runs). |
 | `k.runOptions({ list, start })` | Adds to what "Run something" on the Runs screen offers for a worktree. See [Run something](#run-something). |
+| `k.ticketRoads({ list, act })` | Adds to the ticket pipeline on the Work screen: a road of its own for the tickets it knows better, deploy stages, tags and buttons. See [The ticket pipeline](#the-ticket-pipeline). |
 | `k.badge(screenId, badge)` | Shows a badge next to one of your screens in the sidebar. See [Sidebar badges](#sidebar-badges). |
 | `k.ticketOf(...strings)` | Finds a ticket key in branch names or titles, using the active tracker's pattern. |
 | `k.productionBranch()` | The branch that is production, as set on the Sprint report. It's empty when nobody has set it. |
@@ -272,6 +273,52 @@ k.runOptions({
 | `start(id, wt)` | Starts the option. It is only called with an id your `list` returned for that worktree. Return `runId` and the picker opens that run, or `term` and it opens that terminal. If neither is ready yet, return a `note` to show, with an optional `link` to a cockpit page where the user can follow it. Throw an `Error` with `status: 400` to show a message instead. |
 
 The HTTP API is `GET /api/runs/options?worktree=<path>` (add `force=1` to skip the 30 seconds) and `POST /api/runs/options/start` with `{ worktree, id }`. Both refuse a path that isn't one of cockpit's worktrees, and start refuses an id that isn't in that worktree's list. Plugin ids come back as `plugin:<plugin id>:<your id>`. Scripts open in a terminal beside the worktree's Claude terminal, and verify runs the way it does from the Board.
+
+## The ticket pipeline
+
+The Tickets tab of the Work screen shows each of your tickets on its road: Worktree, the main agent, PR, Review, Merged and Done. It shows where each ticket is and the button that moves it on, such as Start, Ask for the PR, Answer the review or Open PR. While there's work going on, a ticket's place comes from the Board. A PR into a branch that doesn't ship (Settings → Board and automation → Branches that ship) is a step of a feature, and the pipeline follows the chain of stacked PRs up to the one that ships it.
+
+Plugins add to it with `k.ticketRoads`:
+
+```ts
+k.ticketRoads({
+  // tickets are yours, each with its worktree, newest PR and queued task already found; agent is the main
+  // agent's name, for step labels; fresh is true when the user asked for a refresh
+  async list({ tickets, agent, fresh }) {
+    return {
+      // a road of its own for a ticket, in place of the code road
+      roads: tickets.filter(isSpike).map((t) => ({
+        key: t.key, kind: "spike", kindLabel: "Spike", steps: [agent, "Write-up", "Done"], at: 1,
+        next: "Waiting for the write-up", needsYou: true, actions: [{ id: "resume", label: "Resume", primary: true }],
+      })),
+      // the stops after Merged, and which one each ticket reached
+      stages: ["Staging", "Production"],
+      where: { "ACME-12": "Staging" },
+      // tags and extra buttons on any row
+      badges: { "ACME-12": [{ label: "flows pass", tone: "green", href: "/p/my-plugin/main" }] },
+      actions: { "ACME-9": [{ id: "reopen", label: "Reopen PR" }] },
+      // tickets that aren't yours but should have a row, and anything it couldn't read
+      extra: [],
+      warnings: [],
+    };
+  },
+  async act(action, key) {
+    // runs one of the buttons above that has no href; return what it started, as Run something's start does
+    return { term: k.claude({ cwd: "/somewhere", prompt: `Pick up ${key}` }).id };
+  },
+});
+```
+
+| | |
+|---|---|
+| `roads` | Rows that replace the code road for those tickets. `steps` are the stops, `at` is the one it's on (`steps.length` once it reaches the end), and `open` marks stops behind it that aren't actually done (`""`, or `"bad"` when failing). `needsYou` puts it under Needs you, `shipping` under Shipping or done, and `busy` makes the row wave while something works on it. When two plugins give a road for the same ticket, the first one wins. |
+| `stages`, `where` | Where tickets were deployed. The stages replace Done at the end of the code and feature roads, and `where` names the stage each ticket reached. |
+| `badges`, `actions` | Tags and buttons added to any row, by ticket key. |
+| `extra` | Tickets that get a row even though they aren't yours, such as work started from a key. |
+| Buttons | A button with `href` is a link: a cockpit path, or a URL that opens in a new tab. Any other button runs your `act(id, key)`, except for the ids cockpit runs itself: `pr`, `featurepr`, `ticket`, `session`, `board`, `epic`, `start` (queue a task), `agent` (start the main agent in the worktree), `open` (ask for the PR) and `review` (answer the review). Your road can use those too. |
+| `act(action, key)` | Returns `runId`, `term`, or a `note` with an optional `link`, the same as Run something's `start`. Throw an `Error` with `status: 400` to show a message. |
+
+`list` is called each time the pipeline loads. A `list` that throws or takes longer than 20 seconds shows as a warning above the list, and the other rows still appear. When the plugin runs on another machine (Settings → Machines), the hub asks that machine, and the plugin's actions run there too. The HTTP API is `GET /api/pipeline` (`fresh=1` skips the caches) and `POST /api/pipeline/act` with `{ plugin, action, key }`.
 
 ## Sidebar badges
 

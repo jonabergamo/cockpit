@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { watch } from "chokidar";
 import { register, type NamespacedUnregister } from "tsx/esm/api";
 import { z } from "zod";
-import { PLUGIN_API, type AccessProvider, type AgentProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type ReviewSource, type RouteRequest, type RecordedVideo, type Run, type RunKind, type RunOption, type RunOptionStarted, type RunStep, type RunTarget, type ScreenInfo, type SettingValue, type Theme, type Tracker } from "@cockpit/shared";
+import { PLUGIN_API, type AccessProvider, type AgentProvider, type Cockpit, type CodeHost, type Manifest, type PluginEvent, type PluginInfo, type PluginState, type ReviewSource, type RouteRequest, type RecordedVideo, type Run, type RunKind, type RunOption, type RunOptionStarted, type RunStep, type RunTarget, type ScreenInfo, type SettingValue, type Theme, type TicketRoads, type Tracker } from "@cockpit/shared";
 import { config, paths } from "./config.ts";
 import { clearPluginBadges, setPluginBadge } from "./badges.ts";
 import { cached } from "./db.ts";
@@ -117,6 +117,7 @@ interface Plugin {
   runVideos: ((v: RecordedVideo) => Promise<void>)[];
   runPanels: { kinds?: RunKind[]; url: string; steps?: boolean; meta?: string }[];
   runOptions: Parameters<Cockpit["runOptions"]>[0][];
+  ticketRoads: Parameters<Cockpit["ticketRoads"]>[0][];
   // the node it runs on instead of here: its code isn't loaded here, its screens come from there
   remote?: string;
 }
@@ -238,6 +239,7 @@ function unload(p: Plugin) {
   p.runVideos = [];
   p.runPanels = [];
   p.runOptions = [];
+  p.ticketRoads = [];
   clearPluginBadges(p.manifest.id);
 }
 
@@ -346,6 +348,9 @@ function makeApi(p: Plugin): Cockpit {
     runOptions(o) {
       if (live()) p.runOptions.push(o);
     },
+    ticketRoads(r) {
+      if (live()) p.ticketRoads.push(r);
+    },
     badge(screenId, b) {
       if (!live() || !speaks(id)) return;
       setPluginBadge(id, screenId, b);
@@ -424,7 +429,7 @@ export function loadAll() {
     }
     for (const [id, f] of found) {
       const old = plugins.get(id);
-      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], exposed: new Map(), generation: 0, agents: [], runSteps: [], runStarts: [], runVideos: [], runPanels: [], runOptions: [] };
+      const p: Plugin = old ? Object.assign(old, f) : { ...f, state: "off", log: [], routes: [], screens: [], themes: [], listeners: new Map(), stops: [], exposed: new Map(), generation: 0, agents: [], runSteps: [], runStarts: [], runVideos: [], runPanels: [], runOptions: [], ticketRoads: [] };
       plugins.set(id, p);
       await load(p);
     }
@@ -610,6 +615,40 @@ export async function startPluginOption(plugin: string, entry: number, id: strin
   if (!o) throw Object.assign(new Error(`the ${plugin} plugin is off or was reloaded; open the list again`), { status: 400 });
   return (await o.start(id, wt)) ?? {};
 }
+
+// What each plugin on here adds to the ticket pipeline, by plugin, with the ones that failed or took too long kept
+// apart so the screen can say so
+export async function pluginTicketRoads(c: Parameters<Parameters<Cockpit["ticketRoads"]>[0]["list"]>[0]) {
+  const on = [...plugins.values()].filter((p) => p.state === "on" && p.ticketRoads.length);
+  return Promise.all(
+    on.flatMap((p) =>
+      p.ticketRoads.map(async (r) => {
+        let timer: NodeJS.Timeout | undefined;
+        const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("took too long to answer")), LIST_MS)));
+        try {
+          const roads = await Promise.race([Promise.resolve().then(() => r.list(c)), late]);
+          return { plugin: p.manifest.id, name: p.manifest.name, roads: roads ?? {} };
+        } catch (e) {
+          say(p, "ticket roads failed:", e);
+          return { plugin: p.manifest.id, name: p.manifest.name, roads: {} as TicketRoads, error: (e as Error).message };
+        } finally {
+          clearTimeout(timer);
+        }
+      }),
+    ),
+  );
+}
+
+// Runs one of a plugin's pipeline actions; a plugin has one set of roads, the first it registered
+export async function actPluginRoad(plugin: string, action: string, key: string): Promise<RunOptionStarted> {
+  const p = plugins.get(plugin);
+  const list = p?.state === "on" ? p.ticketRoads : [];
+  if (!list.length) throw Object.assign(new Error(`the ${plugin} plugin is off or was reloaded`), { status: 400 });
+  return (await list[0].act(action, key)) ?? {};
+}
+
+// where a plugin's code runs, when it's another machine
+export const pluginMachine = (id: string) => plugins.get(id)?.remote;
 
 export const pluginThemes = () => active().flatMap((p) => p.themes);
 
