@@ -391,6 +391,25 @@ const stepMark: Record<RunStep["state"], string> = { running: "…", ok: "✓", 
 const MAX_DEPTH = 6;
 
 // once a run is over, a step still open finished with it if it passed, and didn't run if not
+// A plugin's panel on a run, as tall as what it shows: it's on the same origin, so its page can be measured
+function RunPanel({ src, title }: { src: string; title: string }) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(120);
+  const [watch, setWatch] = useState<ResizeObserver>();
+  useEffect(() => () => watch?.disconnect(), [watch]);
+  const measure = () => {
+    const doc = frame.current?.contentDocument;
+    if (!doc?.body) return;
+    // the body, not the document: that's never shorter than the frame, so it would only ever grow
+    const fit = () => setHeight(Math.min(Math.max(Math.ceil(doc.body.getBoundingClientRect().height) + 2, 40), 900));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(doc.body);
+    setWatch(ro);
+  };
+  return <iframe ref={frame} src={src} title={title} onLoad={measure} style={{ height }} className="w-full border border-line rounded-lg bg-panel block" allow="clipboard-write; fullscreen" />;
+}
+
 function Steps({ steps, done, passed }: { steps: RunStep[]; done: boolean; passed: boolean }) {
   const closed = passed ? "ok" : "skipped";
   return (
@@ -563,7 +582,7 @@ export function RunPage() {
       {live && <LiveScreen runId={r.id} steps={r.steps} />}
 
       {r.panels.map((p) => (
-        <iframe key={p.url} src={`${p.url}${p.url.includes("?") ? "&" : "?"}run=${encodeURIComponent(r.id)}`} title={p.plugin} className="w-full h-[560px] border border-line rounded-lg bg-panel block" allow="clipboard-write; fullscreen" />
+        <RunPanel key={p.url} src={`${p.url}${p.url.includes("?") ? "&" : "?"}run=${encodeURIComponent(r.id)}`} title={p.plugin} />
       ))}
 
       {!!r.summary.failing?.length && (
