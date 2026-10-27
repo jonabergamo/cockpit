@@ -12,7 +12,7 @@ import { api } from "../lib/api";
 import { markSeen } from "../lib/badges";
 import { useLive } from "../lib/live";
 import { ago, duration, shortPath } from "../lib/format";
-import { useJobs, useRun, useRuns, useWorktrees, type RunsFilter } from "../lib/queries";
+import { useJobs, usePrs, useRun, useRuns, useTickets, useWorktrees, type RunsFilter } from "../lib/queries";
 import { GROUP_BYS, groupRuns, prOf, rowPr, rowStatus, type GroupBy, type RunGroup, type RunRow } from "../lib/runGroups";
 
 const KINDS: { value: RunKind; label: string }[] = [
@@ -187,21 +187,32 @@ function GroupRow({ row }: { row: RunRow }) {
 }
 
 function Group({ g, folded, onToggle, onSummary }: { g: RunGroup; folded: boolean; onToggle: () => void; onSummary: (ticket: string) => void }) {
+  // a ticket's name, and its open PRs when none of its runs said which they ran against
+  const tickets = useTickets();
+  const prs = usePrs();
+  const name = g.ticket ? tickets.data?.tickets.find((t) => t.key === g.ticket)?.summary : undefined;
+  const titles = new Map((prs.data?.mine ?? []).map((p) => [p.number, p.title]));
+  const shown = g.prs.length || !g.ticket ? g.prs : (prs.data?.mine ?? []).filter((p) => p.ticket === g.ticket).map((p) => ({ number: p.number, url: p.url }));
   return (
     <section className="bg-panel border border-line rounded-lg overflow-hidden">
       {/* not a button: a ticket's link sits inside it */}
       <div role="button" tabIndex={0} onClick={onToggle} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onToggle())} className="w-full flex items-center gap-3 px-3 py-2 bg-ground/60 hover:bg-ground text-left cursor-pointer select-none">
         <span className="text-faint w-3">{folded ? "▸" : "▾"}</span>
         {g.ticket ? (
-          <Link to="/tickets" search={{ key: g.ticket }} onClick={(e) => e.stopPropagation()} className="font-semibold hover:text-cobalt">
+          <Link to="/tickets" search={{ key: g.ticket }} onClick={(e) => e.stopPropagation()} className="font-semibold hover:text-cobalt shrink-0">
             {g.label}
           </Link>
         ) : (
           <span className="font-semibold">{g.label}</span>
         )}
-        {g.prs.map((p) =>
+        {name && (
+          <span className="text-[13px] text-muted truncate min-w-0" title={name}>
+            {name}
+          </span>
+        )}
+        {shown.map((p) =>
           p.url ? (
-            <a key={p.number} href={p.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[12px] text-cobalt hover:underline">
+            <a key={p.number} href={p.url} target="_blank" rel="noreferrer" title={titles.get(p.number)} onClick={(e) => e.stopPropagation()} className="text-[12px] text-cobalt hover:underline shrink-0">
               #{p.number}
             </a>
           ) : (
@@ -210,19 +221,19 @@ function Group({ g, folded, onToggle, onSummary }: { g: RunGroup; folded: boolea
             </span>
           ),
         )}
-        {g.running > 0 && <span className="text-[12px] text-cobalt">● {g.running} running</span>}
-        {g.failing > 0 && <span className="text-[12px] text-red">{g.failing} failing</span>}
+        {g.running > 0 && <span className="text-[12px] text-cobalt shrink-0">● {g.running} running</span>}
+        {g.failing > 0 && <span className="text-[12px] text-red shrink-0">{g.failing} failing</span>}
         <span className="flex-1" />
         {g.ticket && (
           <button
             onClick={(e) => (e.stopPropagation(), onSummary(g.ticket!))}
-            className="px-2 h-6 rounded text-[12px] text-muted hover:text-ink hover:bg-raised border border-transparent hover:border-line"
+            className="shrink-0 px-2 h-6 rounded text-[12px] text-muted hover:text-ink hover:bg-raised border border-transparent hover:border-line"
             title="An image of its checks to paste into the PR"
           >
             Image for PR
           </button>
         )}
-        <span className="text-[12px] text-faint">
+        <span className="text-[12px] text-faint shrink-0">
           {g.rows.length} {g.rows.length === 1 ? "row" : "rows"} · last {ago(g.latestAt)}
         </span>
       </div>
