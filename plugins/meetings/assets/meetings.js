@@ -346,7 +346,7 @@ function drawDetail() {
     : m.status === "summarising"
       ? '<p class="muted">Writing it up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
       : m.status === "transcribing"
-        ? '<p class="muted">Transcribing the rest of the recording, then it's written up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
+        ? '<p class="muted">Transcribing the rest of the recording, then it\'s written up.</p><div class="sk line big"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk line"></div>'
         : '<p class="muted">No write-up yet.</p>';
 
   // while recording only the captions move, so notes being typed keep their place
