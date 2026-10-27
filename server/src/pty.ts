@@ -326,6 +326,8 @@ export function restoreTerms() {
       // not ours or unreadable, leave it alone
     }
   }
+  // after a reboot the list is still to be read by lostTerms, which saves again as it reopens them
+  if (!tmuxFresh) saveOpen();
   return n;
 }
 
