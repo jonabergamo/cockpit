@@ -11,7 +11,8 @@ import { db } from "./db.ts";
 import { emit, onEvent } from "./events.ts";
 import { broadcast } from "./hub.ts";
 import { notify } from "./notify.ts";
-import { sprintTickets } from "./providers.ts";
+import { knownPrs, knownQueue, myPrs, sprintTickets } from "./providers.ts";
+import { branchAt, branchMoves, headOf, prFor, prMeta, reflogOf } from "./runPr.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
 import { getSettings, type Settings } from "./settings.ts";
 import { run, ticketOf } from "./util.ts";
@@ -230,6 +231,7 @@ export function startRun(input: RunStart, source: string): Run {
   save(r);
   emit("run.started", r);
   changed(r.id, true);
+  void fileByPr(r.id, input).catch((e) => console.error("runs: finding the PR of", r.id, e));
   // a worktree made since the last look still gets found
   if (!place.worktree && (input.cwd || input.branch))
     refreshWorktrees().then(() => {
@@ -238,6 +240,55 @@ export function startRun(input: RunStart, source: string): Run {
       if (cur && again.worktree) save({ ...cur, worktree: again.worktree, ticket: cur.ticket ?? again.ticket });
     });
   return r;
+}
+
+// The PRs a run's branch can be one of; the last ones fetched, or fetched now when there are none yet
+async function prsKnown() {
+  const known = knownPrs() ?? [];
+  const mine = known.length ? known : await myPrs().catch(() => []);
+  return [...mine, ...(knownQueue() ?? [])];
+}
+
+// Puts a run under the PR its branch was on when it ran, and that PR's ticket unless it was given one: a worktree
+// with a stack of PRs has a ticket of its own, but each of its branches is another ticket's work
+async function fileByPr(id: string, input: RunStart) {
+  const given = input.meta ?? {};
+  if (!input.cwd || given.pr) return;
+  const head = await headOf(input.cwd);
+  const branch = input.branch ?? (typeof given.branch === "string" ? given.branch : head.branch);
+  const pr = prFor(branch, await prsKnown());
+  const patch = { ...(branch ? { branch } : {}), ...(head.sha && !given.sha ? { sha: head.sha } : {}), ...(pr ? prMeta(pr) : {}) };
+  if (!Object.keys(patch).length) return;
+  db.prepare("update runs set meta = json_patch(meta, ?), ticket = coalesce(?, ticket) where id = ?").run(JSON.stringify(patch), (!input.ticket && pr?.ticket) || null, id);
+  changed(id, true);
+}
+
+// Once for runs from before they said their branch: the branch their worktree had checked out when they started,
+// from its reflog, and its PR. A run whose ticket came from somewhere other than its worktree keeps it.
+export async function refileRuns() {
+  const rows = db
+    .prepare<[], Row>("select * from runs where worktree is not null and source != 'ci' and json_extract(meta, '$.branch') is null and json_extract(meta, '$.refiled') is null")
+    .all()
+    .map(toRun);
+  if (!rows.length) return 0;
+  const prs = await prsKnown();
+  const wts = await listWorktrees(false).catch(() => worktrees);
+  let moved = 0;
+  const update = db.prepare("update runs set meta = json_patch(meta, ?), ticket = ? where id = ?");
+  const byWorktree = new Map<string, Run[]>();
+  for (const r of rows) byWorktree.set(r.worktree!, [...(byWorktree.get(r.worktree!) ?? []), r]);
+  for (const [wt, list] of byWorktree) {
+    const moves = existsSync(wt) ? branchMoves(await reflogOf(wt)) : [];
+    const own = wts.find((w) => w.path === wt)?.ticket;
+    for (const r of list) {
+      const branch = branchAt(moves, r.startedAt);
+      const pr = prFor(branch, prs);
+      const ticket = pr?.ticket && (!r.ticket || r.ticket === own) ? pr.ticket : (r.ticket ?? null);
+      if (ticket !== (r.ticket ?? null)) moved++;
+      update.run(JSON.stringify({ refiled: true, ...(branch ? { branch } : {}), ...(pr ? prMeta(pr) : {}) }), ticket, r.id);
+    }
+  }
+  return moved;
 }
 
 export function appendLog(id: string, lines: string[]) {
@@ -625,6 +676,8 @@ export function startRuns() {
   };
   setTimeout(() => void clean().catch((e) => console.error("runs sweep", e)), 60_000);
   setTimeout(() => dropFailedVideos(), 30_000);
+  // once the code host has said which PRs there are
+  setTimeout(() => void refileRuns().then((n) => n && console.log(`runs: put ${n} runs under the PR they ran against`), (e) => console.error("runs refile", e)), 90_000);
   setInterval(() => dropFailedVideos(), 3600_000).unref();
   setInterval(() => void clean().catch((e) => console.error("runs sweep", e)), 24 * 3600_000).unref();
 }

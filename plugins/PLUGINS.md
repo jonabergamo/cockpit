@@ -228,7 +228,7 @@ k.access({
 
 ## Runs
 
-The Runs screen lists every test, lint, typecheck, audit, E2E, proof, verify and CI run, whatever started it. A run has a `kind` (`unit`, `lint`, `typecheck`, `audit`, `e2e`, `proof`, `verify`, `ci` or `other`), a `status` (`running`, `pass`, `fail` or `cancelled`), its output, and files such as a video. When a run has no kind, cockpit works one out from its command, using the patterns in Settings → Board and automation. Runs are linked to the ticket and worktree they belong to, and a run that fails sends a notification. Runs older than 90 days, or past the newest 3000, are removed, except those of a ticket in the current sprint.
+The Runs screen lists every test, lint, typecheck, audit, E2E, proof, verify and CI run, whatever started it. A run has a `kind` (`unit`, `lint`, `typecheck`, `audit`, `e2e`, `proof`, `verify`, `ci` or `other`), a `status` (`running`, `pass`, `fail` or `cancelled`), its output, and files such as a video. When a run has no kind, cockpit works one out from its command, using the patterns in Settings → Board and automation. Runs are linked to the ticket and worktree they belong to, and a run that fails sends a notification. A run also records the branch and commit checked out where it ran (`meta.branch`, `meta.sha`). When that branch has a PR, the run gets `meta.pr` and `meta.prUrl` and goes under the PR's ticket rather than the worktree's, so one worktree can hold a stack of PRs. A `ticket` given when the run starts always wins. Runs older than 90 days, or past the newest 3000, are removed, except those of a ticket in the current sprint.
 
 | | |
 |---|---|

@@ -12,7 +12,7 @@ import { markSeen } from "../lib/badges";
 import { useLive } from "../lib/live";
 import { ago, duration, shortPath } from "../lib/format";
 import { useJobs, useRun, useRuns, useWorktrees, type RunsFilter } from "../lib/queries";
-import { GROUP_BYS, groupRuns, rowStatus, type GroupBy, type RunGroup, type RunRow } from "../lib/runGroups";
+import { GROUP_BYS, groupRuns, prOf, rowPr, rowStatus, type GroupBy, type RunGroup, type RunRow } from "../lib/runGroups";
 
 const KINDS: { value: RunKind; label: string }[] = [
   { value: "unit", label: "Tests" },
@@ -76,6 +76,25 @@ function useFolded() {
   return { folded, toggle };
 }
 
+// The PR a run ran against, opening on the code host; the row is a link already, so this can't be one
+function PrRef({ r }: { r: Run }) {
+  const n = prOf(r);
+  if (!n) return null;
+  const url = typeof r.meta.prUrl === "string" ? r.meta.prUrl : undefined;
+  const title = typeof r.meta.branch === "string" ? `On ${r.meta.branch}${typeof r.meta.prBase === "string" ? `, into ${r.meta.prBase}` : ""}` : undefined;
+  if (!url) return <span title={title}>#{n}</span>;
+  return (
+    <span
+      role="link"
+      title={title}
+      onClick={(e) => (e.preventDefault(), e.stopPropagation(), window.open(url, "_blank", "noreferrer"))}
+      className="text-cobalt hover:underline cursor-pointer"
+    >
+      #{n}
+    </span>
+  );
+}
+
 // one run as a row of the list: what it is, where, how it went and when
 function RunLine({ r, small }: { r: Run; small?: boolean }) {
   return (
@@ -90,6 +109,7 @@ function RunLine({ r, small }: { r: Run; small?: boolean }) {
         {!small && (
           <div className="text-[12px] text-muted truncate mt-0.5 flex gap-2">
             {r.ticket && <span className="text-ink">{r.ticket}</span>}
+            <PrRef r={r} />
             {r.worktree && <span>{r.worktree.split("/").pop()}</span>}
             {r.command && r.command !== r.name && <span className="font-mono truncate">{r.command}</span>}
           </div>
@@ -178,6 +198,17 @@ function Group({ g, folded, onToggle, onSummary }: { g: RunGroup; folded: boolea
         ) : (
           <span className="font-semibold">{g.label}</span>
         )}
+        {g.prs.map((p) =>
+          p.url ? (
+            <a key={p.number} href={p.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[12px] text-cobalt hover:underline">
+              #{p.number}
+            </a>
+          ) : (
+            <span key={p.number} className="text-[12px] text-muted">
+              #{p.number}
+            </span>
+          ),
+        )}
         {g.running > 0 && <span className="text-[12px] text-cobalt">● {g.running} running</span>}
         {g.failing > 0 && <span className="text-[12px] text-red">{g.failing} failing</span>}
         <span className="flex-1" />
@@ -196,9 +227,27 @@ function Group({ g, folded, onToggle, onSummary }: { g: RunGroup; folded: boolea
       </div>
       {!folded && (
         <div className="divide-y divide-line border-t border-line">
-          {g.rows.map((row) => (
-            <GroupRow key={rowKey(row)} row={row} />
-          ))}
+          {g.prs.length > 1 || (g.prs.length === 1 && g.rows.some((row) => !rowPr(row)))
+            ? // runs on more than one PR (a worktree with a stack of them): under the PR each ran against
+              [...g.prs.map((p) => p.number), undefined].map((n) => {
+                const rows = g.rows.filter((row) => rowPr(row) === n);
+                if (!rows.length) return null;
+                const branch = rows.map((row) => (row.type === "ci" ? row.latest : row.run)).find((r) => typeof r.meta.branch === "string")?.meta.branch as string | undefined;
+                return (
+                  <div key={n ?? "none"}>
+                    <div className="px-3 py-1.5 text-[12px] text-muted bg-ground/30 flex gap-2">
+                      <span className="text-ink font-medium">{n ? `PR #${n}` : "No PR"}</span>
+                      {branch && <span className="font-mono truncate">{branch}</span>}
+                    </div>
+                    <div className="divide-y divide-line">
+                      {rows.map((row) => (
+                        <GroupRow key={rowKey(row)} row={row} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            : g.rows.map((row) => <GroupRow key={rowKey(row)} row={row} />)}
         </div>
       )}
     </section>

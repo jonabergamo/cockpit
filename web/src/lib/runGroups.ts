@@ -9,6 +9,8 @@ export interface RunGroup {
   label: string;
   ticket?: string;
   rows: RunRow[];
+  // the PRs its runs ran against, newest first
+  prs: { number: number; url?: string }[];
   latestAt: number;
   running: number;
   // rows whose latest result is a failure
@@ -25,6 +27,9 @@ export type RunRow =
 const worst = (list: Run[]): RunStatus =>
   list.some((r) => r.status === "fail") ? "fail" : list.some((r) => r.status === "running") ? "running" : list.some((r) => r.status === "cancelled") ? "cancelled" : "pass";
 export const rowStatus = (row: RunRow): RunStatus => (row.type === "ci" ? worst(row.checks) : row.run.status);
+// the PR a run ran against, from the branch it was on
+export const prOf = (r: Run) => (typeof r.meta.pr === "number" ? r.meta.pr : undefined);
+export const rowPr = (row: RunRow) => (row.type === "ci" ? row.pr : prOf(row.run));
 const rowAt = (row: RunRow) => (row.type === "ci" ? row.latest.startedAt : row.run.startedAt);
 
 const lastPart = (p: string) => p.replace(/\/+$/, "").split("/").filter(Boolean).slice(-1)[0] ?? p;
@@ -40,9 +45,10 @@ function folders(runs: Run[]) {
 
 function ticketKey(r: Run, top: Map<string, string>, worktreeName: (path: string) => string): { key: string; label: string; ticket?: string } {
   if (r.ticket) return { key: `t:${r.ticket}`, label: r.ticket, ticket: r.ticket };
-  if (r.worktree) return { key: `w:${r.worktree}`, label: `No ticket · ${worktreeName(r.worktree)}` };
-  const pr = typeof r.meta.pr === "number" ? r.meta.pr : undefined;
+  // a worktree can hold a stack of PRs, so the PR says more than the worktree
+  const pr = prOf(r);
   if (pr) return { key: `p:${pr}`, label: `PR #${pr}` };
+  if (r.worktree) return { key: `w:${r.worktree}`, label: `No ticket · ${worktreeName(r.worktree)}` };
   if (r.cwd) {
     const dir = top.get(r.cwd.replace(/\/+$/, "")) ?? r.cwd;
     return { key: `d:${dir}`, label: `No ticket · ${lastPart(dir)}` };
@@ -74,7 +80,8 @@ export function collapse(runs: Run[]): RunRow[] {
       }
       continue;
     }
-    const key = `${r.kind}|${r.name}|${r.worktree ?? r.cwd ?? ""}`;
+    // the same flow on two PRs of one worktree is two rows
+    const key = `${r.kind}|${r.name}|${r.worktree ?? r.cwd ?? ""}|${prOf(r) ?? ""}`;
     const had = byRun.get(key);
     if (had) {
       had.earlier.push(r);
@@ -102,11 +109,17 @@ export function groupRuns(runs: Run[], by: GroupBy, kindLabel: (k: string) => st
   }
   const out = [...groups.values()].map((g) => {
     const rows = collapse(g.runs);
+    const prs = new Map<number, string | undefined>();
+    for (const r of g.runs) {
+      const n = prOf(r);
+      if (n && !prs.has(n)) prs.set(n, typeof r.meta.prUrl === "string" ? r.meta.prUrl : undefined);
+    }
     return {
       key: g.key,
       label: g.label,
       ticket: g.ticket,
       rows,
+      prs: [...prs].map(([number, url]) => ({ number, url })),
       latestAt: Math.max(...rows.map(rowAt)),
       running: g.runs.filter((r) => r.status === "running").length,
       failing: rows.filter((row) => rowStatus(row) === "fail").length,

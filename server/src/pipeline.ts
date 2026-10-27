@@ -16,7 +16,7 @@ export interface PluginRoads {
 export interface PipelineInput {
   tickets: Ticket[];
   prs: { mine: PullRequest[]; review?: PullRequest[] };
-  worktrees: Pick<Worktree, "path" | "ticket" | "main" | "node">[];
+  worktrees: Pick<Worktree, "path" | "ticket" | "main" | "node" | "branch">[];
   cards: BoardCard[];
   plugins: PluginRoads[];
   agent: string;
@@ -188,9 +188,11 @@ export function roadTickets(i: Pick<PipelineInput, "tickets" | "prs" | "worktree
   const wtOf = new Map(i.worktrees.filter((w) => !w.main && w.ticket).map((w) => [w.ticket!, w]));
   const prOf = newestPrs(i.prs.mine);
   return i.tickets.map((t) => {
-    const wt = wtOf.get(t.key) ?? (t.epic ? wtOf.get(t.epic) : undefined);
+    const pr = prOf.get(t.key);
+    // its own worktree, its epic's, or the one with its PR's branch checked out (a worktree holding a stack of PRs)
+    const wt = wtOf.get(t.key) ?? (t.epic ? wtOf.get(t.epic) : undefined) ?? (pr ? i.worktrees.find((w) => !w.main && w.branch === pr.branch) : undefined);
     const task = cardOf(i.cards, t.key, wt?.path)?.task;
-    return { ...t, worktree: wt?.path, node: wt?.node, pr: prOf.get(t.key), task: task && { id: task.id, status: task.status } };
+    return { ...t, worktree: wt?.path, node: wt?.node, pr, task: task && { id: task.id, status: task.status } };
   });
 }
 
