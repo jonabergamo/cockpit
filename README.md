@@ -137,7 +137,7 @@ This starts cockpit now and at every login, as a systemd user service on Linux o
 
 ### Updates
 
-cockpit checks its git remote for new commits. When there are any, the foot of the sidebar shows "Update available". It opens the list of what's new and fixed, with an Update now button. That pulls, installs and builds. When cockpit runs as a service it then restarts itself, and open pages reload onto the new version. On a hub, its nodes update first. Settings → Automation → Update cockpit by itself does all of this unprompted, at a moment when nothing is working. After an update, each device shows a What's new dialog once. cockpit doesn't update a checkout with uncommitted changes, or one that has commits of its own.
+cockpit checks its git remote for new commits. When there are any, the foot of the sidebar shows "Update available". It opens the list of what's new and fixed, with an Update now button. That pulls, installs and builds. When cockpit runs as a service it then restarts itself, and open pages reload onto the new version. On a hub, its nodes update first. Settings → Automation → Update cockpit by itself does all of this unprompted, checking every 5 minutes for a moment when no run, job or agent turn of cockpit's own is going on. Sessions in a terminal carry on through the restart, so they don't hold it back. After an update, each device shows a What's new dialog once. cockpit doesn't update a checkout with uncommitted changes, or one that has commits of its own.
 
 ### More than one machine (optional)
 

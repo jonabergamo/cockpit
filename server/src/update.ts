@@ -94,7 +94,7 @@ export async function applyUpdate(opts: { nodes?: boolean } = {}): Promise<Job> 
   return updating;
 }
 
-// Updates by itself, when Settings says to and nothing is working: no busy session, no running task
+// Updates by itself, when Settings says to and nothing a restart would cut short is going on (see useBusyCheck)
 let busy: () => Promise<boolean> = async () => true;
 export const useBusyCheck = (fn: typeof busy) => void (busy = fn);
 
@@ -106,5 +106,5 @@ export function startUpdates() {
     await applyUpdate().catch((e) => console.error("update:", (e as Error).message));
   };
   setTimeout(() => void tick().catch(() => {}), 2 * 60_000);
-  setInterval(() => void tick().catch(() => {}), 20 * 60_000).unref();
+  setInterval(() => void tick().catch(() => {}), 5 * 60_000).unref();
 }

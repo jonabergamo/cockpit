@@ -252,7 +252,7 @@ export function AutomationSettings() {
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Updates</h3>
         <Toggle
           label="Update cockpit by itself"
-          help="From its git remote, when nothing is working, then it restarts (when it runs as a service). Its nodes update with it. Otherwise it says when there's an update, at the foot of the sidebar"
+          help="From its git remote, when no run, job or agent turn of cockpit's is going on (sessions in a terminal carry on through it), then it restarts (when it runs as a service). Its nodes update with it. Otherwise it says when there's an update, at the foot of the sidebar"
           on={s.updates.auto}
           onChange={(v) => put("updates", { auto: v })}
         />

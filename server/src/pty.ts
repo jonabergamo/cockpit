@@ -95,7 +95,7 @@ const terms = new Map<string, Term>();
 // Without tmux they are plain ptys and die with the server.
 // a second cockpit for testing can keep to its own tmux server
 const SOCKET = process.env.COCKPIT_TMUX_SOCKET || (demo ? "cockpit-demo" : "cockpit");
-const hasTmux = spawnSync("tmux", ["-V"]).status === 0;
+export const hasTmux = spawnSync("tmux", ["-V"]).status === 0;
 const tmuxConf = `${paths.data}/${SOCKET}.tmux.conf`;
 
 const tmux = (...args: string[]) => execFileSync("tmux", ["-L", SOCKET, "-f", tmuxConf, ...args], { encoding: "utf8" });

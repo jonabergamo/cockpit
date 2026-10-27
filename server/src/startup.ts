@@ -8,10 +8,9 @@ import { startSessions } from "./claude/sessions.ts";
 import { startAgentRunner } from "./workers/runner.ts";
 import { startLeadWatch } from "./lead.ts";
 import { startOvernight } from "./overnight.ts";
-import { restoreTerms } from "./pty.ts";
 import { startSnapshots } from "./report.ts";
 import { startRecordings } from "./record.ts";
-import { startRuns } from "./runs.ts";
+import { listRuns, startRuns } from "./runs.ts";
 import { startStacked } from "./stacked.ts";
 import { startStuckWatch } from "./stuck.ts";
 import { startTasks } from "./tasks.ts";
@@ -22,7 +21,8 @@ import { startWeekly } from "./weekly.ts";
 import { board } from "./board.ts";
 import { tracked, nodesUp, requestWork } from "./remote/work.ts";
 import { startUpdates, useBusyCheck, useNodeUpdates } from "./update.ts";
-import type { Job } from "./jobs.ts";
+import { listJobs, type Job } from "./jobs.ts";
+import { hasTmux, restoreTerms } from "./pty.ts";
 
 // what belongs to the machine itself: its Claude sessions, their usage and search index, runs and terminals
 export function startHostServices() {
@@ -65,6 +65,13 @@ export function startHubServices() {
       ),
     ),
   );
-  useBusyCheck(async () => (await board().catch(() => [])).some((c) => c.column === "working" || c.column === "queued"));
+  // only what a restart would cut short: a session in a terminal carries on in tmux and a queued task starts after
+  useBusyCheck(async () => {
+    if (listJobs().some((j) => j.code === undefined)) return true;
+    if (listRuns({ status: "running", since: Date.now() - 3 * 3600_000, limit: 1 }).length) return true;
+    return (await board().catch(() => [])).some(
+      (c) => c.column === "working" && (c.task?.status === "starting" || !c.session?.term || !hasTmux),
+    );
+  });
   startUpdates();
 }
