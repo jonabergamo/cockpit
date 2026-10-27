@@ -17,7 +17,8 @@ export const useUpdate = () => {
 const behindOf = (s?: UpdateStatus) => Math.max(s?.behind ?? 0, ...(s?.nodes ?? []).map((n) => n.behind));
 
 const SHOWN: Record<string, string> = { feat: "New", fix: "Fixed", perf: "Fixed" };
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+// cockpit is written in lower case, even at the start
+const cap = (s: string) => (/^cockpit\b/.test(s) ? s : s.charAt(0).toUpperCase() + s.slice(1));
 
 // Commits as a changelog: what's new and what's fixed, each in its own words, and how many smaller changes besides
 export function ChangeList({ changes }: { changes: Change[] }) {
