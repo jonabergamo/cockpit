@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import type { LastReview } from "@cockpit/shared";
+import { canSend, sendText } from "./agents.ts";
 import { listSessions, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
 import { config } from "./config.ts";
@@ -83,6 +84,10 @@ export async function startReview(opts: { input: string; backend?: boolean; exis
 
   const cwd = cfg.cwd || config.repo.path;
   if (!existsSync(cwd)) throw new Error(`review folder not found: ${cwd}`);
+  if (opts.again) {
+    const prev = db.prepare<[string, number], ReviewRow>("select * from reviews where repo = ? and pr = ? and session_id is not null order by started_at desc limit 1").get(pr.repo, pr.n);
+    if (prev) return againIn(prev, prompt, cwd);
+  }
   const go = agentLaunch(prompt);
   const term = spawnTerm({ cwd, command: go.command, args: go.args, title: `review #${pr.n}` });
 
@@ -90,6 +95,26 @@ export async function startReview(opts: { input: string; backend?: boolean; exis
     .prepare("insert into reviews (repo, pr, url, title, author, started_at, term_id, pid) values (?, ?, ?, ?, ?, ?, ?, ?)")
     .run(pr.repo, pr.n, info.url, info.title, info.author, Date.now(), term.id, term.pid);
   return { id: Number(res.lastInsertRowid), termId: term.id };
+}
+
+// A second look carries on in the first review's session, so it already knows the PR and what it said about it:
+// told straight away when it's open and free, else resumed with the prompt
+async function againIn(r: ReviewRow, prompt: string, cwd: string) {
+  const session = listSessions({ liveOnly: true }).find((s) => s.id === r.session_id);
+  if (session?.status === "busy") throw new Error("That review's session is busy. Try again once it finishes its turn.");
+  let termId = r.term_id;
+  let pid = r.pid;
+  // only an idle session is told; one waiting on a question would take it as the answer
+  const told = !!session && (session.agent || session.status === "idle") && canSend(session.id) && (await sendText(session.id, prompt));
+  if (!told) {
+    if (session) throw new Error("That review's session is still open and waiting on you. Answer it or close it, then try again.");
+    const next = spawnTerm({ cwd, ...resumeLaunch(r.session_id!, prompt), title: `review #${r.pr}`, session: r.session_id! });
+    termId = next.id;
+    pid = next.pid ?? null;
+  }
+  // started_at moves on so the outcome is read from this turn on, not the first review's verdict
+  db.prepare("update reviews set term_id = ?, pid = ?, started_at = ?, status = 'running', review_url = null, verdict = null, comments = null where id = ?").run(termId, pid, Date.now(), r.id);
+  return { id: r.id, termId: termId ?? "" };
 }
 
 const REVIEW_URL = /https:\/\/github\.com\/[^\s)\]"'<>]+\/pull\/\d+#pullrequestreview-\d+/g;
@@ -122,7 +147,8 @@ async function refresh(r: ReviewRow, offline = false): Promise<ReviewRow> {
   if (file) {
     const tail = await readTail(file, 512 * 1024).catch(() => undefined);
     const parse = isCodexTerminal(next.session_id!) ? codexEntries : (l: string) => parseLine(l);
-    const texts = (tail?.lines ?? []).flatMap(parse).flatMap((e) => (e.kind === "assistant" ? [e.text] : []));
+    // a second look in the same session starts again from started_at; an entry without a readable time still counts
+    const texts = (tail?.lines ?? []).flatMap(parse).flatMap((e) => (e.kind === "assistant" && !(Date.parse(e.ts) < r.started_at) ? [e.text] : []));
     const out = readOutcome(texts);
     next.review_url = out.reviewUrl ?? next.review_url;
     next.verdict = out.verdict ?? next.verdict;
