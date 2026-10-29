@@ -140,8 +140,11 @@ export async function localBoard(opts: { offline?: boolean } = {}): Promise<Boar
 
   for (const wt of worktrees) {
     if (wt.main || !existsSync(wt.path)) continue;
-    const { pr, session } = matchWorker(wt, prs, sessions);
     const task = tasks.find((t) => t.worktree === wt.path);
+    const matched = matchWorker(wt, prs, sessions);
+    const pr = matched.pr;
+    // a session that moved its worktree (a task given its ticket's name) keeps the old folder as its cwd, so its task's id finds it
+    const session = matched.session ?? (task?.sessionId ? sessions.find((s) => s.id === task.sessionId) : undefined);
     const v = verify.get(wt.path);
     const a = autopilot.get(wt.path);
     const live = session && session.status !== "ended" ? session : undefined;
