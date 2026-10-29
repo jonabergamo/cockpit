@@ -76,7 +76,12 @@ export default function setup(k: Cockpit) {
   const boardId = () =>
     k.cache(`board:${s("board")}`, DAY, async () => {
       if (!s("board")) throw Object.assign(new Error("set the board name in Settings → Plugins → Jira"), { status: 400 });
-      return (await acli(["board", "search", "--name", s<string>("board")])).values?.[0]?.id as number;
+      // the search matches part of the name, so the board named exactly that wins
+      const name = s<string>("board").trim();
+      const found: { id: number; name: string }[] = (await acli(["board", "search", "--name", name])).values ?? [];
+      const board = found.find((b) => b.name.toLowerCase() === name.toLowerCase()) ?? found[0];
+      if (!board) throw Object.assign(new Error(`no Jira board called "${name}"; check the board name in Settings → Plugins → Jira`), { status: 400 });
+      return board.id;
     });
 
   // the project new tickets go in: the setting, else the one the board belongs to ("Acme (ACME)")

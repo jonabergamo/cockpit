@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { listSessions } from "../claude/sessions.ts";
+import { tracker } from "../providers.ts";
 import { DEFAULT_NOTES_PROMPT, generateNotes, savedNotes, sprintBrief } from "../notes.ts";
 import { activity, dailyText, sayDo, sprintReport, takeSnapshot, weekly } from "../report.ts";
 import { day } from "../util.ts";
@@ -8,7 +9,10 @@ export const report = new Hono()
   .get("/sprint", async (c) => {
     const id = c.req.query("id");
     const r = await sprintReport(id ? Number(id) : undefined, c.req.query("scope") === "me" ? "me" : "team");
-    return r ? c.json(r) : c.json({ error: "no sprint" }, 404);
+    if (r) return c.json(r);
+    // say why, since a new setup lands here before its tracker is set up
+    const why = !tracker()?.sprints ? "No tracker with sprints is on. Turn on Jira, or another tracker, in Settings → Plugins." : id ? "That sprint isn't on the board." : "The board has no active sprint.";
+    return c.json({ error: why }, 404);
   })
   .post("/snapshot", async (c) => {
     await takeSnapshot();
