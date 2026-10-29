@@ -1,5 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import type { Session } from "@cockpit/shared";
+import type { Session, TermInfo } from "@cockpit/shared";
+import { api } from "../lib/api";
 import { useLiveSessions } from "../lib/live";
 import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
@@ -7,7 +10,7 @@ import { useOpenSession } from "../lib/openSession";
 import { statusLook } from "../lib/status";
 import { ReplyPanel } from "./ReplyPanel";
 import { Button, Modal } from "./ui";
-import { useTerms } from "../pages/Terminals";
+import { LAST_TERMINAL, useTerms } from "../pages/Terminals";
 
 function label(s: Session) {
   return s.title || s.name || shortPath(s.cwd);
@@ -41,14 +44,29 @@ function useIdleAlerts(sessions: Session[]) {
   }, [sessions]);
 }
 
-// On the Terminals screen (`withoutTabs`) the sessions that have a tab there show as that tab, so only the rest show here.
-export function SessionStrip({ withoutTabs }: { withoutTabs?: boolean }) {
+// The live sessions and cockpit's open terminals, one card each. These cards are the Terminals screen's tabs too.
+export function SessionStrip() {
   const cost = useCost();
-  const all = useLiveSessions();
+  const sessions = useLiveSessions();
   const terms = useTerms().data ?? [];
+  const qc = useQueryClient();
+  const navigate = useNavigate();
   // a pid only means the same process on the same machine
-  const hasTab = (s: Session) => terms.some((t) => t.id === s.term || t.session === s.id || (!!t.pid && t.pid === s.pid && (t.node ?? "local") === (s.node ?? "local")));
-  const sessions = withoutTabs ? all.filter((s) => !hasTab(s)) : all;
+  const termOf = (s: Session) => terms.find((t) => t.id === s.term || t.session === s.id || (!!t.pid && t.pid === s.pid && (t.node ?? "local") === (s.node ?? "local")));
+  // split shells show beside their terminal, not as cards of their own
+  const shells = terms.filter((t) => (!t.parent || !terms.some((p) => p.id === t.parent)) && !sessions.some((s) => termOf(s)?.id === t.id));
+  // the terminal open on the Terminals screen, or the parent of the split that's open there
+  const path = useRouterState({ select: (r) => r.location.pathname });
+  const picked = useRouterState({ select: (r) => (r.location.search as { id?: string }).id });
+  const shown = (() => {
+    if (path !== "/terminals") return undefined;
+    let id = picked;
+    try {
+      id ??= localStorage.getItem(LAST_TERMINAL) ?? undefined;
+    } catch {}
+    const t = terms.find((x) => x.id === id);
+    return t?.parent && terms.some((p) => p.id === t.parent) ? t.parent : id;
+  })();
   const openSession = useOpenSession();
   const [opening, setOpening] = useState<string>();
   const [replying, setReplying] = useState<Session>();
@@ -64,34 +82,54 @@ export function SessionStrip({ withoutTabs }: { withoutTabs?: boolean }) {
       setOpening(undefined);
     }
   };
+  // the open terminal's card scrolls into sight when it's off to the side
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (shown) strip.current?.querySelector(`[data-term="${shown}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [shown, terms.length]);
+  // closes its terminal, which ends what runs in it; an agent without a terminal is ended instead
+  const close = async (t: TermInfo | undefined, s?: Session) => {
+    setErr(undefined);
+    try {
+      if (t) await api.del(`/code/terms/${t.id}`);
+      else if (s) await api.post(`/agents/sessions/${s.id}/close`, {});
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ["terms"] });
+    if (t && t.id === shown) navigate({ to: "/terminals", search: { id: undefined }, replace: true });
+  };
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "denied");
-  useIdleAlerts(all);
+  useIdleAlerts(sessions);
 
   // what needs you first, then what's working, then what's idle
   const rank = (s: Session) => (s.status === "waiting" ? 2 : s.status === "busy" ? 1 : 0);
   const sorted = [...sessions].sort((a, b) => rank(b) - rank(a) || b.updatedAt - a.updatedAt);
 
-  if (withoutTabs && !sessions.length && !err) return null;
   return (
-    <div className="drag overlay-gap flex items-stretch gap-2 overflow-x-auto px-4 py-2 border-b border-line bg-panel min-h-[74px]">
-      {sorted.length === 0 && <div className="text-muted self-center">No sessions running.</div>}
+    <div ref={strip} className="drag overlay-gap flex items-stretch gap-2 overflow-x-auto px-4 py-2 border-b border-line bg-panel min-h-[74px]">
+      {sorted.length + shells.length === 0 && <div className="text-muted self-center">No sessions running.</div>}
       {sorted.map((s) => {
         const where = place(s);
         const look = statusLook(s.status, s.waitingFor, s.background);
+        const term = termOf(s);
+        const closable = !!term || (!!s.agent && !s.term);
         return (
-        <div key={s.id} className="relative shrink-0 group/card">
+        <div key={s.id} data-term={term?.id} className="relative shrink-0 group/card">
         <button
           onClick={() => open(s)}
           disabled={opening === s.id}
           className={`group text-left relative overflow-hidden w-[250px] rounded-md border pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${
             look.border
-          } ${s.status === "busy" && !s.background ? "sweep" : ""}`}
+          } ${s.status === "busy" && !s.background ? "sweep" : ""} ${term && term.id === shown ? "ring-1 ring-cobalt" : ""}`}
           title={`${label(s)}\n${[s.ticket, shortPath(s.cwd), s.branch].filter(Boolean).join(" · ")}\nClick to open it in a terminal`}
         >
           <span className={`absolute left-0 top-0 bottom-0 w-1 ${look.dot} ${s.status === "idle" ? "opacity-50" : ""}`} />
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium text-[13px] flex-1">{label(s)}</span>
             {s.costUSD && !cost.hidden ? <span className="text-[11px] text-muted" title={`${cost.label}. ${cost.hint}`}>{usd(s.costUSD)}</span> : null}
+            {closable && <span className="w-5 shrink-0" />}
           </div>
           <div className="flex items-center gap-1.5 text-[12px] text-ink/80 min-w-0">
             {s.ticket && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{s.ticket}</span>}
@@ -112,9 +150,31 @@ export function SessionStrip({ withoutTabs }: { withoutTabs?: boolean }) {
             Reply
           </button>
         )}
+        {closable && <CloseX onClick={() => close(term, s)} title={term ? "Close its terminal, which ends the session" : "End this session"} />}
         </div>
         );
       })}
+      {shells.map((t) => (
+        <div key={t.id} data-term={t.id} className="relative shrink-0 group/card">
+          <button
+            onClick={() => navigate({ to: "/terminals", search: { id: t.id } })}
+            className={`text-left relative overflow-hidden w-[250px] rounded-md border border-line pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${t.id === shown ? "ring-1 ring-cobalt" : ""}`}
+            title={`${t.command}\n${t.node && t.node !== "local" ? `on ${t.node}: ` : ""}${t.cwd}\nstarted ${ago(t.createdAt)}`}
+          >
+            <span className={`absolute left-0 top-0 bottom-0 w-1 ${t.state === "disconnected" ? "bg-amber" : t.exited === undefined ? "bg-green opacity-50" : "bg-line"}`} />
+            <div className="flex items-center gap-1.5">
+              <span className="truncate font-medium text-[13px] flex-1">{t.title}</span>
+              <span className="w-5 shrink-0" />
+            </div>
+            <div className="text-[12px] text-ink/80 truncate">{[t.node && t.node !== "local" ? t.node : "", shortPath(t.cwd).split("/").slice(-2).join("/")].filter(Boolean).join(" · ")}</div>
+            <div className="flex items-center gap-1.5 text-[12px] text-muted">
+              <span>{t.state === "disconnected" ? "reconnecting" : t.exited === undefined ? "shell" : "exited"}</span>
+              <span className="truncate ml-auto">{ago(t.createdAt)}</span>
+            </div>
+          </button>
+          <CloseX onClick={() => close(t)} title="Close this terminal" />
+        </div>
+      ))}
       <Modal open={!!replying} onClose={() => setReplying(undefined)} title={replying ? label(replying) : ""} wide>
         {replying && (
           <div className="space-y-3">
@@ -134,5 +194,13 @@ export function SessionStrip({ withoutTabs }: { withoutTabs?: boolean }) {
         </button>
       )}
     </div>
+  );
+}
+
+function CloseX({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button onClick={onClick} className="absolute right-1 top-1 size-6 rounded text-faint hover:text-red hover:bg-red-soft" title={title} aria-label={title}>
+      ×
+    </button>
   );
 }

@@ -169,7 +169,7 @@ export function Layout() {
             </span>
           </button>
           <div className="flex-1 min-w-0">
-            <SessionStrip withoutTabs={path.startsWith("/terminals")} />
+            <SessionStrip />
           </div>
         </div>
         <main className={`flex-1 min-h-0 ${fullBleed ? "" : "overflow-y-auto px-4 md:px-6 py-5"}`}>

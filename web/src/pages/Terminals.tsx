@@ -11,8 +11,7 @@ import { useLiveSessions } from "../lib/live";
 import { launcher } from "../lib/launcher";
 import { useOpenSession } from "../lib/openSession";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
-import { ago, shortPath } from "../lib/format";
-import { statusLook } from "../lib/status";
+import { shortPath } from "../lib/format";
 
 export type { TermInfo } from "@cockpit/shared";
 import type { TermInfo } from "@cockpit/shared";
@@ -144,58 +143,20 @@ export function TerminalsPage() {
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>
           </button>
         </div>
-        <div className="flex items-center gap-1 px-2 h-full overflow-x-auto min-w-0 flex-1">
-        {tabs.map((t) => (
-          <div
-            key={t.id}
-            className={`group flex items-center gap-2 h-8 pl-3 pr-1 rounded-md shrink-0 cursor-pointer ${t.id === active ? "bg-raised border border-line" : "text-muted hover:text-ink"}`}
-            onClick={() => navigate({ to: "/terminals", search: { id: t.id } })}
-            title={`${t.command}\n${t.node && t.node !== "local" ? `on ${t.node}: ` : ""}${t.cwd}\nstarted ${ago(t.createdAt)}${t.state === "disconnected" ? "\ndisconnected, reconnecting" : ""}`}
-          >
-            {t.state === "disconnected" ? (
-              <span className="size-1.5 rounded-full bg-amber animate-pulse" title="Its machine is disconnected" />
-            ) : (() => {
-              // what Claude is doing in it: working, waiting for you, or done with its turn
-              const s = sessionOf(t);
-              const st = s?.status;
-              const look = statusLook(st, s?.waitingFor, s?.background);
-              return (
-                <span
-                  className={`size-1.5 rounded-full ${st === "busy" ? "bg-cobalt animate-pulse" : st === "waiting" || st === "idle" ? look.dot : t.exited === undefined ? "bg-green" : "bg-line"}`}
-                  title={st && st !== "ended" ? look.hint : undefined}
-                />
-              );
-            })()}
-            {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted">{t.node}</span>}
-            {(() => {
-              // the session's own title says more than the command it was started with
-              const s = sessionOf(t);
-              const name = s?.title || s?.name || t.title;
-              return (
-                <>
-                  {s?.ticket && !name.includes(s.ticket) && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{s.ticket}</span>}
-                  <span className="text-[13px] max-w-[220px] truncate">{name}</span>
-                </>
-              );
-            })()}
-            <span className="text-[12px] text-faint max-w-[140px] truncate">{shortPath(t.cwd).split("/").slice(-2).join("/")}</span>
-            {(() => {
-              // runs and servers beside it, which show in its split
-              const n = all.filter((x) => x.parent === t.id).length;
-              return n ? <span className="text-[11px] text-faint" title={`${n} beside it in the split`}>+{n}</span> : null;
-            })()}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                close(t.id);
-              }}
-              className="size-6 rounded text-faint hover:text-red hover:bg-red-soft"
-              aria-label="Close terminal"
-            >
-              ×
-            </button>
-          </div>
-        ))}
+        {/* the terminals themselves are the cards at the top, so this only says which one is open */}
+        <div className="flex items-center gap-2 px-3 h-full min-w-0 flex-1">
+          {(() => {
+            const t = all.find((x) => x.id === active);
+            if (!t) return null;
+            const s = sessionOf(t);
+            return (
+              <>
+                {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted shrink-0">{t.node}</span>}
+                <span className="text-[13px] truncate">{s?.title || s?.name || t.title}</span>
+                <span className="text-[12px] text-faint truncate" title={t.cwd}>{shortPath(t.cwd)}</span>
+              </>
+            );
+          })()}
         </div>
         <div className="hidden md:flex items-center gap-1 px-2 h-full border-l border-line shrink-0">
           <Button size="sm" variant={split ? "default" : "ghost"} onClick={() => (split ? setShowSplit(false) : shown.length ? setShowSplit(true) : addPane())} title={split ? "Hide the shells, they keep running" : "A shell in the same folder, side by side"}>
@@ -246,7 +207,8 @@ export function TerminalsPage() {
   );
 }
 
-const LAST = "cockpit.lastTerminal";
+export const LAST_TERMINAL = "cockpit.lastTerminal";
+const LAST = LAST_TERMINAL;
 const SIDE = "cockpit.terminalChanges";
 const SPLIT = "cockpit.terminalSplitShown";
 const HISTORY = "cockpit.terminalHistoryShown";
