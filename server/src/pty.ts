@@ -239,7 +239,9 @@ export function claudeTermFor(cwd: string) {
 }
 
 export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string; run?: string; beside?: boolean }) {
-  if (opts.beside && !opts.parent) opts = { ...opts, parent: claudeTermFor(opts.cwd) };
+  // a Claude session is one of its own, never a split of another
+  const own = !!opts.session || /^claude\b/.test(opts.command ?? "");
+  if (opts.beside && !opts.parent && !own) opts = { ...opts, parent: claudeTermFor(opts.cwd) };
   const shell = opts.command ?? (process.env.SHELL || "bash");
   let file = shell;
   let argv = opts.args ?? [];
