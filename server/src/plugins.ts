@@ -623,22 +623,43 @@ export async function startPluginOption(plugin: string, entry: number, id: strin
 
 // What each plugin on here adds to the ticket pipeline, by plugin, with the ones that failed or took too long kept
 // apart so the screen can say so
+// A plugin's answer is kept for the same tickets: up to FRESH_MS it's given as it is, up to STALE_MS it's given
+// straight away while a new one is worked out behind it, so the Work screen doesn't wait on a slow plugin each time
+const FRESH_MS = 30_000;
+const STALE_MS = 10 * 60_000;
+const roadsAsking = new Set<string>();
+const roadsKept = new Map<string, { input: string; at: number; value: { plugin: string; name: string; roads: TicketRoads } }>();
+
 export async function pluginTicketRoads(c: Parameters<Parameters<Cockpit["ticketRoads"]>[0]["list"]>[0]) {
   const on = [...plugins.values()].filter((p) => p.state === "on" && p.ticketRoads.length);
+  const input = JSON.stringify({ tickets: c.tickets, agent: c.agent });
   return Promise.all(
     on.flatMap((p) =>
-      p.ticketRoads.map(async (r) => {
-        let timer: NodeJS.Timeout | undefined;
-        const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("took too long to answer")), LIST_MS)));
-        try {
-          const roads = await Promise.race([Promise.resolve().then(() => r.list(c)), late]);
-          return { plugin: p.manifest.id, name: p.manifest.name, roads: roads ?? {} };
-        } catch (e) {
-          say(p, "ticket roads failed:", e);
-          return { plugin: p.manifest.id, name: p.manifest.name, roads: {} as TicketRoads, error: (e as Error).message };
-        } finally {
-          clearTimeout(timer);
+      p.ticketRoads.map(async (r, i) => {
+        const key = `${p.manifest.id}:${p.generation}:${i}`;
+        const ask = async () => {
+          let timer: NodeJS.Timeout | undefined;
+          const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("took too long to answer")), LIST_MS)));
+          try {
+            const roads = await Promise.race([Promise.resolve().then(() => r.list(c)), late]);
+            const value = { plugin: p.manifest.id, name: p.manifest.name, roads: roads ?? {} };
+            roadsKept.set(key, { input, at: Date.now(), value });
+            return value;
+          } catch (e) {
+            say(p, "ticket roads failed:", e);
+            return { plugin: p.manifest.id, name: p.manifest.name, roads: {} as TicketRoads, error: (e as Error).message };
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+        const kept = roadsKept.get(key);
+        const age = kept && kept.input === input ? Date.now() - kept.at : Infinity;
+        if (c.fresh || age > STALE_MS) return ask();
+        if (age > FRESH_MS && !roadsAsking.has(key)) {
+          roadsAsking.add(key);
+          void ask().finally(() => roadsAsking.delete(key));
         }
+        return kept!.value;
       }),
     ),
   );
@@ -649,6 +670,8 @@ export async function actPluginRoad(plugin: string, action: string, key: string)
   const p = plugins.get(plugin);
   const list = p?.state === "on" ? p.ticketRoads : [];
   if (!list.length) throw Object.assign(new Error(`the ${plugin} plugin is off or was reloaded`), { status: 400 });
+  // what it did changes what it shows next
+  for (const k of roadsKept.keys()) if (k.startsWith(`${plugin}:`)) roadsKept.delete(k);
   return (await list[0].act(action, key)) ?? {};
 }
 

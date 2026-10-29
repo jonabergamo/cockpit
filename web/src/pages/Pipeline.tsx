@@ -14,8 +14,27 @@ export const usePipeline = () => {
   const qc = useQueryClient();
   // where work stands moves with the Board and with runs; a refetch per change is enough
   useLive((ev) => (ev.type === "board" || ev.type === "run") && qc.invalidateQueries({ queryKey: ["pipeline"] }), [qc]);
-  return useQuery({ queryKey: ["pipeline"], queryFn: () => api.get<Pipeline>("/pipeline"), refetchInterval: 60_000 });
+  return useQuery({
+    queryKey: ["pipeline"],
+    queryFn: async () => {
+      const p = await api.get<Pipeline>("/pipeline");
+      try {
+        localStorage.setItem(KEPT, JSON.stringify(p));
+      } catch {}
+      return p;
+    },
+    // the last one seen shows straight away while the new one loads
+    placeholderData: () => {
+      try {
+        return JSON.parse(localStorage.getItem(KEPT) ?? "null") ?? undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    refetchInterval: 60_000,
+  });
 };
+const KEPT = "cockpit.pipeline";
 
 // the buttons core runs itself; a plugin's road can use them too
 const CORE = new Set(["pr", "featurepr", "ticket", "session", "board", "epic", "start", "agent", "open", "review"]);
@@ -218,7 +237,7 @@ export function PipelineList() {
   const home = [...count].sort((a, b) => b[1] - a[1])[0]?.[0];
 
   return (
-    <div className={`space-y-4 max-w-[1150px] ${refreshing ? "wave" : ""}`}>
+    <div className={`space-y-4 max-w-[1150px] ${refreshing || q.isPlaceholderData ? "wave" : ""}`}>
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-[13px] text-muted">
           <input type="checkbox" checked={all} onChange={(e) => toggleAll(e.target.checked)} className="size-4 accent-[var(--cobalt)]" />
