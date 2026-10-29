@@ -7,6 +7,7 @@ import { useOpenSession } from "../lib/openSession";
 import { statusLook } from "../lib/status";
 import { ReplyPanel } from "./ReplyPanel";
 import { Button, Modal } from "./ui";
+import { useTerms } from "../pages/Terminals";
 
 function label(s: Session) {
   return s.title || s.name || shortPath(s.cwd);
@@ -40,9 +41,14 @@ function useIdleAlerts(sessions: Session[]) {
   }, [sessions]);
 }
 
-export function SessionStrip() {
+// On the Terminals screen (`withoutTabs`) the sessions that have a tab there show as that tab, so only the rest show here.
+export function SessionStrip({ withoutTabs }: { withoutTabs?: boolean }) {
   const cost = useCost();
-  const sessions = useLiveSessions();
+  const all = useLiveSessions();
+  const terms = useTerms().data ?? [];
+  // a pid only means the same process on the same machine
+  const hasTab = (s: Session) => terms.some((t) => t.id === s.term || t.session === s.id || (!!t.pid && t.pid === s.pid && (t.node ?? "local") === (s.node ?? "local")));
+  const sessions = withoutTabs ? all.filter((s) => !hasTab(s)) : all;
   const openSession = useOpenSession();
   const [opening, setOpening] = useState<string>();
   const [replying, setReplying] = useState<Session>();
@@ -59,12 +65,13 @@ export function SessionStrip() {
     }
   };
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "denied");
-  useIdleAlerts(sessions);
+  useIdleAlerts(all);
 
   // what needs you first, then what's working, then what's idle
   const rank = (s: Session) => (s.status === "waiting" ? 2 : s.status === "busy" ? 1 : 0);
   const sorted = [...sessions].sort((a, b) => rank(b) - rank(a) || b.updatedAt - a.updatedAt);
 
+  if (withoutTabs && !sessions.length && !err) return null;
   return (
     <div className="drag overlay-gap flex items-stretch gap-2 overflow-x-auto px-4 py-2 border-b border-line bg-panel min-h-[74px]">
       {sorted.length === 0 && <div className="text-muted self-center">No sessions running.</div>}

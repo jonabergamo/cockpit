@@ -99,7 +99,7 @@ export function TerminalsPage() {
       setSplitErr(e);
     }
   };
-  const sessionOf = (t: TermInfo) => live.find((s) => s.id === t.session || (!!t.pid && s.pid === t.pid));
+  const sessionOf = (t: TermInfo) => live.find((s) => s.id === t.session || s.term === t.id || (!!t.pid && s.pid === t.pid && (t.node ?? "local") === (s.node ?? "local")));
 
   const toggleChanges = (on: boolean) => {
     setShowChanges(on);
@@ -167,7 +167,17 @@ export function TerminalsPage() {
               );
             })()}
             {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted">{t.node}</span>}
-            <span className="text-[13px] max-w-[220px] truncate">{t.title}</span>
+            {(() => {
+              // the session's own title says more than the command it was started with
+              const s = sessionOf(t);
+              const name = s?.title || s?.name || t.title;
+              return (
+                <>
+                  {s?.ticket && !name.includes(s.ticket) && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{s.ticket}</span>}
+                  <span className="text-[13px] max-w-[220px] truncate">{name}</span>
+                </>
+              );
+            })()}
             <span className="text-[12px] text-faint max-w-[140px] truncate">{shortPath(t.cwd).split("/").slice(-2).join("/")}</span>
             {(() => {
               // runs and servers beside it, which show in its split
