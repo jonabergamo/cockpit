@@ -4,8 +4,8 @@ import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { fixPlan } from "../fix.ts";
-import { activeSprint, createOptions, createTicket, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
-import type { NewTicket } from "@cockpit/shared";
+import { activeSprint, createOptions, releasedSet, createTicket, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
+import type { Epic, NewTicket, TrackerTicket } from "@cockpit/shared";
 import { buildPipeline, roadTickets, type PluginRoads } from "../pipeline.ts";
 import { actPluginRoad, placedOn, pluginMachine, pluginTicketRoads } from "../plugins.ts";
 import { getSettings } from "../settings.ts";
@@ -42,6 +42,25 @@ function lastSessions() {
   return last;
 }
 
+// An open epic two or more of your open tickets share, with no worktree yet: its tickets are likely steps of one
+// feature, so the Tickets screen groups them and offers the epic's worktree. Catch-all epics are usually archived
+// or done, which leaves them out.
+const OVER = /^(done|closed|archived|cancel)/i;
+export function featureEpics(tickets: TrackerTicket[], taken: Map<string, string>): Epic[] {
+  const by = new Map<string, TrackerTicket[]>();
+  for (const t of tickets) {
+    if (t.parentType !== "Epic" || !t.parent || taken.has(t.key) || finished(t)) continue;
+    if (OVER.test(t.parentStatus ?? "") || releasedSet().has(t.parentStatus ?? "")) continue;
+    by.set(t.parent, [...(by.get(t.parent) ?? []), t]);
+  }
+  return [...by.entries()]
+    .filter(([, list]) => list.length > 1)
+    .map(([key, list]) => {
+      const t = list[0];
+      return { key, summary: t.parentSummary ?? key, status: t.parentStatus ?? "", type: "Epic", inSprint: false, url: t.url?.replace(new RegExp(`${t.key}$`), key), children: list.map((x) => x.key), suggested: true };
+    });
+}
+
 // Your tickets with their newest session, the epic whose worktree they're stacked in, spend and kind of work
 async function ticketsWithWork(fresh: boolean) {
   const wtKeys = (await allWorktrees(false)).filter((w) => !w.main && w.ticket).map((w) => w.ticket!);
@@ -53,6 +72,10 @@ async function ticketsWithWork(fresh: boolean) {
     return t && { spent: t.spent, limit: t.limit, unit: t.unit, warnPct: t.warnPct };
   };
   const epicOf = new Map(epics.flatMap((e) => e.children.map((k) => [k, e.key] as const)));
+  for (const e of featureEpics(tickets as TrackerTicket[], epicOf)) {
+    epics.push(e);
+    for (const k of e.children) epicOf.set(k, e.key);
+  }
   return {
     sprint,
     tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key), spend: spend(t.key), kind: templateFor(t)?.name, finished: finished(t) })),

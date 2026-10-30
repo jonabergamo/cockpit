@@ -154,6 +154,8 @@ export interface Ticket {
 
 export interface Epic extends Ticket {
   children: string[];
+  // no worktree yet: several of your open tickets share this open epic, so it could be worked as one feature
+  suggested?: boolean;
 }
 
 export interface PullRequest {

@@ -146,6 +146,17 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
     },
   });
 
+  // a suggested epic has no worktree yet; making it is what turns its tickets into steps of one feature
+  const jobs = useJobs();
+  const [jobId, setJobId] = useState<string>();
+  const job = jobs.data?.find((j) => j.id === jobId);
+  const making = !!job && job.code === undefined;
+  const refresh = () => Promise.all(["worktrees", "roots", "tickets"].map((k) => qc.invalidateQueries({ queryKey: [k] })));
+  const make = useMutation({
+    mutationFn: () => api.post<{ id?: string; existing?: string }>("/epics", { input: e.key }),
+    onSuccess: (r) => (r.id ? setJobId(r.id) : refresh()),
+  });
+
   return (
     <section className="bg-panel border border-line rounded-lg">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-3 pb-2.5 border-b border-line">
@@ -156,6 +167,7 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
               {e.key}
             </a>
             <span className="text-[12px] text-muted">{tickets.length} of mine open</span>
+            {!wt && <span className="text-[12px] text-muted">· steps of one feature, no worktree yet</span>}
             <SpendTag spend={e.spend} />
           </div>
           <div className="text-[13px] text-muted truncate">{e.summary}</div>
@@ -163,6 +175,11 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
         <Button size="sm" variant="ghost" disabled={lead.isPending} onClick={() => lead.mutate()} title="A lead session for this epic: it reads the epic and its tickets, plans the rest with you and runs them as parallel workers">
           {lead.isPending ? "Opening" : "Lead this epic"}
         </Button>
+        {!wt && (
+          <Button size="sm" variant="primary" disabled={make.isPending || making} onClick={() => make.mutate()} title={`One worktree for ${e.key}: its tickets are worked in the epic's session, so their PRs stack on the epic branch`}>
+            {making || make.isPending ? "Creating" : "Epic worktree"}
+          </Button>
+        )}
         {wt && (
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" disabled={editor.pending} onClick={() => editor.open(wt.path)}>
@@ -183,14 +200,17 @@ function EpicGroup({ epic: e, wt, tickets, prsBy, highlight }: { epic: Epic; wt?
           </div>
         )}
       </div>
-      {(editor.error || start.error || resume.error || lead.error || editor.job) && (
+      {(editor.error || start.error || resume.error || lead.error || make.error || editor.job || job) && (
         <div className="px-4 py-2 space-y-2 border-b border-line">
-          <ErrorNote error={editor.error ?? start.error ?? resume.error ?? lead.error} />
+          <ErrorNote error={editor.error ?? start.error ?? resume.error ?? lead.error ?? make.error} />
           {editor.job && <JobLog job={editor.job} />}
+          {job && <JobLog job={job} onDone={refresh} />}
         </div>
       )}
       <div className="divide-y divide-line">
-        {tickets.map((t) => (
+        {/* only a suggestion until the epic has its worktree, so each ticket can still get its own */}
+        {!wt && tickets.map((t) => <Row key={t.key} t={t} prs={prsBy.get(t.key) ?? []} highlight={t.key === highlight} />)}
+        {wt && tickets.map((t) => (
           <div key={t.key} id={`ticket-${t.key}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 pr-4 py-2 ${t.key === highlight ? "bg-cobalt-soft/50" : ""}`}>
             <div className="flex-1 min-w-[260px]">
               <div className="flex items-center gap-2">
