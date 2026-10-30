@@ -148,6 +148,8 @@ export interface Ticket {
   // the kind of work it matches, by name
   kind?: string;
   priority?: string;
+  // released or closed in the tracker, so there's nothing left to work on
+  finished?: boolean;
 }
 
 export interface Epic extends Ticket {

@@ -16,7 +16,7 @@ import { ticketOf } from "../util.ts";
 import { getJob, listJobs, type Job } from "../jobs.ts";
 import { getReview, lastReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
 import { codexReport, toolReport, usageAgents, usageReport } from "../usage.ts";
-import { cleanupPlan, type Candidate } from "../cleaner.ts";
+import { cleanupPlan, finished, type Candidate } from "../cleaner.ts";
 import { archive, board, boardChanged } from "../board.ts";
 import { badges, seen } from "../badges.ts";
 import { setAutopilot } from "../autopilot.ts";
@@ -55,7 +55,7 @@ async function ticketsWithWork(fresh: boolean) {
   const epicOf = new Map(epics.flatMap((e) => e.children.map((k) => [k, e.key] as const)));
   return {
     sprint,
-    tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key), spend: spend(t.key), kind: templateFor(t)?.name })),
+    tickets: tickets.map((t) => ({ ...t, lastSession: last.get(t.key) ?? null, epic: epicOf.get(t.key), spend: spend(t.key), kind: templateFor(t)?.name, finished: finished(t) })),
     epics: epics.map((e) => ({ ...e, lastSession: last.get(e.key) ?? null, spend: spend(e.key) })),
   };
 }

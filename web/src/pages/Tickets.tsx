@@ -59,7 +59,8 @@ export function TicketsPage() {
   const epics = tickets.data?.epics ?? [];
   const epicKeys = new Set(epics.map((e) => e.key));
   const plain = shown.filter((t) => !t.epic && !epicKeys.has(t.key));
-  const sprint = plain.filter((t) => t.inSprint).sort((a, b) => rank(a.status) - rank(b.status));
+  const sprint = plain.filter((t) => t.inSprint && !t.finished).sort((a, b) => rank(a.status) - rank(b.status));
+  const finished = plain.filter((t) => t.inSprint && t.finished);
   const other = plain.filter((t) => !t.inSprint);
 
   const group = (title: string, list: Ticket[]) => (
@@ -100,6 +101,19 @@ export function TicketsPage() {
               <EpicGroup key={e.key} epic={e} wt={wtBy.get(e.key)} tickets={shown.filter((t) => t.epic === e.key)} prsBy={prsBy} highlight={key} />
             ))}
           {group("This sprint", sprint)}
+          {!!finished.length && (
+            // finished ones only matter as a record, so they stay folded away
+            <details className="bg-panel border border-line rounded-lg" open={finished.some((t) => t.key === key)}>
+              <summary className="font-semibold px-4 py-3 cursor-pointer select-none">
+                Finished this sprint <span className="text-muted font-normal text-[13px]">{finished.length}</span>
+              </summary>
+              <div className="divide-y divide-line border-t border-line">
+                {finished.map((t) => (
+                  <Row key={t.key} t={t} prs={prsBy.get(t.key) ?? []} wt={wtBy.get(t.key)} highlight={t.key === key} />
+                ))}
+              </div>
+            </details>
+          )}
           {group("Other open tickets", other)}
         </div>
       )}
@@ -316,7 +330,7 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
                 {start.isPending ? "Starting" : `Start ${agent}`}
               </Button>
             </>
-          ) : (
+          ) : t.finished ? null : (
             <Button size="sm" variant="primary" disabled={create.isPending || running} onClick={() => create.mutate()}>
               {running ? "Creating" : "Create worktree"}
             </Button>
@@ -326,7 +340,7 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
               {resume.isPending ? "Opening" : "Resume"}
             </Button>
           )}
-          {!wt && (
+          {!wt && !t.finished && (
             <Button size="sm" variant="ghost" onClick={() => newTask.open({ ticket: t.key })} title={`Queue it: cockpit makes the worktree and starts ${agent} on it, optionally a few attempts at once`}>
               Task
             </Button>

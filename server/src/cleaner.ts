@@ -10,7 +10,7 @@ import { leftoverFolders, listWorktrees, sizeOf } from "./worktrees.ts";
 const STALE_DAYS = 30;
 // QA and UAT count as done for the sprint but can still bounce back, so only released or closed tickets
 // (the tracker's done category minus the dev-done statuses) mean the work is over
-const finished = (t: { status: string; statusCategory?: string }) => releasedSet().has(t.status) || (t.statusCategory === "done" && !devDoneSet().has(t.status));
+export const finished = (t: { status: string; statusCategory?: string }) => releasedSet().has(t.status) || (t.statusCategory === "done" && !devDoneSet().has(t.status));
 
 export interface Candidate {
   path: string;
