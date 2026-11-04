@@ -7,6 +7,7 @@ import { EmbedTerminal } from "./components/EmbedTerminal";
 import { PluginFrame } from "./components/PluginFrame";
 import { BoardPage } from "./pages/Board";
 import { TaskGroupPage } from "./pages/Tasks";
+import { CanvasPage } from "./pages/Canvas";
 import { CodePage } from "./pages/Code";
 import { MemoryPage } from "./pages/Memory";
 import { ReviewsPage } from "./pages/Reviews";
@@ -53,6 +54,7 @@ const routes = [
   moved("/worktrees", "/tickets", { tab: "worktrees" }),
   createRoute({ getParentRoute: () => root, path: "/code", component: CodePage, validateSearch: (s): { root?: string; file?: string; diff?: boolean } => ({ root: str(s.root), file: str(s.file), diff: s.diff === true || s.diff === "1" || undefined }) }),
   createRoute({ getParentRoute: () => root, path: "/terminals", component: TerminalsPage, validateSearch: (s): { id?: string; resume?: string; pid?: number } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/canvas", component: CanvasPage }),
   createRoute({ getParentRoute: () => root, path: "/memory", component: MemoryPage, validateSearch: (s): { path?: string } => ({ path: str(s.path) }) }),
   createRoute({ getParentRoute: () => root, path: "/usage", component: UsageScreen }),
   createRoute({ getParentRoute: () => root, path: "/weekly", component: WeekScreen, validateSearch: (s): { week?: string } => ({ week: str(s.week) }) }),
