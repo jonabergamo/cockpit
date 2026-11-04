@@ -4,13 +4,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TermInfo } from "@cockpit/shared";
 import { paths } from "../src/config.ts";
 import { db } from "../src/db.ts";
-import { addNote, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, readNote, rekeyTerms, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, writeNote } from "../src/canvas.ts";
+import { addEdge, addNote, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
+import { ticketOfTerm } from "../src/routes/canvas.ts";
 
 const term = (id: string, more: Partial<TermInfo> = {}): TermInfo => ({ id, title: id, cwd: "/tmp", command: "bash", createdAt: 0, node: "local", ...more });
 const onCanvas = (name: string) => listCanvases().find((c) => c.name === name)!;
 
 beforeEach(() => {
-  db.exec("delete from canvas_nodes; delete from canvases;");
+  db.exec("delete from canvas_nodes; delete from canvas_edges; delete from canvases;");
+  listCanvases();
 });
 
 describe("workspaces", () => {
@@ -83,6 +85,67 @@ describe("terminals", () => {
     expect(onCanvas("Main").nodes.map((n) => n.ref).sort()).toEqual(["a", "other"]);
     syncTerms([term("other", { node: "linux" })]);
     expect(onCanvas("Main").nodes.map((n) => n.ref)).toEqual(["other"]);
+  });
+});
+
+describe("tickets and lines", () => {
+  it("keeps a ticket on one workspace at a time, by its key", () => {
+    const main = listCanvases()[0];
+    const card = placeTicket(main.id, " acme-12 ");
+    expect(card).toMatchObject({ kind: "ticket", ref: "ACME-12" });
+    expect(ticketCard("ACME-12")).toMatchObject({ id: card.id, canvas: main.id });
+    const side = createCanvas("Side");
+    placeTicket(side.id, "ACME-12");
+    expect(onCanvas("Main").nodes).toEqual([]);
+    expect(onCanvas("Side").nodes.map((n) => n.ref)).toEqual(["ACME-12"]);
+  });
+
+  it("starts a terminal in a ticket's worktree beside that ticket's card", () => {
+    const side = createCanvas("Side");
+    const card = placeTicket(side.id, "ACME-12", { x: 100, y: 100 });
+    syncTerms([term("plain"), term("work", { cwd: "/wt/ACME-12/repo/app" })], ticketOfTerm([{ path: "/wt/ACME-12/repo", name: "ACME-12", head: "", main: false, ticket: "ACME-12" }]));
+    expect(onCanvas("Side").nodes.find((n) => n.ref === "work")).toMatchObject({ x: card.x + card.w + 40, y: card.y });
+    expect(onCanvas("Main").nodes.map((n) => n.ref)).toEqual(["plain"]);
+  });
+
+  it("matches a worktree only on the machine it's on", () => {
+    const of = ticketOfTerm([{ path: "/wt/A-1/repo", name: "A-1", head: "", main: false, ticket: "A-1", node: "linux" }]);
+    expect(of(term("x", { cwd: "/wt/A-1/repo" }))).toBeUndefined();
+    expect(of(term("x", { cwd: "/wt/A-1/repo", node: "linux" }))).toBe("A-1");
+    expect(of(term("x", { cwd: "/wt/A-1/repository", node: "linux" }))).toBeUndefined();
+  });
+
+  it("links two cards once, on the same workspace only", () => {
+    syncTerms([term("a"), term("b")]);
+    const main = onCanvas("Main");
+    const [a, b] = main.nodes;
+    const e = addEdge(main.id, a.id, b.id);
+    expect(addEdge(main.id, b.id, a.id).id).toBe(e.id);
+    expect(() => addEdge(main.id, a.id, a.id)).toThrow();
+    const side = createCanvas("Side");
+    expect(() => addEdge(side.id, a.id, b.id)).toThrow(/this workspace/);
+    expect(onCanvas("Main").edges).toEqual([e]);
+    expect(removeEdge(e.id)).toBe(true);
+    expect(onCanvas("Main").edges).toEqual([]);
+  });
+
+  it("drops a line when one of its cards leaves the workspace", () => {
+    syncTerms([term("a"), term("b")]);
+    const main = onCanvas("Main");
+    const t = placeTicket(main.id, "ACME-1");
+    addEdge(main.id, main.nodes[0].id, t.id);
+    addEdge(main.id, main.nodes[1].id, t.id);
+    // a moves away, b closes
+    placeTerm(createCanvas("Side").id, "a");
+    syncTerms([term("a")]);
+    expect(onCanvas("Main").edges).toEqual([]);
+  });
+
+  it("sends a deleted workspace's tickets to the first one too", () => {
+    const side = createCanvas("Side");
+    placeTicket(side.id, "ACME-7");
+    deleteCanvas(side.id);
+    expect(onCanvas("Main").nodes.map((n) => n.ref)).toEqual(["ACME-7"]);
   });
 });
 

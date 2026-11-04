@@ -15,7 +15,7 @@
     "test": "pnpm -r test",
     "start": "pnpm --filter server start",
     "smoke": "node scripts/smoke.mjs",
-    "e2e:canvas": "node scripts/e2e-canvas.mjs",
+    "e2e:canvas": "node scripts/e2e-canvas.mjs && node scripts/e2e-canvas-tickets.mjs",
     "remote": "node scripts/remote-harness.mjs"
   },
   "devDependencies": {

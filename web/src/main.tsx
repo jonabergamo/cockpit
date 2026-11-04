@@ -53,7 +53,7 @@ const routes = [
   createRoute({ getParentRoute: () => root, path: "/tickets", component: TicketsScreen, validateSearch: (s): { key?: string; tab?: "worktrees" } => ({ key: str(s.key), tab: s.tab === "worktrees" ? "worktrees" : undefined }) }),
   moved("/worktrees", "/tickets", { tab: "worktrees" }),
   createRoute({ getParentRoute: () => root, path: "/code", component: CodePage, validateSearch: (s): { root?: string; file?: string; diff?: boolean } => ({ root: str(s.root), file: str(s.file), diff: s.diff === true || s.diff === "1" || undefined }) }),
-  createRoute({ getParentRoute: () => root, path: "/terminals", component: TerminalsPage, validateSearch: (s): { id?: string; resume?: string; pid?: number; view?: "tabs" | "canvas" } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined, view: s.view === "canvas" || s.view === "tabs" ? s.view : undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/terminals", component: TerminalsPage, validateSearch: (s): { id?: string; resume?: string; pid?: number; view?: "tabs" | "canvas"; ticket?: string } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined, view: s.view === "canvas" || s.view === "tabs" ? s.view : undefined, ticket: str(s.ticket) }) }),
   moved("/canvas", "/terminals", { view: "canvas" }),
   createRoute({ getParentRoute: () => root, path: "/memory", component: MemoryPage, validateSearch: (s): { path?: string } => ({ path: str(s.path) }) }),
   createRoute({ getParentRoute: () => root, path: "/usage", component: UsageScreen }),

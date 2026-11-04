@@ -1,7 +1,9 @@
 import { Hono } from "hono";
+import type { TermInfo, Worktree } from "@cockpit/shared";
 import * as canvas from "../canvas.ts";
 import { broadcast } from "../hub.ts";
 import { listTerms, onTermsChanged } from "../pty.ts";
+import { allWorktrees } from "../remote/work.ts";
 
 // every change is pushed, so other tabs and devices follow; by names the tab that made it, which already shows it
 const changed = (by?: string) => broadcast({ type: "canvas", by });
@@ -9,13 +11,25 @@ const fail = (e: unknown) => ({ error: e instanceof Error ? e.message : String(e
 type At = { x?: number; y?: number; by?: string };
 const at = (b: At) => (Number.isFinite(b.x) && Number.isFinite(b.y) ? { x: b.x!, y: b.y! } : undefined);
 
+const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
+
+// the ticket a terminal works on: the one whose worktree it sits in, on the same machine
+export const ticketOfTerm = (worktrees: Worktree[]) => (t: TermInfo) =>
+  worktrees.find((w) => !w.main && w.ticket && (w.node ?? "local") === (t.node ?? "local") && within(t.cwd, w.path))?.ticket;
+
 // The canvas follows the terminals from here on: new ones join it, closed ones leave it. It waits for the
 // terminals reopened after a reboot first, or it would drop their cards before they're back.
 export async function startCanvas(reopened: Promise<Map<string, string>> = Promise.resolve(new Map())) {
   canvas.rekeyTerms(await reopened);
-  const sync = () => canvas.syncTerms(listTerms()) && changed();
-  sync();
-  onTermsChanged(sync);
+  // one at a time: the worktrees are read on every change, and two going at once would place a terminal twice
+  let queue = Promise.resolve();
+  const sync = () =>
+    (queue = queue.then(async () => {
+      const worktrees = await allWorktrees(false).catch(() => []);
+      if (canvas.syncTerms(listTerms(), ticketOfTerm(worktrees))) changed();
+    }));
+  await sync();
+  onTermsChanged(() => void sync());
 }
 
 export const canvasRoutes = new Hono()
@@ -62,6 +76,17 @@ export const canvasRoutes = new Hono()
       return c.json(fail(e), 404);
     }
   })
+  .post("/:id/tickets", async (c) => {
+    const b = await c.req.json<At & { key: string }>();
+    if (!/^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(b.key?.trim() ?? "")) return c.json({ error: "That isn't a ticket key" }, 400);
+    try {
+      const n = canvas.placeTicket(c.req.param("id"), b.key, at(b));
+      changed(b.by);
+      return c.json(n);
+    } catch (e) {
+      return c.json(fail(e), 404);
+    }
+  })
   .post("/:id/notes", async (c) => {
     const b = await c.req.json<At & { text?: string }>();
     try {
@@ -71,6 +96,21 @@ export const canvasRoutes = new Hono()
     } catch (e) {
       return c.json(fail(e), 404);
     }
+  })
+  .post("/:id/edges", async (c) => {
+    const b = await c.req.json<{ source: string; target: string; by?: string }>();
+    try {
+      const e = canvas.addEdge(c.req.param("id"), b.source, b.target);
+      changed(b.by);
+      return c.json(e);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
+  .delete("/edges/:edge", (c) => {
+    if (!canvas.removeEdge(c.req.param("edge"))) return c.json({ error: "No such line" }, 404);
+    changed(c.req.query("by"));
+    return c.json({ ok: true });
   })
   .get("/nodes/:node/note", (c) => {
     const text = canvas.readNote(c.req.param("node"));

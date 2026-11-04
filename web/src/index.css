@@ -306,3 +306,56 @@ body {
   border-radius: 6px;
   overflow: hidden;
 }
+
+/* the dots on a card's sides to draw a line from, shown while the pointer is over the card */
+.cockpit-canvas .canvas-port {
+  width: 12px;
+  height: 12px;
+  background: var(--raised);
+  border: 2px solid var(--cobalt);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.cockpit-canvas .react-flow__node:hover .canvas-port,
+.cockpit-canvas .react-flow__node.selected .canvas-port,
+.cockpit-canvas.react-flow .connectable .canvas-port {
+  opacity: 1;
+}
+.cockpit-canvas .react-flow__connection-path {
+  stroke-dasharray: 6 4;
+}
+
+/* lines: a terminal working on a ticket in the accent colour, terminal to terminal dashed, notes dotted */
+.cockpit-canvas .canvas-link {
+  stroke: var(--faint);
+  stroke-width: 1.5;
+}
+.cockpit-canvas .canvas-link-work {
+  stroke: var(--cobalt);
+  stroke-width: 2;
+}
+.cockpit-canvas .canvas-link-talk {
+  stroke-dasharray: 7 5;
+}
+.cockpit-canvas .canvas-link-note {
+  stroke-dasharray: 2 5;
+}
+/* the terminal at one end is working: the line flows */
+.cockpit-canvas .canvas-link-live {
+  stroke-dasharray: 8 6;
+  animation: canvas-flow 0.9s linear infinite;
+}
+.cockpit-canvas .canvas-link-selected {
+  stroke: var(--ink);
+  stroke-width: 2.5;
+}
+@keyframes canvas-flow {
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit-canvas .canvas-link-live {
+    animation: none;
+  }
+}

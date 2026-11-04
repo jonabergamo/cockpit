@@ -24,9 +24,9 @@ export const useTerms = () => useQuery({ queryKey: ["terms"], queryFn: () => api
 
 export function TerminalsPage() {
   const agent = useAgentName();
-  const { id, resume, pid, view: asked } = useSearch({ from: "/terminals" });
-  // tabs or the canvas: the link can say, otherwise the one you used last
-  const view = asked ?? savedView();
+  const { id, resume, pid, view: asked, ticket } = useSearch({ from: "/terminals" });
+  // tabs or the canvas: the link can say (a ticket only shows on the canvas), otherwise the one you used last
+  const view = ticket ? "canvas" : (asked ?? savedView());
   const setView = (v: TermView) => {
     saveView(v);
     navigate({ to: "/terminals", search: { id, view: v } });
@@ -143,7 +143,7 @@ export function TerminalsPage() {
     return (
       <>
         <ErrorNote error={resumeErr} />
-        <TermCanvas focus={id} switcher={switcher} />
+        <TermCanvas focus={id} ticket={ticket} switcher={switcher} />
       </>
     );
 

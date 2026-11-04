@@ -131,12 +131,12 @@ export interface TermInfo {
 
 export type TermState = "running" | "disconnected" | "exited";
 
-// A workspace on the Terminals canvas: terminals and notes laid out where you put them. A terminal sits on one
-// workspace at a time; a note is a markdown file of the workspace's own.
+// A workspace on the Terminals canvas: terminals, tickets and notes laid out where you put them, with lines
+// linking them. A terminal or a ticket sits on one workspace at a time; a note is a markdown file of its own.
 export interface CanvasNode {
   id: string;
-  kind: "term" | "note";
-  // the terminal's id, or the note's file name
+  kind: "term" | "note" | "ticket";
+  // the terminal's id, the ticket's key, or the note's file name
   ref: string;
   x: number;
   y: number;
@@ -144,10 +144,18 @@ export interface CanvasNode {
   h: number;
 }
 
+// a line you drew between two cards of a workspace
+export interface CanvasEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
 export interface CanvasInfo {
   id: string;
   name: string;
   nodes: CanvasNode[];
+  edges: CanvasEdge[];
 }
 
 export interface Ticket {

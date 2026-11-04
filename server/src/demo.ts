@@ -485,8 +485,8 @@ export function mountDemo(app: Hono) {
       });
     }
     if (p === "/api/claude/file" && c.req.method === "GET") return c.json({ content: fileText[c.req.query("path") ?? ""] ?? "# Notes\n", mtime: now });
-    // anything else that writes or shells out is a no-op in the demo
-    if (c.req.method !== "GET" && !p.startsWith("/api/code/")) return c.json({ ok: true, id: "demo" });
+    // anything else that writes or shells out is a no-op in the demo; the canvas only writes to the demo's own data
+    if (c.req.method !== "GET" && !p.startsWith("/api/code/") && !p.startsWith("/api/canvas")) return c.json({ ok: true, id: "demo" });
     return next();
   });
 

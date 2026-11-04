@@ -1,18 +1,42 @@
-// The Terminals page as a canvas: workspaces of terminal and note cards you can drag, resize and zoom.
-// The layout lives on the server, so every device shows the same one; terminals stay live while you pan.
-import { Background, Controls, MiniMap, NodeResizer, ReactFlow, ReactFlowProvider, useNodesState, useReactFlow, useStoreApi, type Node, type NodeChange, type NodeProps, type Viewport } from "@xyflow/react";
+// The Terminals page as a canvas: workspaces of terminal, ticket and note cards you can drag, resize, zoom and link
+// with lines. The layout lives on the server, so every device shows the same one; terminals stay live while you pan.
+import {
+  Background,
+  ConnectionMode,
+  Controls,
+  MiniMap,
+  NodeResizer,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  useStoreApi,
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type Node,
+  type NodeChange,
+  type NodeProps,
+  type Viewport,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CanvasInfo, CanvasNode, TermInfo } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { saveView, saveWorkspace, savedWorkspace, tabId, useCanvases } from "../lib/canvas";
 import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
+import { useAppConfig, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
+import { ActionsCtx, useActions, type Actions, type LinkData, type LinkKind } from "./canvas/context";
+import { LinkEdge, Ports } from "./canvas/LinkEdge";
+import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
+import { TicketPicker } from "./canvas/TicketPicker";
 import { Terminal } from "./Terminal";
 import { Button, ErrorNote, inputClass, Markdown } from "./ui";
 
@@ -20,24 +44,17 @@ const TERM_W = 720;
 const TERM_H = 440;
 const NOTE_W = 320;
 const NOTE_H = 260;
+const TICKET_W = 340;
+const TICKET_H = 190;
 
 type TermData = { term: TermInfo; title: string };
 type NoteData = { fresh: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
-type CardNode = TermCardNode | NoteCardNode;
+type CardNode = TermCardNode | NoteCardNode | TicketCardNode;
+type LinkEdgeT = Edge<LinkData, "link">;
 
-interface Actions {
-  others: CanvasInfo[];
-  bringUp: (node: string) => void;
-  move: (term: string, to: string) => void;
-  close: (term: string) => void;
-  openTab: (term: string) => void;
-  removeNote: (node: string) => void;
-  fail: (e: unknown) => void;
-}
-const ActionsCtx = createContext<Actions | null>(null);
-const useActions = () => useContext(ActionsCtx)!;
+const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
 
 // xterm turns a mouse position into a cell from the distance to its screen's corner, in unscaled pixels. Under the
 // canvas zoom that distance is scaled too, so selection would land on the wrong cell; this scales it back. A drag
@@ -108,6 +125,7 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
   return (
     <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden ${selected ? "border-cobalt" : "border-line"}`} data-card={t.id}>
       <NodeResizer isVisible={selected} minWidth={360} minHeight={220} color="var(--cobalt)" />
+      <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
         <span className={`size-2 rounded-full shrink-0 ${dot}`} />
         {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted shrink-0">{t.node}</span>}
@@ -175,6 +193,7 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   return (
     <div className={`h-full w-full flex flex-col rounded-lg border bg-raised shadow-md overflow-hidden ${selected ? "border-cobalt" : "border-line"}`} data-note={id}>
       <NodeResizer isVisible={selected} minWidth={200} minHeight={140} color="var(--cobalt)" />
+      <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 border-b border-line text-[12px] shrink-0">
         <span className="truncate font-medium text-muted">{heading}</span>
         <div className="ml-auto flex items-center gap-0.5 nodrag shrink-0">
@@ -205,7 +224,11 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   );
 }
 
-const nodeTypes = { term: TermCard, note: NoteCard };
+const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard };
+const edgeTypes = { link: LinkEdge };
+
+// what a line between these two kinds of card stands for
+const kindOf = (a?: string, b?: string): LinkKind => (a === "note" || b === "note" ? "note" : a === "ticket" || b === "ticket" ? "work" : "talk");
 
 const VIEWPORT = (ws: string) => `cockpit.canvasViewport.${ws}`;
 const readViewport = (ws: string): Viewport | undefined => {
@@ -221,14 +244,17 @@ const writeViewport = (ws: string, v: Viewport) => {
   } catch {}
 };
 
-function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
+function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; switcher: ReactNode }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const flow = useReactFlow<CardNode>();
+  const flow = useReactFlow<CardNode, LinkEdgeT>();
   const canvases = useCanvases();
   const terms = useTerms();
   const live = useLiveSessions();
+  const worktrees = useWorktrees();
+  const tracker = !!useAppConfig().data?.tracker;
   const copyOnSelect = useCopyOnSelect();
+  const [picking, setPicking] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const [picked, setPicked] = useState(savedWorkspace);
   const list = canvases.data ?? [];
@@ -249,14 +275,47 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
     saveWorkspace(id);
   };
   const byId = useMemo(() => new Map((terms.data ?? []).map((t) => [t.id, t])), [terms.data]);
+  const sessionOf = (t: TermInfo) => live.find((x) => x.id === t.session || x.term === t.id || (!!t.pid && x.pid === t.pid && (t.node ?? "local") === (x.node ?? "local")));
   const titleOf = (t: TermInfo) => {
-    const s = live.find((x) => x.id === t.session || x.term === t.id || (!!t.pid && x.pid === t.pid && (t.node ?? "local") === (x.node ?? "local")));
+    const s = sessionOf(t);
     return s?.title || s?.name || t.title;
   };
+
+  // The lines: the ones you drew, and cockpit's own from each ticket to the terminals running in its worktree.
+  // A line to a terminal that's working right now moves.
+  const links = useMemo(() => {
+    if (!ws) return [];
+    const cards = new Map(ws.nodes.map((n) => [n.id, n]));
+    const shown = (id: string) => {
+      const n = cards.get(id);
+      return !!n && (n.kind !== "term" || byId.has(n.ref));
+    };
+    const busy = (id: string) => {
+      const n = cards.get(id);
+      const t = n?.kind === "term" ? byId.get(n.ref) : undefined;
+      return !!t && sessionOf(t)?.status === "busy";
+    };
+    const out: LinkEdgeT[] = ws.edges.filter((e) => shown(e.source) && shown(e.target)).map((e) => ({ id: e.id, source: e.source, target: e.target, type: "link", data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target) } }));
+    const drawn = new Set(out.flatMap((e) => [`${e.source}|${e.target}`, `${e.target}|${e.source}`]));
+    for (const tk of ws.nodes.filter((n) => n.kind === "ticket")) {
+      const wt = worktrees.data?.find((w) => w.ticket === tk.ref && !w.main);
+      if (!wt) continue;
+      for (const tn of ws.nodes) {
+        const t = tn.kind === "term" ? byId.get(tn.ref) : undefined;
+        if (!t || (t.node ?? "local") !== (wt.node ?? "local") || !within(t.cwd, wt.path) || drawn.has(`${tk.id}|${tn.id}`)) continue;
+        out.push({ id: `auto-${tk.id}-${tn.id}`, source: tk.id, target: tn.id, type: "link", deletable: false, data: { kind: "work", auto: true, live: busy(tn.id) } });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws, byId, live, worktrees.data]);
+  const [edges, setEdges, applyEdgeChanges] = useEdgesState<LinkEdgeT>([]);
+  useEffect(() => setEdges((prev) => links.map((e) => ({ ...e, selected: prev.find((p) => p.id === e.id)?.selected }))), [links, setEdges]);
 
   // what the server has, with the cards in hand left where they are
   useEffect(() => {
     if (!ws) return;
+    const linked = (id: string) => links.filter((e) => (e.source === id || e.target === id) && e.data?.kind === "work").length;
     setNodes((prev) => {
       const old = new Map(prev.map((n) => [n.id, n]));
       const out: CardNode[] = [];
@@ -268,6 +327,10 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
           out.push({ ...base, type: "note", data: { fresh: n.id === fresh } });
           continue;
         }
+        if (n.kind === "ticket") {
+          out.push({ ...base, type: "ticket", data: { key: n.ref, terms: linked(n.id) } });
+          continue;
+        }
         // its terminal has closed, or its machine hasn't listed it yet
         const t = byId.get(n.ref);
         if (t) out.push({ ...base, type: "term", data: { term: t, title: titleOf(t) } });
@@ -275,7 +338,7 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
       return out;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, byId, live, fresh, setNodes]);
+  }, [ws, byId, live, fresh, links, setNodes]);
 
   // each workspace opens where you left it, or fitted the first time
   const shownWs = useRef<string>(undefined);
@@ -300,6 +363,27 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
     setTimeout(() => flow.setCenter(n.position.x + (n.width ?? TERM_W) / 2, n.position.y + (n.height ?? TERM_H) / 2, { zoom: 1, duration: 250 }), 30);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, list, ws, nodes, flow]);
+
+  // "Open on canvas" from a ticket: its card, put on this workspace if it isn't on one yet, and brought into view
+  const ticketDone = useRef<string>(undefined);
+  const ticketAsked = useRef<string>(undefined);
+  useEffect(() => {
+    if (!ticket || ticketDone.current === ticket || !list.length || !ws) return;
+    const home = list.find((c) => c.nodes.some((n) => n.kind === "ticket" && n.ref === ticket));
+    if (!home) {
+      if (ticketAsked.current === ticket) return;
+      ticketAsked.current = ticket;
+      guard(api.post(`/canvas/${ws.id}/tickets`, { key: ticket, ...centre(TICKET_W, TICKET_H), by: tabId }).then(refresh));
+      return;
+    }
+    if (home.id !== ws.id) return pick(home.id);
+    const n = nodes.find((x) => x.type === "ticket" && x.data.key === ticket);
+    if (!n) return;
+    ticketDone.current = ticket;
+    shownWs.current = home.id;
+    setTimeout(() => flow.setCenter(n.position.x + (n.width ?? TICKET_W) / 2, n.position.y + (n.height ?? TICKET_H) / 2, { zoom: Math.max(flow.getZoom(), 0.8), duration: 250 }), 30);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket, list, ws, nodes, flow]);
 
   // once a drag or resize ends, the new place goes to the server and to the cached copy at once
   const commit = (ids: string[]) =>
@@ -362,6 +446,24 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
         show(n);
       }),
     );
+  const addTicket = (key: string) => {
+    setPicking(false);
+    if (!ws) return;
+    const there = ws.nodes.find((n) => n.kind === "ticket" && n.ref === key);
+    if (there) return show(there);
+    guard(
+      api.post<CanvasNode>(`/canvas/${ws.id}/tickets`, { key, ...centre(TICKET_W, TICKET_H), by: tabId }).then(async (n) => {
+        await refresh();
+        show(n);
+      }),
+    );
+  };
+  // a line drawn from one card's dot to another's
+  const connect = (c: Connection) => {
+    if (!ws || !c.source || !c.target || c.source === c.target) return;
+    guard(api.post(`/canvas/${ws.id}/edges`, { source: c.source, target: c.target, by: tabId }).then(refresh));
+  };
+  const onEdgesChange = (changes: EdgeChange<LinkEdgeT>[]) => applyEdgeChanges(changes.filter((c) => c.type !== "remove"));
   const newWorkspace = () =>
     guard(
       api.post<CanvasInfo>("/canvas", { name: `Workspace ${list.length + 1}`, by: tabId }).then(async (c) => {
@@ -400,6 +502,14 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
       if (!confirm("Delete this note?")) return;
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, nodes: c.nodes.filter((n) => n.id !== node) })));
       guard(api.del(`/canvas/nodes/${node}?by=${tabId}`));
+    },
+    removeCard: (node) => {
+      qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, nodes: c.nodes.filter((n) => n.id !== node), edges: c.edges.filter((e) => e.source !== node && e.target !== node) })));
+      guard(api.del(`/canvas/nodes/${node}?by=${tabId}`));
+    },
+    removeEdge: (edge) => {
+      qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.filter((e) => e.id !== edge) })));
+      guard(api.del(`/canvas/edges/${edge}?by=${tabId}`));
     },
     fail: setErr,
   };
@@ -443,6 +553,11 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
           </button>
         </div>
         <div className="flex items-center gap-1 px-2 h-full border-l border-line shrink-0">
+          {tracker && (
+            <Button size="sm" variant="ghost" onClick={() => setPicking(true)} title="One of your tickets on this workspace, to start work on and link terminals to">
+              + Ticket
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={newTerminal} title="A new terminal on this workspace">
             + Terminal
           </Button>
@@ -464,6 +579,12 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
             nodes={nodes}
             onNodesChange={onNodesChange}
             nodeTypes={nodeTypes}
+            edges={edges}
+            onEdgesChange={onEdgesChange}
+            edgeTypes={edgeTypes}
+            onConnect={connect}
+            connectionMode={ConnectionMode.Loose}
+            connectionLineStyle={{ stroke: "var(--cobalt)", strokeWidth: 2 }}
             minZoom={0.2}
             maxZoom={2}
             onlyRenderVisibleElements
@@ -476,9 +597,10 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
           >
             <Background gap={24} color="var(--line)" />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
+            <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "ticket" ? "var(--cobalt)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
           </ReactFlow>
         </ActionsCtx.Provider>
+        <TicketPicker open={picking} onClose={() => setPicking(false)} onPick={addTicket} placed={new Set(list.flatMap((c) => c.nodes.filter((n) => n.kind === "ticket").map((n) => n.ref)))} />
         {ws && !nodes.length && !canvases.isLoading && (
           <div className="absolute inset-0 grid place-items-center pointer-events-none">
             <div className="text-center text-muted text-[13px] pointer-events-auto">
@@ -499,10 +621,10 @@ function Board({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
   );
 }
 
-export function TermCanvas({ focus, switcher }: { focus?: string; switcher: ReactNode }) {
+export function TermCanvas({ focus, ticket, switcher }: { focus?: string; ticket?: string; switcher: ReactNode }) {
   return (
     <ReactFlowProvider>
-      <Board focus={focus} switcher={switcher} />
+      <Board focus={focus} ticket={ticket} switcher={switcher} />
     </ReactFlowProvider>
   );
 }

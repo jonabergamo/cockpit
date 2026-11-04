@@ -340,5 +340,7 @@ if (!demo) {
   if (config.role !== "node") startCanvas(reopened).catch((e) => console.error("canvas", e));
   if (config.role === "node") startNodeServer().catch((e) => console.error("node: couldn't start", e));
 }
+// the demo's canvas still follows its terminals, so screenshots and the canvas flows have something to show
+else startCanvas().catch((e) => console.error("canvas", e));
 
 export type Api = typeof api;

@@ -1,69 +1,22 @@
-// End to end flows for the Terminals canvas. Starts cockpit on a spare port with its own data folder and its own
-// tmux server (so your terminals are never touched), opens real shells and drives the canvas in a browser.
+// End to end flows for the Terminals canvas: real shells on a cockpit of the script's own, driven in a browser.
 // Needs tmux and a build: `pnpm build && pnpm e2e:canvas`. PLAYWRIGHT_CHROMIUM points at a browser of your own.
-import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
-import { chromium } from "playwright";
+import { expect, openBrowser, startCockpit, steps, until } from "./e2e-lib.mjs";
 
-const port = Number(process.env.E2E_PORT ?? 8797);
-const base = `http://127.0.0.1:${port}`;
-const data = mkdtempSync(join(tmpdir(), "cockpit-e2e-canvas-"));
-const socket = `cockpit-e2e-${process.pid}`;
 const WORD = "QWERTYUIOPASDFGHJKLZXCVBNM";
-
-const server = spawn("pnpm", ["--filter", "server", "start"], {
-  env: { ...process.env, COCKPIT_ROLE: "all", COCKPIT_TMUX_SOCKET: socket, COCKPIT_CONFIG: new URL("../config.example.toml", import.meta.url).pathname, PORT: String(port), COCKPIT_DATA: data },
-  stdio: "ignore",
-  detached: true,
-});
-
-const api = async (method, path, body) => {
-  const res = await fetch(base + "/api" + path, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
-  return res.json();
-};
-const until = async (what, fn, ms = 10_000) => {
-  const end = Date.now() + ms;
-  for (;;) {
-    const v = await fn().catch(() => undefined);
-    if (v) return v;
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 150));
-  }
-};
-const canvasOf = async (term) => (await api("GET", "/canvas")).find((c) => c.nodes.some((n) => n.kind === "term" && n.ref === term));
-const shell = (title) => api("POST", "/code/terms", { cwd: homedir(), title });
-
-const results = [];
-const step = async (name, fn) => {
-  try {
-    await fn();
-    results.push(`ok   ${name}`);
-  } catch (e) {
-    results.push(`FAIL ${name}: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
-    // E2E_SHOTS=<folder> keeps a screenshot of each failed step
-    if (process.env.E2E_SHOTS) await globalThis.page?.screenshot({ path: join(process.env.E2E_SHOTS, `${results.length}.png`) }).catch(() => {});
-  }
-};
-const expect = (cond, msg) => {
-  if (!cond) throw new Error(msg);
-};
+const cockpit = await startCockpit({ port: Number(process.env.E2E_PORT ?? 8797), name: "canvas" });
+const { base, api, shell } = cockpit;
+const canvasOf = (term) => cockpit.canvasOf("term", term);
+let page;
+const { step, results, finish } = steps(() => page);
 
 let browser;
 const errors = [];
 try {
-  await until("the server", async () => (await fetch(`${base}/api/config`)).ok, 30_000);
   const a = await shell("alpha");
   const b = await shell("bravo");
   await until("both shells on the canvas", async () => (await canvasOf(a.id)) && (await canvasOf(b.id)));
 
-  browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
-  const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, permissions: ["clipboard-read", "clipboard-write"] });
-  const page = await ctx.newPage();
-  globalThis.page = page;
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("dialog", (d) => d.accept());
+  ({ browser, page } = await openBrowser(errors));
   const card = (id) => page.locator(`.react-flow__node:has([data-card="${id}"])`);
 
   await step("terminals opened elsewhere show up on the first workspace", async () => {
@@ -194,12 +147,6 @@ try {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);
 } finally {
   await browser?.close();
-  try {
-    process.kill(-server.pid);
-  } catch {}
-  spawnSync("tmux", ["-L", socket, "kill-server"]);
-  rmSync(data, { recursive: true, force: true });
+  cockpit.stop();
 }
-
-console.log(results.join("\n"));
-if (results.some((r) => r.startsWith("FAIL"))) process.exit(1);
+finish();

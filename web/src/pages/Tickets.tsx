@@ -360,6 +360,11 @@ function Row({ t, prs, wt, highlight }: { t: Ticket; prs: PullRequest[]; wt?: Wo
               {resume.isPending ? "Opening" : "Resume"}
             </Button>
           )}
+          {!t.finished && (
+            <Button size="sm" variant="ghost" onClick={() => navigate({ to: "/terminals", search: { ticket: t.key, view: "canvas" } })} title="Its card on the Terminals canvas, with the terminals working on it linked to it">
+              Canvas
+            </Button>
+          )}
           {!wt && !t.finished && (
             <Button size="sm" variant="ghost" onClick={() => newTask.open({ ticket: t.key })} title={`Queue it: cockpit makes the worktree and starts ${agent} on it, optionally a few attempts at once`}>
               Task
