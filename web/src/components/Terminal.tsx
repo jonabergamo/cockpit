@@ -35,6 +35,9 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm>(null);
   const tmux = useRef(false);
+  // the history replayed on attach still holds every OSC 52 claude sent; running those again would overwrite the
+  // clipboard each time you switch to this terminal, so only live output gets to copy
+  const replaying = useRef(false);
   const finder = useRef<SearchAddon>(null);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
@@ -65,7 +68,7 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
     t.loadAddon(fit);
     t.loadAddon(new WebLinksAddon(openLink));
     // OSC 52, how claude copies its own mouse selection; writes only, programs don't get to read your clipboard
-    t.loadAddon(new ClipboardAddon(undefined, { readText: () => "", writeText: (_, text) => copy(text) }));
+    t.loadAddon(new ClipboardAddon(undefined, { readText: () => "", writeText: (_, text) => (replaying.current ? Promise.resolve() : copy(text)) }));
     const search = new SearchAddon();
     t.loadAddon(search);
     finder.current = search;
@@ -200,9 +203,15 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
 
   useLive(
     (ev) => {
-      if (ev.type === "pty.data" && ev.id === id) term.current?.write(ev.data);
+      if (ev.type === "pty.data" && ev.id === id) {
+        if (!replaying.current) term.current?.write(ev.data);
+        else term.current?.write(ev.data, () => (replaying.current = false));
+      }
       // the whole scrollback follows, so the screen starts clean instead of showing it twice
-      if (ev.type === "pty.reset" && ev.id === id) term.current?.reset();
+      if (ev.type === "pty.reset" && ev.id === id) {
+        replaying.current = true;
+        term.current?.reset();
+      }
       if (ev.type === "pty.mode" && ev.id === id) {
         tmux.current = !!ev.tmux;
         // tmux (or the full-screen app inside it) holds the history, so xterm's own scrollback and bar would only scroll nothing
