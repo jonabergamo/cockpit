@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TermInfo } from "@cockpit/shared";
 import { paths } from "../src/config.ts";
 import { db } from "../src/db.ts";
-import { addNote, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, readNote, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, writeNote } from "../src/canvas.ts";
+import { addNote, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, readNote, rekeyTerms, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, writeNote } from "../src/canvas.ts";
 
 const term = (id: string, more: Partial<TermInfo> = {}): TermInfo => ({ id, title: id, cwd: "/tmp", command: "bash", createdAt: 0, node: "local", ...more });
 const onCanvas = (name: string) => listCanvases().find((c) => c.name === name)!;
@@ -83,6 +83,18 @@ describe("terminals", () => {
     expect(onCanvas("Main").nodes.map((n) => n.ref).sort()).toEqual(["a", "other"]);
     syncTerms([term("other", { node: "linux" })]);
     expect(onCanvas("Main").nodes.map((n) => n.ref)).toEqual(["other"]);
+  });
+});
+
+describe("after a reboot", () => {
+  it("hands a card to the terminal reopened in its place, where it was", () => {
+    syncTerms([term("old"), term("shell")]);
+    const main = onCanvas("Main");
+    const card = main.nodes.find((n) => n.ref === "old")!;
+    saveLayout(main.id, [{ id: card.id, x: 1234, y: 567, w: 800, h: 500 }]);
+    rekeyTerms(new Map([["old", "new"]]));
+    expect(syncTerms([term("new"), term("shell")])).toBe(false);
+    expect(onCanvas("Main").nodes.find((n) => n.id === card.id)).toMatchObject({ ref: "new", x: 1234, y: 567, w: 800, h: 500 });
   });
 });
 

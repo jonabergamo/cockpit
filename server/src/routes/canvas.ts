@@ -9,8 +9,10 @@ const fail = (e: unknown) => ({ error: e instanceof Error ? e.message : String(e
 type At = { x?: number; y?: number; by?: string };
 const at = (b: At) => (Number.isFinite(b.x) && Number.isFinite(b.y) ? { x: b.x!, y: b.y! } : undefined);
 
-// the canvas follows the terminals from here on: new ones join it, closed ones leave it
-export function startCanvas() {
+// The canvas follows the terminals from here on: new ones join it, closed ones leave it. It waits for the
+// terminals reopened after a reboot first, or it would drop their cards before they're back.
+export async function startCanvas(reopened: Promise<Map<string, string>> = Promise.resolve(new Map())) {
+  canvas.rekeyTerms(await reopened);
   const sync = () => canvas.syncTerms(listTerms()) && changed();
   sync();
   onTermsChanged(sync);

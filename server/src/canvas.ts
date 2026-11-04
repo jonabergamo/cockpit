@@ -169,6 +169,14 @@ export function saveLayout(canvas: string, nodes: Pick<CanvasNode, "id" | "x" | 
   })();
 }
 
+// After a reboot each terminal comes back with a new id; its card follows it, so it stays where you left it
+export function rekeyTerms(ids: Map<string, string>) {
+  const move = db.prepare("update canvas_nodes set ref = ? where kind = 'term' and ref = ?");
+  db.transaction(() => {
+    for (const [from, to] of ids) move.run(to, from);
+  })();
+}
+
 // Keeps the canvas in step with the terminals: each new one joins the first workspace (beside the one it was
 // split from), and the cards of closed ones go. A node's terminals are only dropped while that node is listing
 // some: until its link is up its list is missing, and those still run.

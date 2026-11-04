@@ -38,18 +38,22 @@ export function startHostServices() {
   startRecordings();
   const restored = restoreTerms();
   if (restored) console.log(`reattached ${restored} terminals`);
-  void reopenLost().catch((e) => console.error("reopen terminals", e));
+  // the new id of each terminal reopened after a reboot, by its old one, so the canvas can keep its card in place
+  return reopenLost().catch((e) => {
+    console.error("reopen terminals", e);
+    return new Map<string, string>();
+  });
 }
 
 // After a reboot: the sessions that were open come back resumed in their folders, and the plain shells open again.
 // Other commands (a dev server, say) aren't started again unasked.
 async function reopenLost() {
   const lost = lostTerms();
-  if (!lost.length) return;
+  const ids = new Map<string, string>();
+  if (!lost.length) return ids;
   // a Codex session resumes with codex, which it can only tell once it has read Codex's files
   await scanCodexTerminals().catch(() => {});
   const shell = process.env.SHELL || "bash";
-  const ids = new Map<string, string>();
   for (const t of lost) {
     if (!existsSync(t.cwd)) continue;
     const launch = t.session ? resumeLaunch(t.session) : t.command === shell ? {} : undefined;
@@ -59,6 +63,7 @@ async function reopenLost() {
     ids.set(t.id, spawnTerm({ cwd: t.cwd, title: t.title, ...launch, session: t.session, parent }).id);
   }
   if (ids.size) console.log(`reopened ${ids.size} terminals from before the reboot`);
+  return ids;
 }
 
 // what acts on its own and has to keep going while nobody's looking

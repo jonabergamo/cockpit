@@ -334,10 +334,10 @@ startPlugins()
 // all: everything here. node: what the machine does by itself, for a hub to show. hub: the screens and what's
 // about you, with its nodes doing the work (automations move to the nodes; until then a hub doesn't run them)
 if (!demo) {
-  startHostServices();
+  const reopened = startHostServices();
   if (config.role !== "hub") startAutomations();
   if (config.role !== "node") startHubServices();
-  if (config.role !== "node") startCanvas();
+  if (config.role !== "node") startCanvas(reopened).catch((e) => console.error("canvas", e));
   if (config.role === "node") startNodeServer().catch((e) => console.error("node: couldn't start", e));
 }
 
