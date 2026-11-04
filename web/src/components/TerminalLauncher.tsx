@@ -62,18 +62,18 @@ export function TerminalLauncher() {
   const start = async (cwd: string, m: LaunchMode = mode) => {
     setBusy(true);
     setErr(undefined);
+    // opened from the canvas: the new terminal goes onto it rather than to its tab
+    const done = (id: string) => {
+      const then = launcher.get().onLaunched;
+      launcher.close();
+      return then ? then(id) : navigate({ to: "/terminals", search: { id } });
+    };
     try {
-      if (node !== "local") {
-        const id = await launch(qc, cwd, m, cwd.split("/").filter(Boolean).pop() ?? cwd, node);
-        launcher.close();
-        return navigate({ to: "/terminals", search: { id } });
-      }
+      if (node !== "local") return done(await launch(qc, cwd, m, cwd.split("/").filter(Boolean).pop() ?? cwd, node));
       // anything outside the known roots gets saved first, which is what lets the server open it
       if (!all.includes(cwd)) await api.post("/code/folders", { path: cwd });
       await qc.invalidateQueries({ queryKey: ["roots"] });
-      const id = await launch(qc, cwd, m, label(cwd));
-      launcher.close();
-      navigate({ to: "/terminals", search: { id } });
+      done(await launch(qc, cwd, m, label(cwd)));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

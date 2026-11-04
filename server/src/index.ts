@@ -25,6 +25,7 @@ import type { UpdateStatus } from "@cockpit/shared";
 import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
 import { tasks } from "./routes/tasks.ts";
 import { agents } from "./routes/agents.ts";
+import { canvasRoutes, startCanvas } from "./routes/canvas.ts";
 import { claude } from "./routes/claude.ts";
 import { code } from "./routes/code.ts";
 import { report } from "./routes/report.ts";
@@ -271,6 +272,7 @@ const api = new Hono()
   .route("/agents", agents)
   .route("/report", report)
   .route("/runs", runs)
+  .route("/canvas", canvasRoutes)
   .route("/", work);
 
 app.route("/api", api);
@@ -335,6 +337,7 @@ if (!demo) {
   startHostServices();
   if (config.role !== "hub") startAutomations();
   if (config.role !== "node") startHubServices();
+  if (config.role !== "node") startCanvas();
   if (config.role === "node") startNodeServer().catch((e) => console.error("node: couldn't start", e));
 }
 

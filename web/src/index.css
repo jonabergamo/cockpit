@@ -287,3 +287,22 @@ body {
     transform: none;
   }
 }
+
+/* the canvas on the Terminals page, in the active theme's colours */
+.cockpit-canvas {
+  --xy-background-color: var(--ground);
+  --xy-controls-button-background-color: var(--raised);
+  --xy-controls-button-background-color-hover: var(--panel);
+  --xy-controls-button-color: var(--ink);
+  --xy-controls-button-color-hover: var(--ink);
+  --xy-controls-button-border-color: var(--line);
+  --xy-controls-box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  --xy-minimap-background-color: var(--panel);
+  --xy-selection-background-color: color-mix(in srgb, var(--cobalt) 12%, transparent);
+  --xy-selection-border: 1px dotted var(--cobalt);
+}
+.cockpit-canvas .react-flow__minimap {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}

@@ -26,7 +26,8 @@ const write = (k: string, v: string) => {
 // The launcher is opened from the Terminals page and from Cmd+K, so its state lives outside both.
 // node: the machine it opens on, "local" for this one; each time it opens it starts on auto, the first connected
 // node, so picking this machine once for something rare doesn't stick
-let state = { open: false, last: read(LAST), mode: (MODES.find((m) => m === read(MODE)) ?? "claude") as LaunchMode, node: "auto" };
+// onLaunched: who opened it takes the new terminal from there (the canvas places it), instead of going to its tab
+let state: { open: boolean; last?: string; mode: LaunchMode; node: string; onLaunched?: (id: string) => void } = { open: false, last: read(LAST), mode: (MODES.find((m) => m === read(MODE)) ?? "claude") as LaunchMode, node: "auto" };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<typeof state>) => {
   state = { ...state, ...patch };
@@ -40,8 +41,8 @@ export const launcher = {
     return () => void listeners.delete(l);
   },
   // a mode given starts there instead of on the last one used, like the Terminals page's + always opening on Claude
-  open: (mode?: LaunchMode) => set(mode ? { open: true, mode, node: "auto" } : { open: true, node: "auto" }),
-  close: () => set({ open: false }),
+  open: (mode?: LaunchMode, onLaunched?: (id: string) => void) => set(mode ? { open: true, mode, node: "auto", onLaunched } : { open: true, node: "auto", onLaunched }),
+  close: () => set({ open: false, onLaunched: undefined }),
   setMode(mode: LaunchMode) {
     write(MODE, mode);
     set({ mode });

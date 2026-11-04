@@ -16,13 +16,22 @@ import { shortPath } from "../lib/format";
 export type { TermInfo } from "@cockpit/shared";
 import type { TermInfo } from "@cockpit/shared";
 import { useAgentName } from "../lib/agent";
+import { saveView, savedView, type TermView } from "../lib/canvas";
+import { TermCanvas } from "../components/TermCanvas";
 
 // kept current by the `terms` push, see main.tsx
 export const useTerms = () => useQuery({ queryKey: ["terms"], queryFn: () => api.get<TermInfo[]>("/code/terms") });
 
 export function TerminalsPage() {
   const agent = useAgentName();
-  const { id, resume, pid } = useSearch({ from: "/terminals" });
+  const { id, resume, pid, view: asked } = useSearch({ from: "/terminals" });
+  // tabs or the canvas: the link can say, otherwise the one you used last
+  const view = asked ?? savedView();
+  const setView = (v: TermView) => {
+    saveView(v);
+    navigate({ to: "/terminals", search: { id, view: v } });
+  };
+  const switcher = <ViewSwitch view={view} onChange={setView} />;
   const navigate = useNavigate();
   const openSession = useOpenSession();
   const [resumeErr, setResumeErr] = useState<unknown>();
@@ -130,10 +139,19 @@ export function TerminalsPage() {
     if (tid === active) navigate({ to: "/terminals", search: { id: undefined } });
   };
 
+  if (view === "canvas")
+    return (
+      <>
+        <ErrorNote error={resumeErr} />
+        <TermCanvas focus={id} switcher={switcher} />
+      </>
+    );
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center h-11 border-b border-line bg-panel shrink-0">
-        <div className="flex items-center pl-2 pr-1 h-full border-r border-line shrink-0">
+        <div className="flex items-center gap-1 pl-2 pr-1 h-full border-r border-line shrink-0">
+          {switcher}
           <button
             onClick={() => launcher.open("claude")}
             className="size-8 grid place-items-center rounded-md text-muted hover:text-ink hover:bg-ground"
@@ -203,6 +221,18 @@ export function TerminalsPage() {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ViewSwitch({ view, onChange }: { view: TermView; onChange: (v: TermView) => void }) {
+  return (
+    <div className="flex items-center h-7 rounded-md bg-ground p-0.5 text-[12px]" role="radiogroup" aria-label="Terminals view">
+      {(["tabs", "canvas"] as const).map((v) => (
+        <button key={v} type="button" role="radio" aria-checked={view === v} onClick={() => onChange(v)} className={`h-6 px-2 rounded capitalize ${view === v ? "bg-raised text-ink shadow-sm" : "text-muted hover:text-ink"}`} title={v === "canvas" ? "Every terminal on a canvas you can arrange, with notes and workspaces" : "One terminal at a time, with its changes beside it"}>
+          {v}
+        </button>
+      ))}
     </div>
   );
 }

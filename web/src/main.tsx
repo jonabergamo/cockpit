@@ -7,7 +7,6 @@ import { EmbedTerminal } from "./components/EmbedTerminal";
 import { PluginFrame } from "./components/PluginFrame";
 import { BoardPage } from "./pages/Board";
 import { TaskGroupPage } from "./pages/Tasks";
-import { CanvasPage } from "./pages/Canvas";
 import { CodePage } from "./pages/Code";
 import { MemoryPage } from "./pages/Memory";
 import { ReviewsPage } from "./pages/Reviews";
@@ -19,6 +18,7 @@ import { TodayPage } from "./pages/Today";
 import { WorkflowPage } from "./pages/Workflows";
 import { ReportScreen, SessionsScreen, TicketsScreen, UsageScreen, WeekScreen } from "./pages/Hubs";
 import { listen } from "./lib/live";
+import { tabId } from "./lib/canvas";
 import { show } from "./lib/notifications";
 import { installPluginHost } from "./lib/pluginHost";
 import { watchForUpdates } from "./lib/update";
@@ -53,8 +53,8 @@ const routes = [
   createRoute({ getParentRoute: () => root, path: "/tickets", component: TicketsScreen, validateSearch: (s): { key?: string; tab?: "worktrees" } => ({ key: str(s.key), tab: s.tab === "worktrees" ? "worktrees" : undefined }) }),
   moved("/worktrees", "/tickets", { tab: "worktrees" }),
   createRoute({ getParentRoute: () => root, path: "/code", component: CodePage, validateSearch: (s): { root?: string; file?: string; diff?: boolean } => ({ root: str(s.root), file: str(s.file), diff: s.diff === true || s.diff === "1" || undefined }) }),
-  createRoute({ getParentRoute: () => root, path: "/terminals", component: TerminalsPage, validateSearch: (s): { id?: string; resume?: string; pid?: number } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined }) }),
-  createRoute({ getParentRoute: () => root, path: "/canvas", component: CanvasPage }),
+  createRoute({ getParentRoute: () => root, path: "/terminals", component: TerminalsPage, validateSearch: (s): { id?: string; resume?: string; pid?: number; view?: "tabs" | "canvas" } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined, view: s.view === "canvas" || s.view === "tabs" ? s.view : undefined }) }),
+  moved("/canvas", "/terminals", { view: "canvas" }),
   createRoute({ getParentRoute: () => root, path: "/memory", component: MemoryPage, validateSearch: (s): { path?: string } => ({ path: str(s.path) }) }),
   createRoute({ getParentRoute: () => root, path: "/usage", component: UsageScreen }),
   createRoute({ getParentRoute: () => root, path: "/weekly", component: WeekScreen, validateSearch: (s): { week?: string } => ({ week: str(s.week) }) }),
@@ -88,6 +88,8 @@ watchForUpdates();
 
 listen((ev) => {
   if (ev.type === "terms") queryClient.setQueryData(["terms"], ev.terms);
+  // a change this tab made is already on screen
+  if (ev.type === "canvas" && ev.by !== tabId) queryClient.invalidateQueries({ queryKey: ["canvas"] });
   if (ev.type === "badges") queryClient.setQueryData(["badges"], ev.badges);
   if (ev.type === "plugins") queryClient.invalidateQueries({ queryKey: ["config"] }), queryClient.invalidateQueries({ queryKey: ["plugins"] });
   // whether each machine can be reached, for every screen that picks one (the terminal launcher, say)

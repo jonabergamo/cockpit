@@ -131,6 +131,25 @@ export interface TermInfo {
 
 export type TermState = "running" | "disconnected" | "exited";
 
+// A workspace on the Terminals canvas: terminals and notes laid out where you put them. A terminal sits on one
+// workspace at a time; a note is a markdown file of the workspace's own.
+export interface CanvasNode {
+  id: string;
+  kind: "term" | "note";
+  // the terminal's id, or the note's file name
+  ref: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface CanvasInfo {
+  id: string;
+  name: string;
+  nodes: CanvasNode[];
+}
+
 export interface Ticket {
   key: string;
   summary: string;
@@ -291,6 +310,8 @@ export type ServerEvent =
   | { type: "pty.exit"; id: string; code: number }
   | { type: "pty.mode"; id: string; tmux: boolean }
   | { type: "terms"; terms: TermInfo[] }
+  // a canvas workspace changed; by is the browser tab that changed it, which already shows it
+  | { type: "canvas"; by?: string }
   | { type: "notify"; id: number; title: string; body: string; link: string }
   // the plugin list, screens or themes changed
   | { type: "plugins" }

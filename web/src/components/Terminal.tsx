@@ -31,7 +31,8 @@ function xtermTheme(t: Theme) {
 // a point smaller on a phone, where every column counts
 const termSize = () => (window.innerWidth < 640 ? Math.min(12, fontStore.get().codeSize) : fontStore.get().codeSize);
 
-export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) => void }) {
+// autoFocus off for a terminal that sits among others, like the canvas's: it takes the keys once you click it
+export function Terminal({ id, onExit, autoFocus = true }: { id: string; onExit?: (code: number) => void; autoFocus?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm>(null);
   const tmux = useRef(false);
@@ -175,7 +176,7 @@ export function Terminal({ id, onExit }: { id: string; onExit?: (code: number) =
     });
     keep(`pty:${id}`, { type: "pty.attach", id });
     setTimeout(resize, 50);
-    t.focus();
+    if (autoFocus) t.focus();
 
     // open terminals switch with the app theme and the fonts from Settings
     const unsub = themeStore.subscribe(() => (t.options.theme = xtermTheme(themeStore.get().active)));
