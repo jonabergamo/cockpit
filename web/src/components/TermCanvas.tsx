@@ -580,10 +580,21 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   // each workspace opens where you left it, or fitted the first time
   const shownWs = useRef<string>(undefined);
   useEffect(() => {
-    if (!ws || shownWs.current === ws.id || (focus && ws.nodes.some((n) => n.ref === focus))) return;
+    // a link to one terminal brings that one up instead, the first time only; after that its workspace opens where you left it
+    if (!ws || shownWs.current === ws.id || (focus && focused.current !== focus && ws.nodes.some((n) => n.ref === focus))) return;
     shownWs.current = ws.id;
     const saved = readViewport(ws.id);
-    setTimeout(() => (saved ? flow.setViewport(saved) : flow.fitView({ maxZoom: 1, padding: 0.1 })), 30);
+    // where you left it, unless none of its cards would be on screen there (it was empty then, or they moved away)
+    const r = wrap.current?.getBoundingClientRect();
+    const seen =
+      saved &&
+      r &&
+      ws.nodes.some((n) => {
+        const left = -saved.x / saved.zoom;
+        const top = -saved.y / saved.zoom;
+        return n.x < left + r.width / saved.zoom && n.x + n.w > left && n.y < top + r.height / saved.zoom && n.y + n.h > top;
+      });
+    setTimeout(() => (saved && (seen || !ws.nodes.length) ? flow.setViewport(saved) : flow.fitView({ maxZoom: 1, padding: 0.1 })), 30);
   }, [ws, focus, flow]);
 
   // a link to one terminal (a session card, a notification) opens its workspace and brings it to 100%

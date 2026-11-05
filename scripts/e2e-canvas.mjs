@@ -405,6 +405,42 @@ try {
     await page.locator(".canvas-map").waitFor({ state: "attached" });
   });
 
+  await step("each workspace opens where you left it, also after a link to one terminal", async () => {
+    const charlie = globalThis.charlie;
+    const side = await api("POST", "/canvas", { name: "Side" });
+    await api("POST", `/canvas/${side.id}/notes`, { x: 0, y: 0, text: "# Side" });
+    // opened the way a session card at the top opens it: on one terminal, which stays in the address
+    await page.goto(`${base}/terminals?view=canvas&id=${charlie}`);
+    await page.waitForSelector(`[data-card="${charlie}"] .xterm-rows`);
+    await page.waitForTimeout(500);
+    const view = () => page.evaluate(() => getComputedStyle(document.querySelector(".react-flow__viewport")).transform);
+    const pan = async (dx, dy) => {
+      const pane = await page.locator(".react-flow__pane").boundingBox();
+      const x = pane.x + pane.width / 2;
+      const y = pane.y + pane.height - 20;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y + dy, { steps: 6 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+    };
+    await pan(-150, -60);
+    const main = await view();
+    await page.getByRole("tab", { name: /Side/ }).click();
+    await page.locator("[data-note]").first().waitFor();
+    await page.waitForTimeout(300);
+    await pan(120, 40);
+    const there = await view();
+    expect(there !== main, "Side opened where Main was");
+    await page.getByRole("tab", { name: /Main/ }).click();
+    await page.waitForTimeout(400);
+    expect((await view()) === main, `Main is at ${await view()}, not where it was left (${main})`);
+    await page.getByRole("tab", { name: /Side/ }).click();
+    await page.waitForTimeout(400);
+    expect((await view()) === there, `Side is at ${await view()}, not where it was left (${there})`);
+    await page.getByRole("tab", { name: /Main/ }).click();
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);
