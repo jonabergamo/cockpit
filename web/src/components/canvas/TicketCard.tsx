@@ -1,16 +1,29 @@
 import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type { Epic, Ticket } from "@cockpit/shared";
+import type { Epic, PullRequest, Ticket } from "@cockpit/shared";
 import { useAgentName } from "../../lib/agent";
 import { api } from "../../lib/api";
 import { ago } from "../../lib/format";
 import { useOpenSession } from "../../lib/openSession";
 import { useJobs, usePrs, useTickets, useWorktrees } from "../../lib/queries";
 import { PrBadge } from "../../pages/Tickets";
+import { PrFix } from "../PrFix";
 import { Button, StatusTag, Tag } from "../ui";
 import { useActions } from "./context";
 import { Ports } from "./LinkEdge";
+
+// an open PR's checks: running, passed or failing (the PR badge already says when it's failing; this says it for all)
+function Checks({ pr }: { pr: PullRequest }) {
+  if (pr.state !== "OPEN" || !pr.checks || pr.checks === "none") return null;
+  const look = { pass: ["text-green", "✓", "checks pass"], fail: ["text-red", "✗", "checks fail"], pending: ["text-amber", "●", "checks running"] }[pr.checks];
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[11px] ${look[0]}`} title={pr.ignoredFailing ? `Failing but ignored in Settings: ${pr.ignoredFailing.join(", ")}` : undefined}>
+      <span className={pr.checks === "pending" ? "animate-pulse" : ""}>{look[1]}</span>
+      {look[2]}
+    </span>
+  );
+}
 
 export type TicketData = { key: string; terms: number };
 export type TicketCardNode = Node<TicketData, "ticket">;
@@ -58,8 +71,13 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
   }, [err]);
 
   const epic = t && "children" in t;
+  // an open PR whose checks fail, or that a reviewer sent back, shows on the card's edge from across the canvas
+  const open = prs.filter((p) => p.state === "OPEN");
+  const failing = open.some((p) => p.checks === "fail");
+  const sentBack = open.some((p) => p.reviewDecision === "CHANGES_REQUESTED");
+  const edge = selected ? "border-cobalt" : failing ? "border-red" : sentBack ? "border-amber" : "border-cobalt/40";
   return (
-    <div className={`h-full w-full flex flex-col rounded-lg border-2 bg-panel shadow-lg overflow-hidden ${selected ? "border-cobalt" : "border-cobalt/40"}`} data-ticket={data.key}>
+    <div className={`h-full w-full flex flex-col rounded-lg border-2 bg-panel shadow-lg overflow-hidden ${edge}`} data-ticket={data.key} data-ci={failing ? "fail" : open.some((p) => p.checks === "pending") ? "pending" : open.length ? "pass" : undefined}>
       <NodeResizer isVisible={selected} minWidth={260} minHeight={150} color="var(--cobalt)" />
       <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-cobalt-soft border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
@@ -89,7 +107,10 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
             <span className="text-faint">No worktree yet</span>
           )}
           {prs.map((p) => (
-            <PrBadge key={p.number} pr={p} />
+            <span key={p.number} className="inline-flex items-center gap-1">
+              <PrBadge pr={p} />
+              <Checks pr={p} />
+            </span>
           ))}
           {epic && <span className="text-faint">{(t as Epic).children.length} tickets</span>}
           {data.terms > 0 && <span className="text-faint">{data.terms === 1 ? "1 terminal" : `${data.terms} terminals`}</span>}
@@ -109,6 +130,9 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
               Resume
             </Button>
           )}
+          {open.map((p) => (
+            <PrFix key={p.number} pr={p} />
+          ))}
         </div>
       </div>
     </div>

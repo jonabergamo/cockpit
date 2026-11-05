@@ -43,6 +43,10 @@ try {
     await card.getByText("Saved cards on the checkout page").waitFor();
     await card.getByText("feat/ACME-412/saved-cards").waitFor();
     await card.getByRole("button", { name: /^Start / }).waitFor();
+    // its PR's checks fail in the demo: the card says so, edge and all, and offers to fix them
+    await card.getByText("checks fail").waitFor();
+    await card.getByRole("button", { name: "Fix checks" }).waitFor();
+    expect((await card.getAttribute("data-ci")) === "fail", "the card doesn't show its failing checks");
     expect((await cockpit.canvasOf("ticket", "ACME-412"))?.name === "Main", "the ticket isn't on Main");
   });
 
