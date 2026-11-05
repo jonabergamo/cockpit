@@ -18,7 +18,7 @@ vi.mock("../src/pty.ts", async (orig) => ({ ...(await orig<typeof import("../src
 const { db } = await import("../src/db.ts");
 const canvas = await import("../src/canvas.ts");
 const { broadcast } = await import("../src/hub.ts");
-const { input } = await import("../src/pty.ts");
+const { input, isTyping } = await import("../src/pty.ts");
 const { relayMessage, startRelays } = await import("../src/relay.ts");
 
 const term = (id: string): TermInfo => ({ id, title: id, cwd: "/tmp", command: "claude", createdAt: 0, node: "local" });
@@ -94,6 +94,9 @@ describe("relays", () => {
     expect(sent).toHaveLength(2);
     expect(sent[1].text).toContain("2 of 2");
     expect(sent[1].text).toContain("Answer it.");
+    // what the terminal answers by itself, or focus moving about the canvas, isn't you stepping in
+    for (const own of ["\x1b[I", "\x1b[O", "\x1b[?1;2c", "\x1b[12;40R", "\x1b]11;rgb:1e1e/1e1e/1e1e\x07", "\x1b[<0;10;5M", "\x1b[?2026;2$y"]) input("reviewer", own);
+    expect(line().hops).toBe(2);
     input("reviewer", "x");
     expect(line().hops).toBe(0);
     await turn("bld", "builder");
@@ -152,6 +155,13 @@ describe("relays", () => {
     expect(sent[1].text).toContain("which just reviewed your last turn");
     expect(sent[1].text).toContain("Fix what it's right about");
     expect(sent[1].text).not.toContain("Review this work");
+  });
+
+  it("still counts real keys as you: letters, Enter, Ctrl-C, the arrows, Delete, a paste", () => {
+    for (const key of ["y", "\r", "\x03", "\x1b[A", "\x1b[1;5C", "\x1b[3~", "\x1b[Z", "\x1b[200~yes\x1b[201~", "\x1b"]) expect(isTyping(key), JSON.stringify(key)).toBe(true);
+    // a reply stuck to a key press is still a key press
+    expect(isTyping("\x1b[Ix")).toBe(true);
+    expect(isTyping("\x1b[I\x1b[O")).toBe(false);
   });
 
   it("says where it came from and how far along it is", () => {

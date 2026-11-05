@@ -393,8 +393,31 @@ export function detachAll(ws: WebSocket) {
 const typed = new Set<(id: string) => void>();
 export const onTermInput = (fn: (id: string) => void) => (typed.add(fn), () => void typed.delete(fn));
 
+// What the terminal sends by itself rather than you: its answers to the program's questions (where the cursor is,
+// what it is, its colours), focus coming and going as you move about the canvas, and the mouse. Left out, what's
+// left is you typing or pasting. Without this the canvas's relays took a terminal's own replies for you stepping in,
+// started counting again, and two agents could talk for ever.
+// (keys like the arrows, Delete or Shift-Tab end in other letters, so they still count as you)
+const BY_ITSELF = new RegExp(
+  [
+    "\\x1b\\[[IO]", // focus in and out
+    "\\x1b\\[<[\\d;]*[Mm]", // the mouse, SGR
+    "\\x1b\\[M[\\s\\S]{3}", // the mouse, X10
+    "\\x1b\\[[?>]?[\\d;]*c", // what kind of terminal it is
+    "\\x1b\\[\\d+;\\d+R", // where the cursor is
+    "\\x1b\\[\\d*n", // that it's fine
+    "\\x1b\\[\\??[\\d;]*\\$y", // which modes are on
+    "\\x1b\\[\\?[\\d;]*u", // which keyboard protocol
+    "\\x1b\\[\\d+;\\d+;\\d+t", // its size
+    "\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)", // its colours, and other OSC answers
+    "\\x1bP[\\s\\S]*?\\x1b\\\\", // its name and version
+  ].join("|"),
+  "g",
+);
+export const isTyping = (data: string) => data.replace(BY_ITSELF, "").length > 0;
+
 export function input(id: string, data: string) {
-  for (const fn of typed) fn(id);
+  if (isTyping(data)) for (const fn of typed) fn(id);
   typeInto(id, data);
 }
 
