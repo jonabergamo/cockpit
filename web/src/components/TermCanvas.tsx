@@ -76,16 +76,18 @@ const within = (path: string, root: string) => path === root || path.startsWith(
 // xterm turns a mouse position into a cell from the distance to its screen's corner, in unscaled pixels. Under the
 // canvas zoom that distance is scaled too, so selection would land on the wrong cell; this scales it back. A drag
 // carries on over the whole document, so once a press starts inside the terminal its moves and release are too.
+// Moving over a terminal without pressing is scaled as well: xterm finds the link under the mouse from those moves,
+// and a click on a link only opens it when it lands on the link they found.
 const fixed = new WeakSet<Event>();
 function useZoomFix(box: React.RefObject<HTMLDivElement | null>) {
   // read at the moment of the event, so panning and zooming don't redraw every terminal card
   const store = useStoreApi();
   useEffect(() => {
     let screen: HTMLElement | null = null;
-    const redo = (e: MouseEvent) => {
+    const redo = (e: MouseEvent, over: HTMLElement | null = screen) => {
       const zoom = store.getState().transform[2];
-      if (fixed.has(e) || !screen || Math.abs(zoom - 1) < 0.001) return;
-      const r = screen.getBoundingClientRect();
+      if (fixed.has(e) || !over || Math.abs(zoom - 1) < 0.001) return;
+      const r = over.getBoundingClientRect();
       const copy = new MouseEvent(e.type, {
         bubbles: e.bubbles,
         cancelable: e.cancelable,
@@ -114,7 +116,12 @@ function useZoomFix(box: React.RefObject<HTMLDivElement | null>) {
       screen = s;
       redo(e);
     };
-    const move = (e: MouseEvent) => screen && redo(e);
+    const move = (e: MouseEvent) => {
+      if (screen) return redo(e);
+      // hovering, for the links
+      const s = (e.target as HTMLElement).closest?.(".xterm-screen") as HTMLElement | null;
+      if (s && box.current?.contains(s)) redo(e, s);
+    };
     const up = (e: MouseEvent) => {
       if (!screen) return;
       redo(e);

@@ -99,6 +99,43 @@ try {
     expect(got.trim() === WORD.slice(3, 10), `selected "${got.trim()}" instead of "${WORD.slice(3, 10)}"`);
   });
 
+  await step("a link in a terminal away from 100% opens when it's clicked", async () => {
+    const id = globalThis.charlie;
+    const url = "https://example.com/cockpit-link-check";
+    await page.context().route(/example\.com/, (r) => r.fulfill({ body: "ok" }));
+    await api("POST", `/code/terms/${id}/input`, { data: `printf '%s\\n' '${url}'\r` });
+    // the middle of the printed link, not of the command that printed it
+    const at = await until("the printed link", () =>
+      page.evaluate(
+        ([id, word]) => {
+          const walker = document.createTreeWalker(document.querySelector(`[data-card="${id}"] .xterm-rows`), NodeFilter.SHOW_TEXT);
+          for (let n; (n = walker.nextNode()); ) {
+            const i = n.textContent.indexOf(word);
+            if (i < 0 || n.parentElement.closest("div").textContent.includes("printf")) continue;
+            const r = document.createRange();
+            r.setStart(n, i + 20);
+            r.setEnd(n, i + 21);
+            const b = r.getBoundingClientRect();
+            return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+          }
+          return null;
+        },
+        [id, url],
+      ),
+    );
+    const zoom = await page.evaluate(() => Number(document.querySelector(".react-flow__viewport").style.transform.match(/scale\(([\d.]+)\)/)?.[1] ?? 1));
+    expect(zoom < 0.9, `the canvas is at ${zoom}, so this checks nothing`);
+    const opened = page.waitForEvent("popup", { timeout: 8000 });
+    // hovering first, the way a person reaches a link
+    await page.mouse.move(at.x - 30, at.y, { steps: 4 });
+    await page.mouse.move(at.x, at.y, { steps: 4 });
+    await page.mouse.click(at.x, at.y);
+    const popup = await opened;
+    expect(popup.url().includes("cockpit-link-check"), `it opened ${popup.url()}`);
+    await popup.close();
+    await page.context().unroute(/example\.com/);
+  });
+
   await step("a note keeps its markdown across a reload", async () => {
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     // the fit animates; the note goes in the middle of where it ends up
