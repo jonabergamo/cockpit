@@ -48,7 +48,7 @@ try {
     ["/api/runs/hook", (r) => r.status === 200 && typeof r.body?.installed === "boolean"],
   ])
     if (!ok(await json(path))) problems.push(`${path}: unexpected answer`);
-  browser = await chromium.launch();
+  browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   for (const [viewport, list] of [
     [{ width: 1440, height: 900 }, pages],
     [{ width: 390, height: 844 }, phone],
