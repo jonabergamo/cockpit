@@ -33,7 +33,8 @@ import { onFocusRequest, saveWorkspace, savedWorkspace, setCanvasSelected, tabId
 import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
-import { useAppConfig, useTickets, useWorktrees } from "../lib/queries";
+import { liveSrc, recording } from "../lib/liveRun";
+import { useAppConfig, useRuns, useTickets, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
 import { AwayPanel } from "./canvas/AwayPanel";
@@ -43,6 +44,7 @@ import { ActionsCtx, useActions, type Actions, type CardTone, type LinkData, typ
 import { useFit } from "./canvas/fit";
 import { LinkEdge, Ports } from "./canvas/LinkEdge";
 import { RunsCard, type RunsCardNode, type RunsFrom } from "./canvas/RunsCard";
+import { SCREEN_H, SCREEN_W, ScreenCard, type ScreenCardNode } from "./canvas/ScreenCard";
 import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
 import { SpawnMenu, type SpawnKind, type SpawnOption } from "./canvas/SpawnMenu";
 import { TicketPicker } from "./canvas/TicketPicker";
@@ -66,7 +68,7 @@ type TermData = { term: TermInfo; title: string; status?: SessionStatus; session
 type NoteData = { fresh: boolean; fit?: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
-type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode | RunsCardNode;
+type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode | RunsCardNode | ScreenCardNode;
 type LinkEdgeT = Edge<LinkData, "link">;
 
 const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
@@ -247,7 +249,7 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   );
 }
 
-const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard, changes: ChangesCard, runs: RunsCard };
+const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard, changes: ChangesCard, runs: RunsCard, screen: ScreenCard };
 const edgeTypes = { link: LinkEdge };
 
 // what a line between these two kinds of card stands for
@@ -528,8 +530,36 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+  // A run recording right now, beside the runs card it's on: its screen shows up when it starts and goes when it
+  // ends. The runs that are going come live from the socket, whatever's on screen, so this doesn't wait for the
+  // runs card to be in view.
+  const running = useRuns({ status: "running", limit: 50 }).data;
+  const screens = useMemo(() => {
+    if (!ws) return [];
+    const cards = new Map(ws.nodes.map((n) => [n.id, n]));
+    const out: { card: CanvasNode; runId: string; name: string; src: string; recording: boolean }[] = [];
+    for (const rc of ws.nodes.filter((n) => n.kind === "runs")) {
+      const ends = links.filter((e) => e.source === rc.id || e.target === rc.id).map((e) => cards.get(e.source === rc.id ? e.target : e.source));
+      const t = ends.map((n) => (n?.kind === "term" ? byId.get(n.ref) : undefined)).find(Boolean);
+      const session = t ? sessionOf(t)?.id : undefined;
+      const ticket = t ? undefined : ends.find((n) => n?.kind === "ticket")?.ref;
+      const run = (running ?? []).find((r) => !!liveSrc(r) && (t ? r.meta.terminal === t.id || (!!session && r.meta.session === session) : !!ticket && r.ticket === ticket));
+      if (run) out.push({ card: rc, runId: run.id, name: run.name, src: liveSrc(run)!, recording: recording(run) });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws, links, byId, live, running]);
   const [edges, setEdges, applyEdgeChanges] = useEdgesState<LinkEdgeT>([]);
-  useEffect(() => setEdges((prev) => links.map((e) => ({ ...e, selected: prev.find((p) => p.id === e.id)?.selected }))), [links, setEdges]);
+  useEffect(
+    () =>
+      setEdges((prev) =>
+        [...links, ...screens.map((s): LinkEdgeT => ({ id: `screen-edge-${s.card.id}`, source: s.card.id, target: `screen-${s.card.id}`, type: "link", deletable: false, data: { kind: "watch", auto: true, live: true } }))].map((e) => ({
+          ...e,
+          selected: prev.find((p) => p.id === e.id)?.selected,
+        })),
+      ),
+    [links, screens, setEdges],
+  );
 
   // what the server has, with the cards in hand left where they are
   useEffect(() => {
@@ -583,10 +613,20 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
         const s = t && sessionOf(t);
         if (t) out.push({ ...base, type: "term", data: { term: t, title: titleOf(t), status: s?.status, session: s?.id } });
       }
+      // each recording's screen to the right of its runs card, or to its left when something's there
+      const clash = (b: { x: number; y: number; w: number; h: number }) => ws.nodes.some((n) => n.x < b.x + b.w && b.x < n.x + n.w && n.y < b.y + b.h && b.y < n.y + n.h);
+      for (const s of screens) {
+        const rc = old.get(s.card.id);
+        const at = rc?.position ?? { x: s.card.x, y: s.card.y };
+        const w = rc?.measured?.width ?? s.card.w;
+        const right = { x: at.x + w + 40, y: at.y, w: SCREEN_W, h: SCREEN_H };
+        const spot = clash(right) && !clash({ ...right, x: at.x - SCREEN_W - 40 }) ? { x: at.x - SCREEN_W - 40, y: at.y } : { x: right.x, y: right.y };
+        out.push({ id: `screen-${s.card.id}`, type: "screen", position: spot, width: SCREEN_W, height: SCREEN_H, draggable: false, deletable: false, data: { runId: s.runId, name: s.name, src: s.src, recording: s.recording } });
+      }
       return out;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, byId, live, fresh, links, worktrees.data, setNodes]);
+  }, [ws, byId, live, fresh, links, worktrees.data, screens, setNodes]);
 
   // each workspace opens where you left it, or fitted the first time
   const shownWs = useRef<string>(undefined);
@@ -607,6 +647,18 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       });
     setTimeout(() => (saved && (seen || !ws.nodes.length) ? flow.setViewport(saved) : flow.fitView({ maxZoom: 1, padding: 0.1 })), 30);
   }, [ws, focus, flow]);
+  // A workspace shown while it had nothing on it (or before this page heard what was moved there) fits its cards once
+  // they arrive, so the first card doesn't land somewhere off screen
+  const wasEmpty = useRef<string>(undefined);
+  const wsCount = ws?.nodes.length ?? 0;
+  useEffect(() => {
+    if (!wsId) return;
+    if (!wsCount) wasEmpty.current = wsId;
+    else if (wasEmpty.current === wsId) {
+      wasEmpty.current = undefined;
+      setTimeout(() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 }), 80);
+    }
+  }, [wsId, wsCount, flow]);
 
   // a link to one terminal (a session card, a notification) opens its workspace and brings it up, framed
   const focused = useRef<string>(undefined);
@@ -1002,7 +1054,8 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     },
   };
   // the colour of each card on the minimap, and whether it pulses there
-  const mapTone = (n: CardNode): CardTone | "waiting" | undefined => (n.type === "term" ? (n.data.status === "waiting" && n.data.session ? "waiting" : n.data.status === "busy" ? "running" : undefined) : tones[n.id]);
+  // a recording's screen is red and pulses, like something failing: it's what to look at
+  const mapTone = (n: CardNode): CardTone | "waiting" | undefined => (n.type === "screen" ? "fail" : n.type === "term" ? (n.data.status === "waiting" && n.data.session ? "waiting" : n.data.status === "busy" ? "running" : undefined) : tones[n.id]);
   const mapColour = (n: CardNode) => {
     const t = mapTone(n);
     if (t === "waiting") return "var(--amber)";
