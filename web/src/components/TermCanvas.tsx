@@ -30,9 +30,10 @@ import { saveView, saveWorkspace, savedWorkspace, tabId, useCanvases } from "../
 import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
-import { useAppConfig, useWorktrees } from "../lib/queries";
+import { useAppConfig, useTickets, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
+import { CardFinder, type FoundCard } from "./canvas/CardFinder";
 import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
 import { ActionsCtx, useActions, type Actions, type LinkData, type LinkKind } from "./canvas/context";
 import { LinkEdge, Ports } from "./canvas/LinkEdge";
@@ -337,6 +338,84 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       setTimeout(go, 80);
     } else go();
   };
+  // Going to a card: its workspace, the card selected and brought into view. Enter in the finder takes you there.
+  const goTo = (canvas: string, node: CanvasNode, zoom?: number) => {
+    const go = () => {
+      setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === node.id })));
+      flow.setCenter(node.x + node.w / 2, node.y + node.h / 2, { zoom: zoom ?? Math.max(flow.getZoom(), 0.6), duration: 250 });
+    };
+    if (canvas !== ws?.id) {
+      shownWs.current = canvas;
+      pick(canvas);
+      setTimeout(go, 80);
+    } else go();
+  };
+  const [finding, setFinding] = useState(false);
+  const [keysShown, setKeysShown] = useState(false);
+  const ticketsQ = useTickets();
+  const found: FoundCard[] = list.flatMap((c) =>
+    c.nodes.flatMap((n): FoundCard[] => {
+      const base = { id: n.id, canvas: c.id, workspace: c.name, kind: n.kind };
+      if (n.kind === "term") {
+        const t = byId.get(n.ref);
+        return t ? [{ ...base, label: titleOf(t), detail: shortPath(t.cwd) }] : [];
+      }
+      if (n.kind === "ticket") return [{ ...base, label: n.ref, detail: [...(ticketsQ.data?.tickets ?? []), ...(ticketsQ.data?.epics ?? [])].find((t) => t.key === n.ref)?.summary }];
+      if (n.kind === "note") return [{ ...base, label: qc.getQueryData<{ text: string }>(["note", n.id])?.text.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") || "Note" }];
+      return [{ ...base, label: "Changes" }];
+    }),
+  );
+
+  // The keys, while you aren't typing in a terminal or a box: arrows move to the nearest card that way, Enter
+  // brings it to 100% and types into its terminal, / finds a card, w the next one waiting, f fits, 1-9 workspaces.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || el?.closest("input, textarea, select, [contenteditable], .xterm") || finding || picking) return;
+      const cur = nodesRef.current;
+      const sel = cur.find((n) => n.selected);
+      const mid = (n: CardNode) => ({ x: n.position.x + (n.width ?? 0) / 2, y: n.position.y + (n.height ?? 0) / 2 });
+      const dirs: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (dirs[e.key] && cur.length) {
+        e.preventDefault();
+        const [dx, dy] = dirs[e.key];
+        const from = sel ? mid(sel) : (() => {
+          const r = wrap.current!.getBoundingClientRect();
+          return flow.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        })();
+        // the closest card in that direction, the straighter the better
+        const best = cur
+          .filter((n) => n.id !== sel?.id)
+          .map((n) => {
+            const m = mid(n);
+            const along = (m.x - from.x) * dx + (m.y - from.y) * dy;
+            const across = Math.abs((m.x - from.x) * dy) + Math.abs((m.y - from.y) * dx);
+            return { n, along, score: along + across * 2 };
+          })
+          .filter((c) => c.along > 1)
+          .sort((a, b) => a.score - b.score)[0]?.n;
+        const target = best ?? (!sel ? cur[0] : undefined);
+        const node = target && ws?.nodes.find((x) => x.id === target.id);
+        if (node && ws) goTo(ws.id, { ...node, x: target!.position.x, y: target!.position.y, w: target!.width ?? node.w, h: target!.height ?? node.h });
+        return;
+      }
+      if (e.key === "Enter" && sel) {
+        e.preventDefault();
+        actions.bringUp(sel.id);
+        setTimeout(() => (document.querySelector(`[data-card="${sel.type === "term" ? (sel.data as TermData).term.id : ""}"] .xterm-helper-textarea`) as HTMLElement | null)?.focus(), 300);
+        return;
+      }
+      if (e.key === "/") {
+        e.preventDefault();
+        setFinding(true);
+      } else if (e.key === "w") goWaiting();
+      else if (e.key === "f") flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 });
+      else if (e.key === "?") setKeysShown((v) => !v);
+      else if (/^[1-9]$/.test(e.key) && list[Number(e.key) - 1]) pick(list[Number(e.key) - 1].id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const [edges, setEdges, applyEdgeChanges] = useEdgesState<LinkEdgeT>([]);
   useEffect(() => setEdges((prev) => links.map((e) => ({ ...e, selected: prev.find((p) => p.id === e.id)?.selected }))), [links, setEdges]);
 
@@ -651,8 +730,11 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           <Button size="sm" variant="ghost" onClick={newChanges} title="A card with the code changes on a branch: link it to a terminal or a ticket (or select one first)">
             + Changes
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen">
+          <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
             Fit
+          </Button>
+          <Button size="sm" variant={keysShown ? "default" : "ghost"} onClick={() => setKeysShown(!keysShown)} title="The keys that move around the canvas (?)" className="hidden md:inline-flex">
+            Keys
           </Button>
           <Button size="sm" variant={copyOnSelect ? "default" : "ghost"} onClick={() => termPrefs.setCopyOnSelect(!copyOnSelect)} title="Copy text as soon as you select it" className="hidden lg:inline-flex">
             Copy on select
@@ -687,6 +769,45 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
             <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "term" && (n.data as TermData).status === "waiting" ? "var(--amber)" : n.type === "ticket" ? "var(--cobalt)" : n.type === "changes" ? "var(--green)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
           </ReactFlow>
         </ActionsCtx.Provider>
+        <CardFinder
+          open={finding}
+          cards={found}
+          onClose={() => setFinding(false)}
+          onPick={(c) => {
+            setFinding(false);
+            const n = list.find((x) => x.id === c.canvas)?.nodes.find((x) => x.id === c.id);
+            if (n) goTo(c.canvas, n);
+          }}
+        />
+        {keysShown && (
+          <div className="absolute top-3 right-3 z-10 w-64 rounded-lg border border-line bg-raised shadow-lg p-3 text-[12px]" role="note" aria-label="Canvas keys">
+            <div className="flex items-center mb-2">
+              <span className="font-medium text-[13px]">Keys on the canvas</span>
+              <button type="button" onClick={() => setKeysShown(false)} className="ml-auto size-5 rounded text-faint hover:text-ink" aria-label="Hide the keys">
+                ×
+              </button>
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+              {[
+                ["← ↑ → ↓", "the nearest card that way"],
+                ["Enter", "it at 100%, typing into its terminal"],
+                ["/", "find any card"],
+                ["w", "the next terminal waiting on you"],
+                ["f", "fit every card on screen"],
+                ["1–9", "a workspace"],
+                ["?", "these keys"],
+              ].map(([k, what]) => (
+                <div key={k} className="contents">
+                  <dt>
+                    <kbd className="font-mono text-[11px] px-1 rounded border border-line bg-ground">{k}</kbd>
+                  </dt>
+                  <dd className="text-muted">{what}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-2 text-faint">They work while you aren't typing in a terminal: click the canvas to leave one.</p>
+          </div>
+        )}
         <TicketPicker open={picking} onClose={() => setPicking(false)} onPick={addTicket} placed={new Set(list.flatMap((c) => c.nodes.filter((n) => n.kind === "ticket").map((n) => n.ref)))} />
         {ws && !nodes.length && !canvases.isLoading && (
           <div className="absolute inset-0 grid place-items-center pointer-events-none">

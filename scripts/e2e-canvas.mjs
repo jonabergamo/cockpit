@@ -218,8 +218,9 @@ try {
       await r.fulfill({ json: { sent: true } });
     });
     await p.goto(`${base}/terminals?view=canvas`);
-    await p.locator(`[data-card="${w.id}"][data-status="waiting"]`).waitFor({ state: "attached" });
+    // it may well be off screen: the toolbar says one is waiting, and takes you to it
     await p.getByRole("button", { name: /1 waiting/ }).click();
+    await p.locator(`[data-card="${w.id}"][data-status="waiting"]`).waitFor({ state: "attached" });
     await until("zoom 1 on it", async () => /scale\(1\)/.test(await p.locator(".react-flow__viewport").getAttribute("style")));
     const strip = p.locator(`[data-card="${w.id}"] [data-waiting]`);
     await strip.getByText("Run the tests?").waitFor();
@@ -227,6 +228,25 @@ try {
     await until("the key pressed", async () => pressed?.[0] === "1");
     if (process.env.E2E_PROOFS) await p.screenshot({ path: join(process.env.E2E_PROOFS, "waiting.png") });
     await p.close();
+  });
+
+  await step("the keys find a card, move between cards and type into a terminal", async () => {
+    await page.goto(`${base}/terminals?view=canvas`);
+    await page.waitForSelector(".react-flow__node");
+    await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
+    await page.keyboard.press("/");
+    const find = page.getByLabel("Find a card");
+    await find.fill("charlie");
+    await find.press("Enter");
+    const selected = () => page.locator(".react-flow__node.selected [data-card]").getAttribute("data-card");
+    await until("charlie selected", async () => (await selected()) === globalThis.charlie);
+    await page.keyboard.press("ArrowLeft");
+    await until("another card selected", async () => ((await page.locator(".react-flow__node.selected").count()) === 1 && (await page.locator(`.react-flow__node.selected [data-card="${globalThis.charlie}"]`).count()) === 0));
+    await page.keyboard.press("ArrowRight");
+    await until("back on charlie", async () => (await selected()) === globalThis.charlie);
+    await page.keyboard.press("Enter");
+    await until("zoom 1", async () => /scale\(1\)/.test(await page.locator(".react-flow__viewport").getAttribute("style")));
+    await until("typing into charlie", async () => page.evaluate((id) => !!document.activeElement?.closest(`[data-card="${id}"]`), globalThis.charlie));
   });
 
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
