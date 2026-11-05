@@ -47,6 +47,8 @@ export const NOTE_W = 320;
 export const NOTE_H = 260;
 export const TICKET_W = 340;
 export const TICKET_H = 190;
+export const CHANGES_W = 440;
+export const CHANGES_H = 420;
 const GAP = 40;
 
 type NodeRow = CanvasNode & { canvas: string };
@@ -98,7 +100,7 @@ export function renameCanvas(id: string, name: string) {
 export function deleteCanvas(id: string) {
   if (!canvasRow(id)) return false;
   if (db.prepare<[], { n: number }>("select count(*) as n from canvases").get()!.n <= 1) throw new Error("The last workspace can't be deleted");
-  const kept = rowsOf(id).filter((n) => n.kind !== "note");
+  const kept = rowsOf(id).filter((n) => n.kind === "term" || n.kind === "ticket");
   db.prepare("delete from canvas_nodes where canvas = ?").run(id);
   db.prepare("delete from canvas_edges where canvas = ?").run(id);
   db.prepare("delete from canvases where id = ?").run(id);
@@ -163,6 +165,15 @@ export function addNote(canvas: string, at?: At, text = "") {
   mkdirSync(notesDir(canvas), { recursive: true });
   writeFileSync(notePath(canvas, file), text);
   return place(canvas, "note", file, NOTE_W, NOTE_H, at);
+}
+
+// A changes card shows the branch of what it's linked to. Given a card to link it to, it goes under that card.
+export function addChanges(canvas: string, at?: At, link?: string) {
+  if (!canvasRow(canvas)) throw new Error("No such workspace");
+  const to = link ? nodeRow(link) : undefined;
+  if (link && to?.canvas !== canvas) throw new Error("That card isn't on this workspace");
+  const n = place(canvas, "changes", randomUUID(), CHANGES_W, CHANGES_H, to ? { x: to.x, y: to.y + to.h + GAP } : at);
+  return { node: n, edge: to ? addEdge(canvas, to.id, n.id) : undefined };
 }
 
 export function readNote(node: string) {

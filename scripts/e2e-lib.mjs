@@ -65,13 +65,15 @@ export async function openBrowser(errors) {
   return { browser, page };
 }
 
-// Each step reports ok or FAIL and the run carries on. E2E_SHOTS=<folder> keeps a screenshot of each failed step.
+// Each step reports ok or FAIL and the run carries on. E2E_SHOTS=<folder> keeps a screenshot of each failed step,
+// E2E_PROOFS=<folder> one of each step that passed, as proof of what it showed.
 export function steps(getPage) {
   const results = [];
   const step = async (name, fn) => {
     try {
       await fn();
       results.push(`ok   ${name}`);
+      if (process.env.E2E_PROOFS) await getPage()?.screenshot({ path: join(process.env.E2E_PROOFS, `${String(results.length).padStart(2, "0")} ${name.replace(/[^\w -]+/g, "")}.png`) }).catch(() => {});
     } catch (e) {
       results.push(`FAIL ${name}: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
       if (process.env.E2E_SHOTS) await getPage()?.screenshot({ path: join(process.env.E2E_SHOTS, `${results.length}.png`) }).catch(() => {});

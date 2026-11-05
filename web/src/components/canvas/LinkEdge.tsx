@@ -11,7 +11,7 @@ export function Ports() {
   );
 }
 
-const what = { work: "works on", talk: "linked to", note: "note on" } as const;
+const what = { work: "works on", talk: "linked to", note: "note on", watch: "shows its changes" } as const;
 
 const box = (n: InternalNode) => {
   const { x, y } = n.internals.positionAbsolute;

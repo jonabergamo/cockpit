@@ -33,6 +33,7 @@ import { useLiveSessions } from "../lib/live";
 import { useAppConfig, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
+import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
 import { ActionsCtx, useActions, type Actions, type LinkData, type LinkKind } from "./canvas/context";
 import { LinkEdge, Ports } from "./canvas/LinkEdge";
 import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
@@ -46,12 +47,14 @@ const NOTE_W = 320;
 const NOTE_H = 260;
 const TICKET_W = 340;
 const TICKET_H = 190;
+const CHANGES_W = 440;
+const CHANGES_H = 420;
 
 type TermData = { term: TermInfo; title: string };
 type NoteData = { fresh: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
-type CardNode = TermCardNode | NoteCardNode | TicketCardNode;
+type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode;
 type LinkEdgeT = Edge<LinkData, "link">;
 
 const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
@@ -224,11 +227,11 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   );
 }
 
-const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard };
+const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard, changes: ChangesCard };
 const edgeTypes = { link: LinkEdge };
 
 // what a line between these two kinds of card stands for
-const kindOf = (a?: string, b?: string): LinkKind => (a === "note" || b === "note" ? "note" : a === "ticket" || b === "ticket" ? "work" : "talk");
+const kindOf = (a?: string, b?: string): LinkKind => (a === "changes" || b === "changes" ? "watch" : a === "note" || b === "note" ? "note" : a === "ticket" || b === "ticket" ? "work" : "talk");
 
 const VIEWPORT = (ws: string) => `cockpit.canvasViewport.${ws}`;
 const readViewport = (ws: string): Viewport | undefined => {
@@ -316,6 +319,17 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   useEffect(() => {
     if (!ws) return;
     const linked = (id: string) => links.filter((e) => (e.source === id || e.target === id) && e.data?.kind === "work").length;
+    const cards = new Map(ws.nodes.map((n) => [n.id, n]));
+    // a changes card shows the branch of the terminal it's linked to, or else of the ticket's worktree
+    const fromOf = (id: string): ChangesFrom | undefined => {
+      const ends = links.filter((e) => e.source === id || e.target === id).map((e) => cards.get(e.source === id ? e.target : e.source));
+      const t = ends.map((n) => (n?.kind === "term" ? byId.get(n.ref) : undefined)).find(Boolean);
+      if (t) return { term: t.id, node: t.node, label: titleOf(t), session: sessionOf(t)?.id };
+      for (const n of ends) {
+        const wt = n?.kind === "ticket" ? worktrees.data?.find((w) => w.ticket === n.ref && !w.main) : undefined;
+        if (wt) return { root: wt.path, node: wt.node, label: n!.ref };
+      }
+    };
     setNodes((prev) => {
       const old = new Map(prev.map((n) => [n.id, n]));
       const out: CardNode[] = [];
@@ -331,6 +345,10 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           out.push({ ...base, type: "ticket", data: { key: n.ref, terms: linked(n.id) } });
           continue;
         }
+        if (n.kind === "changes") {
+          out.push({ ...base, type: "changes", data: { from: fromOf(n.id) } });
+          continue;
+        }
         // its terminal has closed, or its machine hasn't listed it yet
         const t = byId.get(n.ref);
         if (t) out.push({ ...base, type: "term", data: { term: t, title: titleOf(t) } });
@@ -338,7 +356,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       return out;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, byId, live, fresh, links, setNodes]);
+  }, [ws, byId, live, fresh, links, worktrees.data, setNodes]);
 
   // each workspace opens where you left it, or fitted the first time
   const shownWs = useRef<string>(undefined);
@@ -458,6 +476,38 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       }),
     );
   };
+  // a changes card in the middle of the screen, for you to link to a terminal or a ticket; one with a card selected
+  // goes under that card, already linked to it
+  const newChanges = () => {
+    if (!ws) return;
+    const sel = nodesRef.current.find((n) => n.selected && (n.type === "term" || n.type === "ticket"));
+    guard(
+      api.post<{ node: CanvasNode }>(`/canvas/${ws.id}/changes`, { ...centre(CHANGES_W, CHANGES_H), link: sel?.id, by: tabId }).then(async ({ node }) => {
+        await refresh();
+        show(node);
+      }),
+    );
+  };
+  // Started from a ticket card: once the new terminal is on the canvas (the server places it beside the ticket),
+  // a changes card goes under it, linked, unless that ticket's work already has one.
+  const started = async (ticketNode: string, term: string) => {
+    const wsId = wsRef.current?.id;
+    if (!wsId) return;
+    for (let i = 0; i < 20; i++) {
+      const cur = (await qc.fetchQuery({ queryKey: ["canvas"], queryFn: () => api.get<CanvasInfo[]>("/canvas"), staleTime: 0 })).find((c) => c.id === wsId);
+      const card = cur?.nodes.find((n) => n.kind === "term" && n.ref === term);
+      if (cur && card) {
+        const near = new Set([ticketNode, ...cur.edges.filter((e) => e.source === ticketNode || e.target === ticketNode).flatMap((e) => [e.source, e.target])]);
+        const watched = cur.edges.some((e) => {
+          const other = near.has(e.source) ? e.target : near.has(e.target) ? e.source : undefined;
+          return other && cur.nodes.find((n) => n.id === other)?.kind === "changes";
+        });
+        if (!watched) await guard(api.post(`/canvas/${wsId}/changes`, { link: card.id, by: tabId }).then(refresh));
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  };
   // a line drawn from one card's dot to another's
   const connect = (c: Connection) => {
     if (!ws || !c.source || !c.target || c.source === c.target) return;
@@ -511,6 +561,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.filter((e) => e.id !== edge) })));
       guard(api.del(`/canvas/edges/${edge}?by=${tabId}`));
     },
+    started: (ticketNode, term) => void started(ticketNode, term),
     fail: setErr,
   };
 
@@ -564,6 +615,9 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           <Button size="sm" variant="ghost" onClick={newNote} title="A markdown note on this workspace">
             + Note
           </Button>
+          <Button size="sm" variant="ghost" onClick={newChanges} title="A card with the code changes on a branch: link it to a terminal or a ticket (or select one first)">
+            + Changes
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen">
             Fit
           </Button>
@@ -597,7 +651,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           >
             <Background gap={24} color="var(--line)" />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "ticket" ? "var(--cobalt)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
+            <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "ticket" ? "var(--cobalt)" : n.type === "changes" ? "var(--green)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
           </ReactFlow>
         </ActionsCtx.Provider>
         <TicketPicker open={picking} onClose={() => setPicking(false)} onPick={addTicket} placed={new Set(list.flatMap((c) => c.nodes.filter((n) => n.kind === "ticket").map((n) => n.ref)))} />

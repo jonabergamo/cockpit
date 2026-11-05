@@ -1,5 +1,9 @@
 // End to end flows for the Terminals canvas: real shells on a cockpit of the script's own, driven in a browser.
 // Needs tmux and a build: `pnpm build && pnpm e2e:canvas`. PLAYWRIGHT_CHROMIUM points at a browser of your own.
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { expect, openBrowser, startCockpit, steps, until } from "./e2e-lib.mjs";
 
 const WORD = "QWERTYUIOPASDFGHJKLZXCVBNM";
@@ -11,6 +15,7 @@ const { step, results, finish } = steps(() => page);
 
 let browser;
 const errors = [];
+const cleanup = [];
 try {
   const a = await shell("alpha");
   const b = await shell("bravo");
@@ -142,11 +147,60 @@ try {
     expect((await canvasOf(b.id))?.name === "Main", "bravo isn't back on Main");
   });
 
+  await step("a changes card linked to a terminal shows its branch, with each file's diff", async () => {
+    // a repo on a branch of its own: one commit on it, one file changed since and a new one not tracked yet
+    // in your home, since that is where cockpit lets a saved folder be; removed again at the end
+    mkdirSync(join(homedir(), ".cache"), { recursive: true });
+    const repo = mkdtempSync(join(homedir(), ".cache", "cockpit-e2e-repo-"));
+    cleanup.push(() => rmSync(repo, { recursive: true, force: true }));
+    const git = (...args) => execFileSync("git", ["-C", repo, ...args], { env: { ...process.env, GIT_AUTHOR_NAME: "e2e", GIT_AUTHOR_EMAIL: "e2e@example.com", GIT_COMMITTER_NAME: "e2e", GIT_COMMITTER_EMAIL: "e2e@example.com" } });
+    git("init", "-q", "-b", "main");
+    writeFileSync(join(repo, "app.ts"), "one\ntwo\n");
+    git("add", ".");
+    git("commit", "-qm", "start");
+    git("checkout", "-qb", "feat/canvas-e2e");
+    writeFileSync(join(repo, "app.ts"), "one\ntwo\nthree\n");
+    git("commit", "-qam", "add three");
+    writeFileSync(join(repo, "fresh.ts"), "brand new\n");
+    // a folder cockpit knows, so a terminal may open there
+    await api("POST", "/code/folders", { path: repo });
+    const t = await api("POST", "/code/terms", { cwd: repo, title: "repo" });
+    await until("its card", async () => await canvasOf(t.id));
+    await page.goto(`${base}/terminals?view=canvas&id=${t.id}`);
+    await page.waitForSelector(`[data-card="${t.id}"] .xterm-rows`);
+    await page.getByRole("button", { name: "Fit", exact: true }).click();
+    await page.waitForTimeout(400);
+    await page.getByRole("button", { name: "+ Changes" }).click();
+    const changes = page.locator("[data-changes]");
+    await changes.getByText(/Draw a line from this card/).waitFor();
+    // both on screen, then linked by a line from the changes card to the terminal
+    await page.waitForTimeout(400);
+    await page.getByRole("button", { name: "Fit", exact: true }).click();
+    await page.waitForTimeout(400);
+    const from = await page.locator(`.react-flow__node:has([data-changes]) .react-flow__handle-left`).boundingBox();
+    const to = await page.locator(`.react-flow__node:has([data-card="${t.id}"]) .react-flow__handle-right`).boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 8 });
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await changes.getByText("feat/canvas-e2e").waitFor();
+    await changes.getByText("1 ahead", { exact: false }).waitFor();
+    await changes.getByText("1 not committed").waitFor();
+    await changes.getByText("fresh.ts").waitFor();
+    await changes.getByRole("button", { name: /app\.ts/ }).click();
+    await changes.getByText("+three").waitFor();
+    // at 100%, for the proof
+    await changes.locator(".card-handle").dblclick();
+    await page.waitForTimeout(400);
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);
 } finally {
   await browser?.close();
   cockpit.stop();
+  for (const fn of cleanup) fn();
 }
 finish();

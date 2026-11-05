@@ -359,3 +359,9 @@ body {
     animation: none;
   }
 }
+
+/* a changes card watching the branch of what it is linked to */
+.cockpit-canvas .canvas-link-watch {
+  stroke: var(--green);
+  stroke-dasharray: 3 4;
+}

@@ -45,7 +45,10 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
   // the ticket link alone is enough for a ticket-to-PR skill to pick it up; the terminal lands beside this card
   const start = useMutation({
     mutationFn: () => api.post<{ id: string }>("/claude/launch", { cwd: wt!.path, prompt: t?.url ?? data.key, title: data.key, ticket: data.key, node: wt!.node }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["terms"] }),
+    onSuccess: (term) => {
+      qc.invalidateQueries({ queryKey: ["terms"] });
+      a.started(id, term.id);
+    },
   });
   const resume = useMutation({ mutationFn: (session: string) => openSession({ id: session }) });
   const err = create.error ?? start.error ?? resume.error ?? (job && job.code !== undefined && job.code !== 0 ? new Error(job.output.trim().split("\n").pop() || "The worktree couldn't be made") : undefined);
@@ -59,7 +62,7 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
     <div className={`h-full w-full flex flex-col rounded-lg border-2 bg-panel shadow-lg overflow-hidden ${selected ? "border-cobalt" : "border-cobalt/40"}`} data-ticket={data.key}>
       <NodeResizer isVisible={selected} minWidth={260} minHeight={150} color="var(--cobalt)" />
       <Ports />
-      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-cobalt-soft border-b border-line text-[12px] shrink-0">
+      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-cobalt-soft border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
         {t?.url ? (
           <a href={t.url} target="_blank" rel="noreferrer" className="nodrag font-semibold text-cobalt hover:underline" title="Open it in the tracker">
             {data.key}

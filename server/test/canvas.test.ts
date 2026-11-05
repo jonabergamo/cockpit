@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TermInfo } from "@cockpit/shared";
 import { paths } from "../src/config.ts";
 import { db } from "../src/db.ts";
-import { addEdge, addNote, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
+import { addChanges, addEdge, addNote, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
 import { ticketOfTerm } from "../src/routes/canvas.ts";
 
 const term = (id: string, more: Partial<TermInfo> = {}): TermInfo => ({ id, title: id, cwd: "/tmp", command: "bash", createdAt: 0, node: "local", ...more });
@@ -146,6 +146,25 @@ describe("tickets and lines", () => {
     placeTicket(side.id, "ACME-7");
     deleteCanvas(side.id);
     expect(onCanvas("Main").nodes.map((n) => n.ref)).toEqual(["ACME-7"]);
+  });
+});
+
+describe("changes cards", () => {
+  it("goes under the card it's linked to, with the line", () => {
+    syncTerms([term("a")]);
+    const main = onCanvas("Main");
+    const t = main.nodes[0];
+    const { node, edge } = addChanges(main.id, undefined, t.id);
+    expect(node).toMatchObject({ kind: "changes", x: t.x, y: t.y + t.h + 40 });
+    expect(edge).toMatchObject({ source: t.id, target: node.id });
+    expect(() => addChanges(createCanvas("Side").id, undefined, t.id)).toThrow();
+  });
+
+  it("isn't kept when its workspace is deleted", () => {
+    const side = createCanvas("Side");
+    addChanges(side.id, { x: 0, y: 0 });
+    deleteCanvas(side.id);
+    expect(onCanvas("Main").nodes).toEqual([]);
   });
 });
 

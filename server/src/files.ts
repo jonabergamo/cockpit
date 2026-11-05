@@ -141,6 +141,77 @@ export async function commitFiles(root: string, sha: string) {
   return { message: body.trim(), files: list };
 }
 
+// The branch a worktree is on, against where it split off from the base: the commits on it, every file it changes
+// (committed or not, with line counts) and how far ahead and behind it is. On the base branch itself only what isn't
+// committed shows.
+async function baseOfBranch(root: string) {
+  for (const ref of [`origin/${config.repo.baseBranch}`, "origin/HEAD", "origin/main", "origin/master", "main", "master"]) {
+    const sha = (await git(root, "merge-base", "HEAD", ref).catch(() => "")).trim();
+    if (sha) return { ref, sha };
+  }
+}
+
+const MAX_BRANCH_FILES = 400;
+
+export async function branchChanges(root: string) {
+  const [branch, base, open] = await Promise.all([git(root, "rev-parse", "--abbrev-ref", "HEAD").then((s) => s.trim()), baseOfBranch(root), changes(root)]);
+  const notCommitted = new Set(open.map((c) => c.path));
+  const against = base?.sha ?? "HEAD";
+  const [numstat, status, counts, log] = await Promise.all([
+    git(root, "diff", "--numstat", "--no-renames", against).catch(() => ""),
+    git(root, "diff", "--name-status", "--no-renames", against).catch(() => ""),
+    base ? git(root, "rev-list", "--left-right", "--count", `${base.ref}...HEAD`).catch(() => "") : Promise.resolve(""),
+    base ? git(root, "log", "-50", "--format=%h%x09%ct%x09%s", `${base.sha}..HEAD`).catch(() => "") : Promise.resolve(""),
+  ]);
+  const kind = new Map(
+    status
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => [l.slice(l.indexOf("\t") + 1), l[0]]),
+  );
+  const files = numstat
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      const [a, r, ...rest] = l.split("\t");
+      const path = rest.join("\t");
+      // binary files have no line counts
+      return { path, status: kind.get(path) ?? "M", added: a === "-" ? undefined : Number(a), removed: r === "-" ? undefined : Number(r), committed: !notCommitted.has(path) };
+    });
+  // new files git doesn't track yet aren't in the diff
+  for (const c of open) if (c.index === "?" && !files.some((f) => f.path === c.path)) files.push({ path: c.path, status: "U", added: undefined, removed: undefined, committed: false });
+  const [behind, ahead] = counts.trim().split(/\s+/).map(Number);
+  return {
+    root,
+    branch,
+    base: base?.ref.replace(/^origin\//, ""),
+    ahead: ahead || 0,
+    behind: behind || 0,
+    commits: log
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => {
+        const [sha, ct, subject] = l.split("\t");
+        return { sha, at: Number(ct) * 1000, subject };
+      }),
+    files: files.slice(0, MAX_BRANCH_FILES),
+    more: Math.max(0, files.length - MAX_BRANCH_FILES),
+  };
+}
+
+// One file's diff against where the branch split off, what isn't committed included; a new file git doesn't track
+// yet comes as all added
+export async function branchFileDiff(root: string, rel: string) {
+  inside(root, rel);
+  const base = await baseOfBranch(root);
+  const out = await git(root, "diff", "--no-renames", base?.sha ?? "HEAD", "--", rel).catch(() => "");
+  if (out.trim()) return out;
+  const file = await read(root, rel).catch(() => undefined);
+  if (!file?.content) return "";
+  const lines = file.content.replace(/\n$/, "").split("\n");
+  return [`--- /dev/null`, `+++ b/${rel}`, `@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)].join("\n");
+}
+
 // Both sides of one file in one commit, for the diff view
 export async function commitFile(root: string, sha: string, rel: string, from?: string) {
   checkSha(sha);
@@ -240,6 +311,8 @@ export async function fsCall(root: string, method: string, op: string, q: Record
   if (method === "PUT" && op === "file") return { mtime: await write(root, body.path, body.content, body.mtime) };
   if (get && op === "head") return { content: await headVersion(root, q.path!) };
   if (get && op === "diff") return diff(root, q.path);
+  if (get && op === "branch") return branchChanges(root);
+  if (get && op === "branchdiff") return branchFileDiff(root, q.path ?? "");
   if (get && op === "search") return search(root, q.q ?? "");
   if (method === "POST" && op === "stage") return stage(root, body.paths, body.on).then(() => ({ ok: true }));
   if (method === "POST" && op === "discard") return discard(root, body.path).then(() => ({ ok: true }));
