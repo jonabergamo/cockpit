@@ -26,7 +26,7 @@ import "@xyflow/react/dist/style.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { CanvasInfo, CanvasNode, SessionStatus, TermInfo } from "@cockpit/shared";
+import type { CanvasInfo, CanvasNode, Run, SessionStatus, TermInfo } from "@cockpit/shared";
 import { useAgentName } from "../lib/agent";
 import { api } from "../lib/api";
 import { onFocusRequest, saveWorkspace, savedWorkspace, setCanvasSelected, tabId, useCanvases } from "../lib/canvas";
@@ -550,7 +550,10 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       const t = ends.map((n) => (n?.kind === "term" ? byId.get(n.ref) : undefined)).find(Boolean);
       const session = t ? sessionOf(t)?.id : undefined;
       const ticket = t ? undefined : ends.find((n) => n?.kind === "ticket")?.ref;
-      const run = (running ?? []).find((r) => !!liveSrc(r) && (t ? r.meta.terminal === t.id || (!!session && r.meta.session === session) : !!ticket && r.ticket === ticket));
+      // a terminal's: the ones it started, its agent ran, or that were filed under the worktree it's in (a recording
+      // script says which worktree it's for, not which terminal), as its runs card lists them
+      const inWorktree = (r: Run) => !!t && !!r.worktree && (r.node ?? "local") === (t.node ?? "local") && (t.cwd === r.worktree || t.cwd.startsWith(`${r.worktree}/`));
+      const run = (running ?? []).find((r) => !!liveSrc(r) && (t ? r.meta.terminal === t.id || (!!session && r.meta.session === session) || inWorktree(r) : !!ticket && r.ticket === ticket));
       if (run) out.push({ card: rc, runId: run.id, name: run.name, src: liveSrc(run)!, recording: recording(run) });
     }
     return out;

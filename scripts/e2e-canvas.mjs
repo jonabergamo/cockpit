@@ -585,6 +585,15 @@ try {
     // no terminal or session on it, only where it ran
     await api("POST", "/runs", { finished: true, kind: "proof", name: "view-standing-orders proof", command: "pnpm run e2e flows/x.yaml", status: "pass", exitCode: 0, worktree: cwd });
     await card.getByText("view-standing-orders proof").waitFor();
+    // and while one like it records, its screen opens beside the card
+    const frame = await page.screenshot({ clip: { x: 0, y: 0, width: 60, height: 100 }, type: "jpeg" });
+    await page.route(/\/api\/e2e-sim\/frame/, (r) => r.fulfill({ body: frame, contentType: "image/jpeg" }));
+    const run = await api("POST", "/runs", { kind: "proof", name: "standing orders, recorded", command: "pnpm run e2e flows/y.yaml", worktree: cwd, meta: { liveUrl: "/api/e2e-sim/frame", video: true } });
+    const screen = page.locator(`[data-screen="${run.id}"]`);
+    await screen.waitFor({ timeout: 15_000 });
+    await api("POST", `/runs/${run.id}/event`, { phase: "done" });
+    await screen.waitFor({ state: "detached", timeout: 15_000 });
+    await page.unroute(/\/api\/e2e-sim\/frame/);
   });
 
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
