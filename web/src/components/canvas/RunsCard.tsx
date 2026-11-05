@@ -30,16 +30,19 @@ function since(at: number, now = Date.now()) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-// The same command run again and again is one row: its latest run, with the ones before it as dots
+// One row per check: the tests, the lint, the types, the audit and verify each say how they stand now, however the
+// agent worded or ran them along the way, with the runs before as dots (and listed once the row is open). An e2e
+// flow, a proof or anything else is about one thing, so each of those keeps a row of its own.
 interface Row {
   key: string;
   latest: Run;
   before: Run[];
 }
+const BY_KIND = new Set(["unit", "lint", "typecheck", "audit", "verify"]);
 function rowsOf(runs: Run[]): Row[] {
   const rows = new Map<string, Row>();
   for (const r of [...runs].sort((a, b) => b.startedAt - a.startedAt)) {
-    const key = `${r.kind}|${r.command ?? r.name}`;
+    const key = BY_KIND.has(r.kind) ? r.kind : `${r.kind}|${r.command ?? r.name}`;
     const row = rows.get(key);
     if (row) row.before.push(r);
     else rows.set(key, { key, latest: r, before: [] });
@@ -140,6 +143,30 @@ function Detail({ r, session, onFail }: { r: Run; session?: string; onFail: (e: 
   );
 }
 
+// the runs of a check before its latest, newest first, each a click from its own page
+function Earlier({ runs }: { runs: Run[] }) {
+  const navigate = useNavigate();
+  return (
+    <div className="nodrag border-b border-line bg-ground/30 py-1">
+      <div className="px-3 pb-0.5 text-[11px] text-faint">Before that</div>
+      {runs.slice(0, 8).map((b) => {
+        const s = shown(b);
+        return (
+          <button key={b.id} type="button" onClick={() => navigate({ to: "/runs/$id", params: { id: b.id } })} className="w-full flex items-center gap-2 pl-7 pr-3 h-6 text-left hover:bg-ground" data-earlier={b.id} data-status={s} title={b.command ?? b.name}>
+            <span className={`size-1.5 rounded-full shrink-0 ${DOT[s].replace(" animate-pulse", "")}`} />
+            <span className="truncate flex-1 min-w-0 text-muted">{b.name}</span>
+            <span className={`shrink-0 w-12 text-right whitespace-nowrap ${TEXT[s]}`}>{WORD[s]}</span>
+            <span className="shrink-0 w-8 text-right text-faint tabular-nums whitespace-nowrap" title={ago(b.startedAt)}>
+              {since(b.startedAt)}
+            </span>
+          </button>
+        );
+      })}
+      {runs.length > 8 && <div className="pl-7 pr-3 h-5 text-[11px] text-faint">and {runs.length - 8} more on the Runs screen</div>}
+    </div>
+  );
+}
+
 function RunRow({ row, open, onToggle, session, onFail }: { row: Row; open: boolean; onToggle: () => void; session?: string; onFail: (e: unknown) => void }) {
   const r = row.latest;
   const s = shown(r);
@@ -163,6 +190,7 @@ function RunRow({ row, open, onToggle, session, onFail }: { row: Row; open: bool
         </span>
       </button>
       {open && <Detail r={r} session={session} onFail={onFail} />}
+      {open && row.before.length > 0 && <Earlier runs={row.before} />}
     </div>
   );
 }
@@ -190,6 +218,10 @@ export function RunsCard({ id, data, selected }: NodeProps<RunsCardNode>) {
   useEffect(() => a.tone(id, tone), [id, tone, a]);
   const fit = useFit({ id, selected, fit: data.fit, max: 560, minWidth: 300, minHeight: 120 });
   const count = (s: Shown) => rows.filter((r) => shown(r.latest) === s).length;
+  // just the failing ones, from the count in the header; back to all once nothing fails
+  const [onlyFailing, setOnlyFailing] = useState(false);
+  const filtering = onlyFailing && count("fail") > 0;
+  const list = filtering ? rows.filter((r) => shown(r.latest) === "fail") : rows;
   const border = selected ? "border-cobalt" : tone === "fail" ? "border-red border-2" : "border-line";
   const session = from && "term" in from ? from.session : undefined;
   return (
@@ -200,7 +232,11 @@ export function RunsCard({ id, data, selected }: NodeProps<RunsCardNode>) {
         <span className="font-medium">Runs</span>
         {from && <span className="truncate text-faint">{from.label}</span>}
         <span className="ml-auto flex items-center gap-2 shrink-0">
-          {count("fail") > 0 && <span className="text-red">{count("fail")} failing</span>}
+          {count("fail") > 0 && (
+            <button type="button" onClick={() => setOnlyFailing(!filtering)} className={`nodrag h-5 px-1.5 -mx-1.5 rounded text-red ${filtering ? "bg-red-soft" : "hover:bg-red-soft"}`} aria-pressed={filtering} title={filtering ? "Show every check again" : "Show only what's failing"}>
+              {count("fail")} failing
+            </button>
+          )}
           {count("running") > 0 && <span className="text-cobalt">{count("running")} running</span>}
           {count("pass") > 0 && <span className="text-green">{count("pass")} passing</span>}
         </span>
@@ -218,7 +254,7 @@ export function RunsCard({ id, data, selected }: NodeProps<RunsCardNode>) {
         ) : !rows.length ? (
           <div className="px-4 py-6 text-center text-muted">No runs yet. The tests, lint, typecheck and e2e that {agent} or you run {"term" in from ? "here" : "for this ticket"} show up as they go.</div>
         ) : (
-          rows.map((r) => <RunRow key={r.key} row={r} open={open === r.key} onToggle={() => setOpen(open === r.key ? undefined : r.key)} session={session} onFail={a.fail} />)
+          list.map((r) => <RunRow key={r.key} row={r} open={open === r.key} onToggle={() => setOpen(open === r.key ? undefined : r.key)} session={session} onFail={a.fail} />)
         )}
       </div>
     </div>

@@ -341,20 +341,29 @@ try {
     await api("POST", "/runs", { finished: true, kind: "lint", command: "pnpm run lint:all", name: "Run full lint to find any errors", status: "fail", exitCode: 1, startedAt: at, meta: { terminal: charlie } });
     await card.getByText("1 failing").waitFor();
     await api("POST", "/runs", { finished: true, kind: "lint", command: "npx eslint src/a.ts", name: "Run eslint on the changed files", status: "pass", exitCode: 0, meta: { terminal: charlie } });
-    await card.locator('[data-status="fixed"]').waitFor();
+    // one lint row, now passing, with the failure under it as fixed
+    await until("one lint row", async () => (await card.locator('[data-run]', { hasText: "lint" }).count()) === 1);
     await until("nothing failing", async () => !(await card.getByText(/^\d+ failing$/).count()));
+    // the lint row opened by itself when it failed, and stays open now it passes: the failure is under it, fixed
+    await card.locator('[data-earlier][data-status="fixed"]', { hasText: "Run full lint" }).waitFor();
+    await card.locator("[data-run]", { hasText: "Run eslint on the changed files" }).locator("> button").click();
     // and one you don't need can be hidden, and brought back
     await api("POST", "/runs", { finished: true, kind: "audit", command: "pnpm audit", name: "audit", status: "fail", exitCode: 1, meta: { terminal: charlie } });
     await card.getByText("1 failing").waitFor();
+    // the count filters to what's failing, and back
+    await card.getByRole("button", { name: "1 failing" }).click();
+    expect((await card.locator("[data-run]").count()) === 1, "it doesn't show only the failing one");
+    await card.getByRole("button", { name: "1 failing" }).click();
+    expect((await card.locator("[data-run]").count()) > 1, "it doesn't show them all again");
     await card.getByRole("button", { name: "Hide" }).click();
-    await card.locator('[data-status="dismissed"]').waitFor();
+    await card.locator('[data-run][data-status="dismissed"]').waitFor();
     await until("nothing failing", async () => !(await card.getByText(/^\d+ failing$/).count()));
     await card.getByRole("button", { name: "Show it again" }).click();
     await card.getByText("1 failing").waitFor();
     await card.getByRole("button", { name: "Hide" }).click();
     await until("hidden again", async () => !(await card.getByText(/^\d+ failing$/).count()));
     // the open row closed again, so the card is back to just its rows
-    await card.locator('[data-status="dismissed"] > button').click();
+    await card.locator('[data-run][data-status="dismissed"] > button').click();
     await page.locator(".canvas-map .react-flow__minimap-node.map-pass").first().waitFor({ state: "attached" });
     await card.locator(".card-handle").dblclick();
     await page.waitForTimeout(400);
