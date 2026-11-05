@@ -34,6 +34,7 @@ import { useLiveSessions } from "../lib/live";
 import { useAppConfig, useTickets, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
+import { AwayPanel } from "./canvas/AwayPanel";
 import { CardFinder, type FoundCard } from "./canvas/CardFinder";
 import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
 import { ActionsCtx, useActions, type Actions, type LinkData, type LinkKind } from "./canvas/context";
@@ -240,6 +241,22 @@ const edgeTypes = { link: LinkEdge };
 // what a line between these two kinds of card stands for
 const kindOf = (a?: string, b?: string): LinkKind => (a === "changes" || b === "changes" ? "watch" : a === "note" || b === "note" ? "note" : a === "ticket" || b === "ticket" ? "work" : "talk");
 
+// away this long and coming back shows what happened meanwhile
+const AWAY_MS = 15 * 60_000;
+const SEEN = (ws: string) => `cockpit.canvasSeen.${ws}`;
+const readSeen = (ws: string) => {
+  try {
+    return Number(localStorage.getItem(SEEN(ws))) || undefined;
+  } catch {
+    return undefined;
+  }
+};
+const writeSeen = (ws: string, at: number) => {
+  try {
+    localStorage.setItem(SEEN(ws), String(at));
+  } catch {}
+};
+
 const VIEWPORT = (ws: string) => `cockpit.canvasViewport.${ws}`;
 const readViewport = (ws: string): Viewport | undefined => {
   try {
@@ -373,6 +390,33 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       setTimeout(go, 80);
     } else go();
   };
+  // Coming back to a workspace after a while away, or to this tab: what its agents did meanwhile. While you're
+  // looking, the time you last saw it moves on every half minute; once the tab is hidden it stays where you left.
+  const [recap, setRecap] = useState<{ ws: string; since: number; asked: boolean }>();
+  const wsId = ws?.id;
+  useEffect(() => {
+    if (!wsId) return;
+    const id = wsId;
+    const cameBack = () => {
+      const seen = readSeen(id);
+      if (seen && Date.now() - seen > AWAY_MS) setRecap({ ws: id, since: seen, asked: false });
+    };
+    const mark = () => document.visibilityState === "visible" && writeSeen(id, Date.now());
+    cameBack();
+    mark();
+    const timer = setInterval(mark, 30_000);
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      cameBack();
+      mark();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
+      mark();
+    };
+  }, [wsId]);
   const [finding, setFinding] = useState(false);
   const [keysShown, setKeysShown] = useState(false);
   const ticketsQ = useTickets();
@@ -760,6 +804,9 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
             Fit
           </Button>
+          <Button size="sm" variant={recap ? "default" : "ghost"} onClick={() => (recap ? setRecap(undefined) : ws && setRecap({ ws: ws.id, since: Date.now() - 2 * 3600_000, asked: true }))} title="What the agents on this workspace did in the last two hours" className="hidden md:inline-flex">
+            Recap
+          </Button>
           <Button size="sm" variant={keysShown ? "default" : "ghost"} onClick={() => setKeysShown(!keysShown)} title="The keys that move around the canvas (?)" className="hidden md:inline-flex">
             Keys
           </Button>
@@ -796,6 +843,18 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
             <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "term" && (n.data as TermData).status === "waiting" ? "var(--amber)" : n.type === "ticket" ? "var(--cobalt)" : n.type === "changes" ? "var(--green)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
           </ReactFlow>
         </ActionsCtx.Provider>
+        {recap && recap.ws === ws?.id && (
+          <AwayPanel
+            ws={recap.ws}
+            since={recap.since}
+            asked={recap.asked}
+            onClose={() => setRecap(undefined)}
+            onGo={(term) => {
+              const n = ws.nodes.find((x) => x.kind === "term" && x.ref === term);
+              if (n) goTo(ws.id, n, 1);
+            }}
+          />
+        )}
         <CardFinder
           open={finding}
           cards={found}

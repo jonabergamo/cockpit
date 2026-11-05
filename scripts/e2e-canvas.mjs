@@ -249,6 +249,33 @@ try {
     await until("typing into charlie", async () => page.evaluate((id) => !!document.activeElement?.closest(`[data-card="${id}"]`), globalThis.charlie));
   });
 
+  await step("coming back after a while shows what the agents did, and a row takes you to its terminal", async () => {
+    const main = (await api("GET", "/canvas")).find((c) => c.nodes.some((n) => n.ref === globalThis.charlie));
+    const p = await page.context().newPage();
+    p.on("pageerror", (e) => errors.push(e.message));
+    // an hour since you last looked at it, and one agent that got something done meanwhile
+    await p.addInitScript((ws) => localStorage.setItem(`cockpit.canvasSeen.${ws}`, String(Date.now() - 3600_000)), main.id);
+    await p.route("**/api/canvas/*/away?*", (r) =>
+      r.fulfill({ json: [{ term: globalThis.charlie, session: "s1", title: "Export button", status: "idle", edited: ["/r/a.ts", "/r/b.ts"], commands: 3, commits: ["feat: export"], last: "The export works and its test passes." }] }),
+    );
+    await p.goto(`${base}/terminals?view=canvas`);
+    const panel = p.getByRole("region", { name: "While you were away" });
+    await panel.getByText("1h", { exact: false }).waitFor();
+    await panel.getByText("The export works and its test passes.").waitFor();
+    await panel.getByText("edited 2 files").waitFor();
+    await panel.getByText("committed “feat: export”").waitFor();
+    if (process.env.E2E_PROOFS) await p.screenshot({ path: join(process.env.E2E_PROOFS, "away.png") });
+    await panel.getByRole("button", { name: /Export button/ }).click();
+    await until("charlie at 100%", async () => /scale\(1\)/.test(await p.locator(".react-flow__viewport").getAttribute("style")) && (await p.locator(`.react-flow__node.selected [data-card="${globalThis.charlie}"]`).count()) === 1);
+    await panel.getByRole("button", { name: "Got it" }).click();
+    await panel.waitFor({ state: "detached" });
+    await p.close();
+    // the Recap button asks the real server, which has nothing to tell for these shells
+    await page.getByRole("button", { name: "Recap" }).click();
+    await page.getByText("Nothing happened on this workspace in that time.").waitFor();
+    await page.getByRole("button", { name: "Got it" }).click();
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

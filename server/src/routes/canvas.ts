@@ -4,6 +4,7 @@ import * as canvas from "../canvas.ts";
 import { broadcast } from "../hub.ts";
 import { listTerms, onTermsChanged } from "../pty.ts";
 import { allWorktrees } from "../remote/work.ts";
+import { away } from "../away.ts";
 
 // every change is pushed, so other tabs and devices follow; by names the tab that made it, which already shows it
 const changed = (by?: string) => broadcast({ type: "canvas", by });
@@ -34,6 +35,14 @@ export async function startCanvas(reopened: Promise<Map<string, string>> = Promi
 
 export const canvasRoutes = new Hono()
   .get("/", (c) => c.json(canvas.listCanvases()))
+  // what the agents on a workspace did since you last looked
+  .get("/:id/away", async (c) => {
+    const ws = canvas.listCanvases().find((x) => x.id === c.req.param("id"));
+    if (!ws) return c.json({ error: "No such workspace" }, 404);
+    const since = Number(c.req.query("since"));
+    if (!Number.isFinite(since) || since <= 0) return c.json({ error: "since is a time in ms" }, 400);
+    return c.json(await away(ws.nodes.filter((n) => n.kind === "term").map((n) => n.ref), since));
+  })
   .post("/", async (c) => {
     const b = await c.req.json<{ name?: string; by?: string }>();
     const made = canvas.createCanvas(b.name ?? "Workspace");
