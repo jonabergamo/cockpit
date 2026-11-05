@@ -20,6 +20,15 @@ const DOT: Record<RunStatus, string> = { running: "bg-cobalt animate-pulse", pas
 const WORD: Record<RunStatus, string> = { running: "running", pass: "passed", fail: "failed", cancelled: "stopped" };
 const TEXT: Record<RunStatus, string> = { running: "text-cobalt", pass: "text-green", fail: "text-red", cancelled: "text-faint" };
 
+// how long ago, short enough for a narrow column: 40s, 4m, 2h, 3d
+function since(at: number, now = Date.now()) {
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
 // The same command run again and again is one row: its latest run, with the ones before it as dots
 interface Row {
   key: string;
@@ -121,8 +130,10 @@ function RunRow({ row, open, onToggle, session, onFail }: { row: Row; open: bool
             ))}
           </span>
         )}
-        <span className={`shrink-0 w-12 text-right ${TEXT[r.status]}`}>{WORD[r.status]}</span>
-        <span className="shrink-0 w-14 text-right text-faint tabular-nums">{ago(r.startedAt)}</span>
+        <span className={`shrink-0 w-12 text-right whitespace-nowrap ${TEXT[r.status]}`}>{WORD[r.status]}</span>
+        <span className="shrink-0 w-8 text-right text-faint tabular-nums whitespace-nowrap" title={ago(r.startedAt)}>
+          {since(r.startedAt)}
+        </span>
       </button>
       {open && <Detail r={r} session={session} onFail={onFail} />}
     </div>
