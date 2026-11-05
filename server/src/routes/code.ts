@@ -4,7 +4,11 @@ import * as term from "../pty.ts";
 import { spawnRemote } from "../remote/terminals.ts";
 import { allRoots, findOwner, ownerOf, requestWork } from "../remote/work.ts";
 
-const nodeOfTerm = (id: string) => term.listTerms().find((t) => t.id === id)?.node;
+// the node a terminal runs on; undefined for one of this machine's, which say "local"
+const nodeOfTerm = (id: string) => {
+  const node = term.listTerms().find((t) => t.id === id)?.node;
+  return node && node !== "local" ? node : undefined;
+};
 
 // Every request carries the root it works on; it must be a worktree or a project under extraRoots. A root on a
 // node goes to that node, which checks it the same way.
@@ -22,11 +26,11 @@ code
       const node = q.node || (local ? undefined : await findOwner(q.root ?? ""));
       if (node) {
         const out = await requestWork(node, "fs", { method: c.req.method, op, q, body }, op === "push" ? 120_000 : 30_000);
-        return op === "diff" ? c.text(out as string) : c.json(out);
+        return op === "diff" || op === "branchdiff" ? c.text(out as string) : c.json(out);
       }
       if (!local) return c.json({ error: "root not allowed" }, 403);
       const out = await files.fsCall(q.root, c.req.method, op, q, body);
-      return op === "diff" ? c.text(out as string) : c.json(out);
+      return op === "diff" || op === "branchdiff" ? c.text(out as string) : c.json(out);
     } catch (e) {
       return failed(c, e);
     }
