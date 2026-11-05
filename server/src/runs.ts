@@ -552,7 +552,13 @@ export function listRuns(f: RunFilter = {}): Run[] {
   if (f.kind) where.push("kind = ?"), args.push(f.kind);
   if (f.status) where.push("status = ?"), args.push(f.status);
   if (f.since) where.push("started_at >= ?"), args.push(f.since);
-  if (f.terminal || f.session) where.push("(json_extract(meta, '$.terminal') = ? or json_extract(meta, '$.session') = ?)"), args.push(f.terminal ?? "", f.session ?? "");
+  if (f.terminal || f.session) {
+    // and what was filed under the worktree the terminal is in, as a recording script started from it is: it says
+    // which worktree and ticket it's for, not which terminal
+    const cwd = f.terminal ? (listTerms().find((t) => t.id === f.terminal && (t.node ?? "local") === "local")?.cwd ?? "") : "";
+    where.push("(json_extract(meta, '$.terminal') = ? or json_extract(meta, '$.session') = ? or (? != '' and coalesce(worktree, '') != '' and (worktree = ? or substr(?, 1, length(worktree) + 1) = worktree || '/')))");
+    args.push(f.terminal ?? "", f.session ?? "", cwd, cwd, cwd);
+  }
   const limit = Math.min(Math.max(Number(f.limit) || 200, 1), 1000);
   const rows = db.prepare(`select * from runs ${where.length ? `where ${where.join(" and ")}` : ""} order by started_at desc limit ${limit}`).all(...args) as Row[];
   return rows.map(toRun).map(settle);

@@ -576,6 +576,17 @@ try {
     expect((await canvasOf(s.id)).name === "Main", `the shell is on ${(await canvasOf(s.id)).name}`);
   });
 
+  await step("a terminal's runs card shows a run filed under the folder it's in, as a recording script files one", async () => {
+    const charlie = globalThis.charlie;
+    const cwd = (await api("GET", "/code/terms")).find((t) => t.id === charlie).cwd;
+    await page.goto(`${base}/terminals?view=canvas&id=${charlie}`);
+    const card = page.locator(`[data-runs="${runsCard.id}"]`);
+    await card.waitFor();
+    // no terminal or session on it, only where it ran
+    await api("POST", "/runs", { finished: true, kind: "proof", name: "view-standing-orders proof", command: "pnpm run e2e flows/x.yaml", status: "pass", exitCode: 0, worktree: cwd });
+    await card.getByText("view-standing-orders proof").waitFor();
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);
