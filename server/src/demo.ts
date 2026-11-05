@@ -8,6 +8,8 @@ import { burndown, burnup, distribution, people, spans, workdays, type Transitio
 import { pluginScreens, pluginThemes } from "./plugins.ts";
 import { buildPipeline } from "./pipeline.ts";
 import { getSettings } from "./settings.ts";
+import { db } from "./db.ts";
+import { recordRun, type RecordInput } from "./runs.ts";
 import { day } from "./util.ts";
 
 const H = 3600_000;
@@ -395,7 +397,27 @@ const demoTools = {
   ],
 };
 
+// Runs for the demo's tickets, recorded once into its own data: a test failure a later run fixed, a typecheck still
+// failing, e2e flows and a proof. Quiet, so the demo doesn't notify about them.
+function seedRuns() {
+  if (db.prepare("select 1 from runs where source = 'demo' limit 1").get()) return;
+  const M = 60_000;
+  const runs: (RecordInput & { ago: number; took: number })[] = [
+    { ticket: "ACME-418", worktree: wt("ACME-418"), kind: "e2e", name: "search flow", command: "pnpm e2e flows/search.yaml", status: "fail", exitCode: 1, output: "✗ shows results for a partial word\n  expected 12 results, got 0", ago: 190 * M, took: 3 * M },
+    { ticket: "ACME-418", worktree: wt("ACME-418"), kind: "e2e", name: "search flow", command: "pnpm e2e flows/search.yaml", status: "pass", exitCode: 0, output: "✓ search flow (8 steps)", ago: 70 * M, took: 3 * M },
+    { ticket: "ACME-418", worktree: wt("ACME-418"), kind: "lint", name: "Lint the search package", command: "pnpm --filter search lint", status: "pass", exitCode: 0, ago: 65 * M, took: 20_000 },
+    { ticket: "ACME-412", worktree: wt("ACME-412"), kind: "unit", name: "Run the checkout tests", command: "pnpm --filter web test checkout", status: "fail", exitCode: 1, output: "FAIL src/checkout/savedCards.test.ts > shows the saved cards first\n Tests  1 failed | 22 passed (23)", ago: 42 * M, took: 40_000 },
+    { ticket: "ACME-412", worktree: wt("ACME-412"), kind: "unit", name: "Run the checkout tests again", command: "pnpm --filter web test", status: "pass", exitCode: 0, output: " Tests  23 passed (23)", ago: 26 * M, took: 45_000 },
+    { ticket: "ACME-412", worktree: wt("ACME-412"), kind: "lint", name: "Lint the changed files", command: "pnpm eslint src/checkout", status: "pass", exitCode: 0, ago: 24 * M, took: 15_000 },
+    { ticket: "ACME-412", worktree: wt("ACME-412"), kind: "typecheck", name: "Typecheck the web app", command: "pnpm --filter web typecheck", status: "fail", exitCode: 2, output: "src/checkout/SavedCards.tsx(41,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.", ago: 9 * M, took: 30_000 },
+    { ticket: "ACME-412", worktree: wt("ACME-412"), kind: "e2e", name: "checkout with a saved card", command: "pnpm e2e flows/checkout.yaml", status: "pass", exitCode: 0, ago: 120 * M, took: 4 * M },
+    { ticket: "ACME-405", worktree: wt("ACME-405"), kind: "proof", name: "Apple Pay button on mobile web", command: "pnpm proof flows/apple-pay.yaml", status: "pass", exitCode: 0, ago: 300 * M, took: 2 * M },
+  ];
+  for (const { ago, took, ...r } of runs.sort((a, b) => b.ago - a.ago)) recordRun({ ...r, startedAt: now - ago, endedAt: now - ago + took, quiet: true }, "demo");
+}
+
 export function mountDemo(app: Hono) {
+  seedRuns();
   const ok = (v: unknown) => () => new Response(JSON.stringify(v), { headers: { "content-type": "application/json" } });
   const routes: Record<string, (q: URLSearchParams) => Response> = {
     "/api/config": () => Response.json({ statusOrder: report().statusOrder, releasedStatuses: report().releasedStatuses, repoName: "acme", tracker: { plugin: "demo", name: "Jira" }, codeHost: { plugin: "demo", name: "GitHub" }, demo: true, hidden: getSettings().hidden, screens: pluginScreens(), themes: pluginThemes() }),
