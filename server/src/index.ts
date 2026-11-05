@@ -27,6 +27,7 @@ import { tasks } from "./routes/tasks.ts";
 import { agents } from "./routes/agents.ts";
 import { canvasRoutes, startCanvas } from "./routes/canvas.ts";
 import { startRelays } from "./relay.ts";
+import { startSendingFailures } from "./sendFailures.ts";
 import { claude } from "./routes/claude.ts";
 import { code } from "./routes/code.ts";
 import { report } from "./routes/report.ts";
@@ -340,6 +341,7 @@ if (!demo) {
   if (config.role !== "node") startHubServices();
   if (config.role !== "node") startCanvas(reopened).catch((e) => console.error("canvas", e));
   if (config.role !== "node") startRelays();
+  if (config.role !== "node") startSendingFailures();
   if (config.role === "node") startNodeServer().catch((e) => console.error("node: couldn't start", e));
 }
 // the demo's canvas still follows its terminals, so screenshots and the canvas flows have something to show

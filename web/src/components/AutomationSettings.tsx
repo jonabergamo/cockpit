@@ -7,7 +7,7 @@ import { useAgents, useAppConfig } from "../lib/queries";
 import { Button, ErrorNote, inputClass } from "./ui";
 
 type Patterns = { e2e: string; audit: string; typecheck: string; lint: string; unit: string };
-type S = SettingsRes["settings"] & { runs?: { patterns: Patterns; failedVideoHours?: number } };
+type S = SettingsRes["settings"] & { runs?: { patterns: Patterns; failedVideoHours?: number; sendFailures?: boolean } };
 interface HookState {
   installed: boolean;
   partly: boolean;
@@ -94,7 +94,7 @@ function CiLines({ lines, onSave }: { lines: string[]; onSave: (l: string[]) => 
 }
 
 // The Claude Code hook that records the runs Claude does, and which commands count as which kind of run
-function RunSettings({ patterns, onSave, videoHours, onVideoHours }: { patterns?: Patterns; onSave: (p: Partial<Patterns>) => void; videoHours?: number; onVideoHours: (h: number) => void }) {
+function RunSettings({ patterns, onSave, videoHours, onVideoHours, sendFailures, onSendFailures }: { patterns?: Patterns; onSave: (p: Partial<Patterns>) => void; videoHours?: number; onVideoHours: (h: number) => void; sendFailures?: boolean; onSendFailures: (on: boolean) => void }) {
   const qc = useQueryClient();
   const hook = useQuery({ queryKey: ["runs-hook"], queryFn: () => api.get<HookState>("/runs/hook") });
   const set = useMutation({ mutationFn: (on: boolean) => api.post<HookState>("/runs/hook", { on }), onSuccess: (h) => qc.setQueryData(["runs-hook"], h) });
@@ -129,6 +129,14 @@ function RunSettings({ patterns, onSave, videoHours, onVideoHours }: { patterns?
         )}
       </div>
       <ErrorNote error={hook.error ?? set.error} />
+      {sendFailures !== undefined && (
+        <Toggle
+          label={`Send failed runs to ${agent}`}
+          help={`A run you or a script started fails (a terminal, cockpit run, verify, a plugin): the ${agent} session working there gets what failed and the end of its output, asked to fix it. What ${agent} ran itself it already saw, and a PR's CI checks have Fix checks.`}
+          on={sendFailures}
+          onChange={onSendFailures}
+        />
+      )}
       {videoHours !== undefined && (
         <label className="flex items-center gap-3 text-[13px]">
           <span className="flex-1 min-w-0">
@@ -317,6 +325,8 @@ export function AutomationSettings() {
         onSave={(p) => put("runs", { ...s.runs!, patterns: { ...s.runs!.patterns, ...p } })}
         videoHours={s.runs?.failedVideoHours}
         onVideoHours={(h) => put("runs", { ...s.runs!, failedVideoHours: h })}
+        sendFailures={s.runs?.sendFailures}
+        onSendFailures={(on) => put("runs", { ...s.runs!, sendFailures: on })}
       />
       <ErrorNote error={err} />
     </section>

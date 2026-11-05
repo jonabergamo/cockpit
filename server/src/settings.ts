@@ -125,6 +125,8 @@ const schema = z.object({
         .prefault({}),
       // how long a failed or cancelled run keeps its video; 0 keeps them
       failedVideoHours: z.number().int().min(0).max(2160).default(24),
+      // a failed run you or a script started goes to the agent working there, asked to fix it
+      sendFailures: z.boolean().default(false),
       // the "recorded by cockpit" line at the foot of a ticket's image of checks
       imageCredit: z.boolean().default(true),
     })
