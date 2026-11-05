@@ -65,6 +65,11 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
     },
   });
   const resume = useMutation({ mutationFn: (session: string) => openSession({ id: session }) });
+  const [settingUp, setSettingUp] = useState(false);
+  const setUp = () => {
+    setSettingUp(true);
+    void a.setup(id).finally(() => setSettingUp(false));
+  };
   const err = create.error ?? start.error ?? resume.error ?? (job && job.code !== undefined && job.code !== 0 ? new Error(job.output.trim().split("\n").pop() || "The worktree couldn't be made") : undefined);
   useEffect(() => {
     if (err) a.fail(err);
@@ -124,9 +129,16 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
         </div>
         <div className="mt-auto flex flex-wrap gap-1.5 nodrag">
           {wt ? (
-            <Button size="sm" variant={data.terms ? "default" : "primary"} disabled={start.isPending} onClick={() => start.mutate()} title={`Starts ${agent} in its worktree with ${t?.url ?? data.key}`}>
-              {start.isPending ? "Starting" : `Start ${agent}`}
-            </Button>
+            <>
+              {!data.terms && (
+                <Button size="sm" variant="primary" disabled={settingUp} onClick={setUp} title={`${agent} in its worktree, a reviewer on its turns once its checks pass, and its changes and runs, laid out and linked`}>
+                  {settingUp ? "Setting up" : "Set up"}
+                </Button>
+              )}
+              <Button size="sm" variant={data.terms ? "default" : "ghost"} disabled={start.isPending} onClick={() => start.mutate()} title={`Starts ${agent} in its worktree with ${t?.url ?? data.key}`}>
+                {start.isPending ? "Starting" : `Start ${agent}`}
+              </Button>
+            </>
           ) : (
             <Button size="sm" variant="primary" disabled={create.isPending || creating} onClick={() => create.mutate()} title="Makes its worktree, from the template that matches it">
               {creating ? "Making the worktree" : "Create worktree"}

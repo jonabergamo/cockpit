@@ -4,12 +4,14 @@
 // idle. Each hop counts, and at the line's limit it stops passing things on until you type into either terminal,
 // so two agents never talk to each other for ever. An agent just opened and not asked anything yet has no session
 // to send to: it's sitting at its prompt, so the message is typed into its terminal.
-import type { CanvasRelay, Session } from "@cockpit/shared";
+import type { CanvasRelay, Run, Session } from "@cockpit/shared";
 import { lastWords, sendText } from "./agents.ts";
 import * as canvas from "./canvas.ts";
 import { broadcast, tap } from "./hub.ts";
 import { listTerms, onTermInput, typeInto } from "./pty.ts";
+import { requestApi } from "./remote/forward.ts";
 import { onNode } from "./remote/sessions.ts";
+import { listRuns, settledFail } from "./runs.ts";
 
 const ASK: Record<Exclude<CanvasRelay["role"], "custom">, string> = {
   review: "Review this work. Say briefly what's wrong, risky or missing, and what to change. If it's good, say so.",
@@ -65,12 +67,27 @@ function deliver(edge: string, name: string, go: () => Promise<boolean | void>) 
   );
 }
 
+// A line set to pass on only passing work holds a turn back while any of its checks is failing: the runs the session
+// or its terminal did in the last day, on whichever machine it runs, that failed and weren't fixed since.
+const RECENT_MS = 24 * 3600_000;
+export async function failingChecks(s: Pick<Session, "id" | "term" | "node">): Promise<Run[]> {
+  const f = { session: s.id, ...(s.term ? { terminal: s.term } : {}), status: "fail" as const, since: Date.now() - RECENT_MS, limit: 50 };
+  const runs =
+    s.node && s.node !== "local"
+      ? await requestApi(s.node, { method: "GET", path: `/runs?${new URLSearchParams(Object.entries(f).map(([k, v]): [string, string] => [k, String(v)]))}`, headers: {} }).then((r) => (r.status === 200 ? (JSON.parse(r.body) as Run[]) : []))
+      : listRuns(f);
+  return runs.filter((r) => !settledFail(r));
+}
+
 // the canvas shows the count on the line
 const changed = () => broadcast({ type: "canvas" });
 
 async function finished(s: Session) {
   const relays = canvas.relaysFrom(s.term!).filter(({ edge }) => (edge.hops ?? 0) < edge.relay!.limit);
   if (!relays.length) return;
+  // the lines that only pass on passing work hold this turn back while its checks fail
+  const gated = relays.some(({ edge }) => edge.relay!.when === "passing");
+  const failing = gated ? await failingChecks(s).catch(() => [] as Run[]) : [];
   const text = await lastText(s).catch(() => undefined);
   if (!text?.trim()) {
     for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
@@ -79,6 +96,11 @@ async function finished(s: Session) {
   for (const { edge, to } of relays) {
     const target = sessionIn(to);
     const name = nameOf(to);
+    if (edge.relay!.when === "passing" && failing.length) {
+      const what = [...new Set(failing.map((r) => r.name))].slice(0, 2).join(" and ");
+      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: ${what}${failing.length > 2 ? " and more" : ""} failing in ${titleOf(s)}. The next turn after they pass goes to ${name}` });
+      continue;
+    }
     // no agent at the other end to read it
     if (!target && !freshAgent(to)) {
       canvas.setRelayStatus(edge.id, { state: "failed", text: `${name} isn't running an agent, so there was no one to pass ${titleOf(s)}'s turn to` });

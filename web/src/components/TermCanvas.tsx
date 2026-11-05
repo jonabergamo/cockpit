@@ -771,13 +771,23 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   };
   // Started from a ticket card: once the new terminal is on the canvas (the server places it beside the ticket),
   // a changes card and a runs card go under it, linked, unless that ticket's work already has them.
+  // a terminal just opened, once its card is on this workspace (the server places it as it lists the terminal)
+  const cardOf = async (term: string) => {
+    const wsId = wsRef.current?.id;
+    for (let i = 0; wsId && i < 30; i++) {
+      const cur = (await qc.fetchQuery({ queryKey: ["canvas"], queryFn: () => api.get<CanvasInfo[]>("/canvas"), staleTime: 0 })).find((c) => c.id === wsId);
+      const card = cur?.nodes.find((n) => n.kind === "term" && n.ref === term);
+      if (cur && card) return { cur, card };
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  };
   const started = async (ticketNode: string, term: string) => {
     const wsId = wsRef.current?.id;
     if (!wsId) return;
-    for (let i = 0; i < 20; i++) {
-      const cur = (await qc.fetchQuery({ queryKey: ["canvas"], queryFn: () => api.get<CanvasInfo[]>("/canvas"), staleTime: 0 })).find((c) => c.id === wsId);
-      const card = cur?.nodes.find((n) => n.kind === "term" && n.ref === term);
-      if (cur && card) {
+    {
+      const found = await cardOf(term);
+      if (found) {
+        const { cur, card } = found;
         const near = new Set([ticketNode, ...cur.edges.filter((e) => e.source === ticketNode || e.target === ticketNode).flatMap((e) => [e.source, e.target])]);
         const watched = (kind: "changes" | "runs") =>
           cur.edges.some((e) => {
@@ -786,9 +796,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           });
         for (const kind of ["changes", "runs"] as const) if (!watched(kind)) await guard(api.post(`/canvas/${wsId}/${kind}`, { link: card.id, by: tabId }));
         await refresh();
-        return;
       }
-      await new Promise((r) => setTimeout(r, 500));
     }
   };
   // What to open beside a card: shown where a line from it was let go over empty canvas, or under its + button.
@@ -800,6 +808,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     if (n?.kind === "ticket") {
       const noWt = worktrees.data?.some((w) => w.ticket === n.ref && !w.main) ? undefined : "No worktree yet: make one from the card first";
       return [
+        { kind: "setup", label: "Everything for this ticket", hint: `${agent}, a reviewer on its turns, and its changes and runs, laid out and linked`, disabled: noWt },
         { kind: "claude", label: `${agent} on this ticket`, hint: "In its worktree, told which ticket to work on", disabled: noWt },
         { kind: "shell", label: "Shell in its worktree", hint: "A plain terminal there", disabled: noWt },
         { kind: "changes", label: "Changes card", hint: "Its branch: the files and commits", disabled: noWt },
@@ -818,6 +827,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     const cur = wsRef.current;
     const from = cur?.nodes.find((x) => x.id === fromId);
     if (!cur || !from) return;
+    if (kind === "setup") return setupTicket(fromId);
     // a card that watches it goes where the line was let go, or under it
     if (kind === "changes" || kind === "runs") {
       const { node } = await api.post<{ node: CanvasNode }>(`/canvas/${cur.id}/${kind}`, { ...(at ?? {}), link: at ? undefined : fromId, by: tabId });
@@ -852,6 +862,32 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     await qc.invalidateQueries({ queryKey: ["terms"] });
     await refresh();
     show(card);
+  };
+  // Everything for working on a ticket, in one go: its agent beside the ticket (the server puts a terminal in the
+  // ticket's worktree there), a reviewer beside that on a line that passes on each turn once its checks pass, and
+  // the changes and runs of its work under it. Then all of it is brought into view.
+  const setupTicket = async (ticketNode: string) => {
+    const cur = wsRef.current;
+    const tk = cur?.nodes.find((x) => x.id === ticketNode && x.kind === "ticket");
+    const wt = tk && worktrees.data?.find((w) => w.ticket === tk.ref && !w.main);
+    if (!cur || !tk) return;
+    if (!wt) throw new Error("Make its worktree first, from the ticket card");
+    const ticket = [...(ticketsQ.data?.tickets ?? []), ...(ticketsQ.data?.epics ?? [])].find((x) => x.key === tk.ref);
+    const main = await api.post<{ id: string }>("/claude/launch", { cwd: wt.path, prompt: ticket?.url ?? tk.ref, title: tk.ref, ticket: tk.ref, node: wt.node });
+    await qc.invalidateQueries({ queryKey: ["terms"] });
+    if (!(await cardOf(main.id))) throw new Error("The terminal started but didn't show on the canvas");
+    // beside the ticket, or along to the right of whatever is there already
+    const card = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: main.id, x: tk.x + tk.w + 40, y: tk.y, by: tabId });
+    const made = [ticketNode, card.id];
+    for (const kind of ["changes", "runs"] as const) made.push((await api.post<{ node: CanvasNode }>(`/canvas/${cur.id}/${kind}`, { link: card.id, by: tabId })).node.id);
+    const rev = await api.post<{ id: string }>("/claude/launch", { cwd: wt.path, title: `review · ${tk.ref}`, node: wt.node });
+    const revCard = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: rev.id, x: card.x + card.w + 40, y: card.y, by: tabId });
+    made.push(revCard.id);
+    const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: card.id, target: revCard.id, by: tabId });
+    await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "source", role: "review", limit: 3, when: "passing" }, by: tabId });
+    await qc.invalidateQueries({ queryKey: ["terms"] });
+    await refresh();
+    setTimeout(() => flow.fitView({ nodes: made.map((id) => ({ id })), padding: 0.08, maxZoom: 1, duration: 300 }), 150);
   };
   // a line let go over empty canvas, from a terminal or a ticket: what to open there
   const connectEnd = (e: MouseEvent | TouchEvent, s: FinalConnectionState) => {
@@ -923,6 +959,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       guard(api.del(`/canvas/edges/${edge}?by=${tabId}`));
     },
     started: (ticketNode, term) => void started(ticketNode, term),
+    setup: (ticketNode) => setupTicket(ticketNode).catch((e) => setErr(e)),
     fail: setErr,
     tone: (node, tone) => setTones((t) => (t[node] === tone ? t : { ...t, [node]: tone })),
     fit: (node) => {

@@ -6,6 +6,9 @@ vi.mock("../src/agents.ts", () => ({
   lastWords: async () => ({ text: "Added the export button and its test." }),
   sendText: async (id: string, text: string) => (sent.push({ id, text }), true),
 }));
+// the runs the source terminal did, for the lines that only pass on passing work
+const failingRuns: { name: string; status: "fail"; meta: Record<string, unknown> }[] = [];
+vi.mock("../src/runs.ts", () => ({ listRuns: () => failingRuns, settledFail: (r: { meta: Record<string, unknown> }) => !!r.meta.fixedBy }));
 vi.mock("../src/remote/sessions.ts", () => ({ onNode: (_id: string, _remote: unknown, local: () => unknown) => Promise.resolve(local()) }));
 // the terminals open, and what's typed straight into them
 const open: TermInfo[] = [];
@@ -122,6 +125,21 @@ describe("relays", () => {
     // set up again, it starts clean
     canvas.setRelay(toShell.id, { from: "source", role: "plan", limit: 3 });
     expect(status(toShell.id)).toBeUndefined();
+  });
+
+  it("holds a turn back while its checks fail, on a line that only passes on passing work", async () => {
+    canvas.setRelay(line().id, { from: "source", role: "review", limit: 3, when: "passing" });
+    expect(line().relay?.when).toBe("passing");
+    broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "idle")] });
+    failingRuns.push({ name: "pnpm lint", status: "fail", meta: {} });
+    await turn("bld", "builder");
+    expect(sent).toEqual([]);
+    expect(line()).toMatchObject({ hops: 0, status: { state: "held", text: expect.stringContaining("pnpm lint failing") } });
+    // fixed since: the next turn goes
+    failingRuns[0].meta.fixedBy = "later";
+    await turn("bld", "builder");
+    expect(sent).toHaveLength(1);
+    failingRuns.length = 0;
   });
 
   it("says where it came from and how far along it is", () => {

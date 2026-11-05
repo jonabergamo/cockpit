@@ -168,6 +168,19 @@ describe("changes cards", () => {
   });
 });
 
+describe("moving a card already on the workspace", () => {
+  it("goes where it's asked, or along to the right of a card already there", () => {
+    syncTerms([term("a"), term("b")]);
+    const main = onCanvas("Main");
+    const [a, b] = main.nodes;
+    expect(placeTerm(main.id, "b", { x: 5000, y: 0 })).toMatchObject({ x: 5000, y: 0 });
+    const moved = placeTerm(main.id, "b", { x: a.x, y: a.y });
+    expect(moved.y).toBe(a.y);
+    expect(moved.x).toBeGreaterThanOrEqual(a.x + a.w);
+    expect(moved.id).toBe(b.id);
+  });
+});
+
 describe("runs cards", () => {
   it("goes under the card it's linked to, beside a changes card already there", () => {
     syncTerms([term("a")]);

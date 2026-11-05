@@ -83,6 +83,8 @@ try {
     await page.getByLabel("Which way it relays").selectOption("both");
     await page.getByLabel("Hop limit").selectOption("5");
     await until("both ways, 5 hops", async () => (await relayOf())?.from === "both" && (await relayOf())?.limit === 5);
+    await page.getByLabel("Which turns it passes on").selectOption("passing");
+    await until("only passing work", async () => (await relayOf())?.when === "passing");
     // off the line, it shows its count; arrows both ends
     await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
     await page.getByText("↻ 0/5").waitFor();
@@ -151,6 +153,28 @@ try {
     const t418 = await cockpit.canvasOf("ticket", "ACME-418");
     expect(!!node && (await edges()).some((e) => e.target === node.id && t418.nodes.some((n) => n.id === e.source && n.kind === "ticket")), "it isn't linked to the ticket");
     await page.unroute(/\/api\/runs/);
+  });
+
+  await step("Set up on a ticket opens its agent, a reviewer relaying once checks pass, and its changes and runs", async () => {
+    // the demo starts no agents, so each one it asks for is a shell here
+    await page.route(/\/api\/claude\/launch$/, async (r) => {
+      const t = await shell(r.request().postDataJSON()?.title ?? "agent");
+      return r.fulfill({ json: { id: t.id } });
+    });
+    const count = async (kind) => (await api("GET", "/canvas")).flatMap((c) => c.nodes).filter((n) => n.kind === kind).length;
+    const before = { term: await count("term"), changes: await count("changes"), runs: await count("runs") };
+    await fit();
+    await page.locator(ticket("ACME-418")).getByRole("button", { name: "Set up", exact: true }).click();
+    await until(
+      "everything on the canvas",
+      async () => (await count("term")) === before.term + 2 && (await count("changes")) === before.changes + 1 && (await count("runs")) === before.runs + 1,
+      20_000,
+    );
+    const review = await until("the reviewer's line", async () => (await edges()).find((e) => e.relay?.role === "review"));
+    expect(review.relay.when === "passing", "the reviewer gets every turn, not just passing ones");
+    const terms = await api("GET", "/code/terms");
+    expect(terms.some((t) => t.title === "review · ACME-418"), "no reviewer terminal");
+    await page.unroute(/\/api\/claude\/launch$/);
   });
 
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));

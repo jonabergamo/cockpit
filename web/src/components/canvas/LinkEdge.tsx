@@ -133,6 +133,10 @@ function RelayControls({ id, relay, hops, status, names }: { id: string; relay?:
           </select>
         )}
         {(hops ?? 0) < relay.limit && <span className="text-muted">hops</span>}
+        <select value={relay.when ?? "every"} onChange={(e) => set({ when: e.target.value as CanvasRelay["when"] })} className={select} aria-label="Which turns it passes on" title="Every turn, or only a turn after which none of its tests, lint or types are failing">
+          <option value="every">every turn</option>
+          <option value="passing">once checks pass</option>
+        </select>
         <button type="button" onClick={() => a.setRelay(id, null)} className="ml-auto h-6 px-1.5 rounded text-muted hover:text-red hover:bg-red-soft">
           Stop relaying
         </button>

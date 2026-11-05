@@ -44,6 +44,8 @@ db.exec(`
 for (const [col, type] of [
   ["relay", "text"],
   ["hops", "integer not null default 0"],
+  // what happened to the last turn it had to pass on
+  ["status", "text"],
 ] as const)
   if (!db.prepare<[], { name: string }>("pragma table_info(canvas_edges)").all().some((c) => c.name === col)) db.exec(`alter table canvas_edges add column ${col} ${type}`);
 // a card that sizes its height to what it shows (0 once you size it yourself); unset is the card's own default
@@ -72,15 +74,11 @@ const rowsOf = (canvas: string) => db.prepare<[string], NodeRow>(`select ${COLS}
 const nodeRow = (id: string) => db.prepare<[string], NodeRow>(`select ${COLS} from canvas_nodes where id = ?`).get(id);
 const refRow = (kind: CanvasNode["kind"], ref: string) => db.prepare<[string, string], NodeRow>(`select ${COLS} from canvas_nodes where kind = ? and ref = ?`).get(kind, ref);
 const canvasRow = (id: string) => db.prepare<[string], { id: string; name: string }>("select id, name from canvases where id = ?").get(id);
-type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number };
-// what each relay last did, kept while cockpit runs: it's about the last turn, not something to keep
-const statuses = new Map<string, RelayStatus>();
-export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) => statuses.set(edge, { ...status, at: Date.now() });
-const toEdge = (e: EdgeRow): CanvasEdge => {
-  const status = statuses.get(e.id);
-  return { id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops, ...(status ? { status } : {}) } : {}) };
-};
-const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
+type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number; status?: string | null };
+// what each relay last did, kept with the line so a warning is still there after a restart
+export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) => db.prepare("update canvas_edges set status = ? where id = ?").run(JSON.stringify({ ...status, at: Date.now() }), edge);
+const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops, ...(e.status ? { status: JSON.parse(e.status) as RelayStatus } : {}) } : {}) });
+const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, status from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
 // every card but a terminal fits its content until you size it yourself
 const strip = ({ canvas: _, fit, ...n }: NodeRow): CanvasNode => (n.kind === "term" ? n : { ...n, fit: fit !== 0 });
 
@@ -161,8 +159,16 @@ function placeOne(canvas: string, kind: "term" | "ticket", ref: string, w: numbe
   if (!canvasRow(canvas)) throw new Error("No such workspace");
   const old = refRow(kind, ref);
   if (old?.canvas === canvas) {
-    if (at) db.prepare("update canvas_nodes set x = ?, y = ? where id = ?").run(at.x, at.y, old.id);
-    return strip({ ...old, ...at });
+    if (!at) return strip(old);
+    // moved to where it was asked for, or along to the right of a card already there, like a new one
+    const spot = freeSpot(
+      rowsOf(canvas).filter((n) => n.id !== old.id),
+      old.w,
+      old.h,
+      at,
+    );
+    db.prepare("update canvas_nodes set x = ?, y = ? where id = ?").run(spot.x, spot.y, old.id);
+    return strip({ ...old, ...spot });
   }
   if (old) {
     db.prepare("delete from canvas_nodes where id = ?").run(old.id);
@@ -254,11 +260,10 @@ export function setRelay(id: string, relay: CanvasRelay | null) {
     if (!FROM.has(relay.from) || !ROLES.has(relay.role)) throw new Error("That isn't a way to relay");
     if (relay.role === "custom" && !relay.prompt?.trim()) throw new Error("Say what the other end should do with it");
     const limit = Math.min(Math.max(Math.round(Number(relay.limit) || 3), 1), 20);
-    relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}) };
+    relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}), ...(relay.when === "passing" ? { when: "passing" as const } : {}) };
   }
-  db.prepare("update canvas_edges set relay = ?, hops = 0 where id = ?").run(relay ? JSON.stringify(relay) : null, id);
   // set up again, it starts with nothing to report
-  statuses.delete(id);
+  db.prepare("update canvas_edges set relay = ?, hops = 0, status = null where id = ?").run(relay ? JSON.stringify(relay) : null, id);
   return true;
 }
 

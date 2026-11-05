@@ -17,6 +17,8 @@ export interface Actions {
   setRelay: (edge: string, relay: CanvasRelay | null) => void;
   // a terminal was just started from a ticket card: it gets a changes card of its own once it's on the canvas
   started: (ticketNode: string, term: string) => void;
+  // everything for working on a ticket at once: its agent, a reviewer on its turns, its changes and its runs
+  setup: (ticketNode: string) => Promise<void>;
   fail: (e: unknown) => void;
   // how a card is doing, for the minimap: a ticket's CI, a runs card's latest runs
   tone: (node: string, tone?: CardTone) => void;

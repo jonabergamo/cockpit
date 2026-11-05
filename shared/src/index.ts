@@ -172,6 +172,8 @@ export interface RelayStatus {
 export interface CanvasRelay {
   from: "source" | "target" | "both";
   role: "review" | "plan" | "build" | "custom";
+  // passing: only a turn after which none of its checks (tests, lint, types...) are failing goes along
+  when?: "every" | "passing";
   prompt?: string;
   limit: number;
 }
