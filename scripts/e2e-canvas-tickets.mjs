@@ -177,6 +177,18 @@ try {
     await page.unroute(/\/api\/claude\/launch$/);
   });
 
+  await step("the cards at the top are grouped by ticket, and a group's heading goes to its ticket on the canvas", async () => {
+    await page.goto(`${base}/terminals?view=canvas`);
+    const group = page.locator('[data-strip-group="ACME-412"]');
+    await group.waitFor();
+    await group.getByText("Saved cards on the checkout page").waitFor();
+    expect((await group.locator("[data-term], .group\\/card").count()) >= 1, "nothing in the ACME-412 group");
+    // its ticket card came off the canvas earlier; the heading puts it back and brings it up
+    await group.getByRole("button", { name: /ACME-412/ }).click();
+    await until("ACME-412 on the canvas", async () => !!(await cockpit.canvasOf("ticket", "ACME-412")));
+    await page.locator('[data-ticket="ACME-412"]').waitFor();
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

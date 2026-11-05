@@ -22,9 +22,36 @@ export const savedView = (): TermView => {
 
 // The strip at the top asks the canvas to bring a terminal up (every click, not just the first), and the canvas says
 // which terminal is selected on it, for the strip to mark
-const focusers = new Set<(term: string) => void>();
-export const focusOnCanvas = (term: string) => focusers.forEach((f) => f(term));
-export const onFocusRequest = (f: (term: string) => void) => (focusers.add(f), () => void focusers.delete(f));
+type FocusAsk = { kind: "term" | "ticket"; ref: string };
+const focusers = new Set<(ask: FocusAsk) => void>();
+export const focusOnCanvas = (term: string) => focusers.forEach((f) => f({ kind: "term", ref: term }));
+export const focusTicketOnCanvas = (key: string) => focusers.forEach((f) => f({ kind: "ticket", ref: key }));
+export const onFocusRequest = (f: (ask: FocusAsk) => void) => (focusers.add(f), () => void focusers.delete(f));
+
+// how the cards at the top are grouped, on this device: by the ticket they work on (the rest by workspace), or by
+// workspace
+const GROUP = "cockpit.stripGroup";
+export type StripGroup = "ticket" | "workspace";
+let stripGroup: StripGroup = (() => {
+  try {
+    return localStorage.getItem(GROUP) === "workspace" ? "workspace" : "ticket";
+  } catch {
+    return "ticket";
+  }
+})();
+const groupListeners = new Set<() => void>();
+export const setStripGroup = (g: StripGroup) => {
+  stripGroup = g;
+  try {
+    localStorage.setItem(GROUP, g);
+  } catch {}
+  groupListeners.forEach((l) => l());
+};
+export const useStripGroup = () =>
+  useSyncExternalStore(
+    (l) => (groupListeners.add(l), () => void groupListeners.delete(l)),
+    () => stripGroup,
+  );
 let selectedTerm: string | undefined;
 const selectedListeners = new Set<() => void>();
 export const setCanvasSelected = (term?: string) => {

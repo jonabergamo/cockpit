@@ -3,11 +3,12 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { Session, TermInfo } from "@cockpit/shared";
 import { api } from "../lib/api";
-import { focusOnCanvas, savedView, useCanvasSelected, useCanvases } from "../lib/canvas";
+import { focusOnCanvas, focusTicketOnCanvas, savedView, useCanvasSelected, useCanvases, useStripGroup } from "../lib/canvas";
 import { useLiveSessions } from "../lib/live";
 import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { useOpenSession } from "../lib/openSession";
+import { useTickets, useWorktrees } from "../lib/queries";
 import { statusLook } from "../lib/status";
 import { ReplyPanel } from "./ReplyPanel";
 import { Button, Modal } from "./ui";
@@ -18,6 +19,7 @@ function label(s: Session) {
 }
 
 const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
+const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
 
 // Where it runs: the worktree's name and its repo, or the folder, plus the branch when it says more than main.
 function place(s: Session) {
@@ -45,13 +47,22 @@ function useIdleAlerts(sessions: Session[]) {
   }, [sessions]);
 }
 
-// The live sessions and cockpit's open terminals, one card each. These cards are the Terminals screen's tabs too.
+// a card at the top: a live session (with the terminal it runs in, when it has one) or a plain shell
+type Item = { key: string; session?: Session; term?: TermInfo; ticket?: string; workspace?: string; rank: number; at: number };
+type Group = { key: string; ticket?: string; workspace?: string; items: Item[] };
+
+// The live sessions and cockpit's open terminals, one short card each, grouped by the ticket they work on (the rest
+// by workspace, once there's more than one) or by workspace, as Settings says. On the canvas a card takes you to its
+// terminal there; in tabs, these cards are the tabs.
 export function SessionStrip() {
   const cost = useCost();
   const sessions = useLiveSessions();
   const terms = useTerms().data ?? [];
+  const worktrees = useWorktrees().data ?? [];
+  const tickets = useTickets().data;
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const groupBy = useStripGroup();
   // a pid only means the same process on the same machine
   const termOf = (s: Session) => terms.find((t) => t.id === s.term || t.session === s.id || (!!t.pid && t.pid === s.pid && (t.node ?? "local") === (s.node ?? "local")));
   // split shells show beside their terminal, not as cards of their own
@@ -63,9 +74,11 @@ export function SessionStrip() {
   // on the canvas, the card selected there; in tabs, the terminal open
   const onCanvas = path === "/terminals" && (askedView ?? savedView()) === "canvas";
   const selectedOnCanvas = useCanvasSelected();
-  // which workspace each terminal is on, said once there's more than one
   const canvases = useCanvases().data ?? [];
   const workspaceOf = (term?: string) => (canvases.length > 1 && term ? canvases.find((c) => c.nodes.some((n) => n.kind === "term" && n.ref === term))?.name : undefined);
+  // the ticket a terminal works on: its session's, or the worktree it sits in
+  const ticketOf = (cwd?: string, node?: string) => (cwd ? worktrees.find((w) => !w.main && w.ticket && (w.node ?? "local") === (node ?? "local") && within(cwd, w.path))?.ticket : undefined);
+  const summaryOf = (key: string) => [...(tickets?.tickets ?? []), ...(tickets?.epics ?? [])].find((t) => t.key === key)?.summary;
   const shown = (() => {
     if (path !== "/terminals") return undefined;
     if (onCanvas) return selectedOnCanvas;
@@ -113,83 +126,132 @@ export function SessionStrip() {
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "denied");
   useIdleAlerts(sessions);
 
-  // what needs you first, then what's working, then what's idle
-  const rank = (s: Session) => (s.status === "waiting" ? 2 : s.status === "busy" ? 1 : 0);
-  const sorted = [...sessions].sort((a, b) => rank(b) - rank(a) || b.updatedAt - a.updatedAt);
+  // what needs you first, then what's working, then what's idle, then the plain shells
+  const rank = (s: Session) => (s.status === "waiting" ? 3 : s.status === "busy" ? 2 : 1);
+  const items: Item[] = [
+    ...sessions.map((s) => {
+      const term = termOf(s);
+      return { key: s.id, session: s, term, ticket: s.ticket || ticketOf(term?.cwd ?? s.cwd, s.node), workspace: workspaceOf(term?.id), rank: rank(s), at: s.updatedAt };
+    }),
+    ...shells.map((t) => ({ key: t.id, term: t, ticket: ticketOf(t.cwd, t.node), workspace: workspaceOf(t.id), rank: 0, at: t.createdAt })),
+  ];
+  const groups = new Map<string, Group>();
+  for (const it of items) {
+    const key = groupBy === "ticket" && it.ticket ? `t:${it.ticket}` : it.workspace ? `w:${it.workspace}` : "";
+    const g = groups.get(key) ?? { key, ...(key.startsWith("t:") ? { ticket: it.ticket } : key ? { workspace: it.workspace } : {}), items: [] };
+    g.items.push(it);
+    groups.set(key, g);
+  }
+  // the groups with something waiting on you first; the cards nobody grouped go last
+  const best = (g: Group) => Math.max(...g.items.map((i) => i.rank));
+  const latest = (g: Group) => Math.max(...g.items.map((i) => i.at));
+  const ordered = [...groups.values()].sort((a, b) => Number(!a.key) - Number(!b.key) || best(b) - best(a) || latest(b) - latest(a));
+  for (const g of ordered) g.items.sort((a, b) => b.rank - a.rank || b.at - a.at);
+  // a single group needs no heading
+  const headed = ordered.length > 1 || !!ordered[0]?.key;
 
-  return (
-    <div ref={strip} className="drag overlay-gap flex items-stretch gap-2 overflow-x-auto px-4 py-2 border-b border-line bg-panel min-h-[74px]">
-      {sorted.length + shells.length === 0 && <div className="text-muted self-center">No sessions running.</div>}
-      {sorted.map((s) => {
-        const where = place(s);
-        const look = statusLook(s.status, s.waitingFor, s.background);
-        const term = termOf(s);
-        const closable = !!term || (!!s.agent && !s.term);
-        return (
-        <div key={s.id} data-term={term?.id} className="relative shrink-0 group/card">
+  const goTicket = (key: string) => {
+    navigate({ to: "/terminals", search: { ticket: key, view: "canvas" } });
+    focusTicketOnCanvas(key);
+  };
+
+  const card = (it: Item, g: Group) => {
+    const s = it.session;
+    const t = it.term;
+    if (s) {
+      const where = place(s);
+      const look = statusLook(s.status, s.waitingFor, s.background);
+      const closable = !!t || (!!s.agent && !s.term);
+      // the ticket is in the group's heading; a workspace too
+      const ticket = !g.ticket && it.ticket;
+      return (
+        <div key={it.key} data-term={t?.id} className="relative shrink-0 group/card">
+          <button
+            onClick={() => open(s)}
+            disabled={opening === s.id}
+            className={`group text-left relative overflow-hidden w-[200px] rounded-md border pl-2.5 pr-2 py-1 bg-raised hover:border-faint ${look.border} ${s.status === "busy" && !s.background ? "sweep" : ""} ${t && t.id === shown ? "ring-1 ring-cobalt" : ""}`}
+            title={`${label(s)}\n${[s.ticket, where.folder, where.branch].filter(Boolean).join(" · ")}\nClick to go to its terminal`}
+          >
+            <span className={`absolute left-0 top-0 bottom-0 w-1 ${look.dot} ${s.status === "idle" ? "opacity-50" : ""}`} />
+            <div className="flex items-center gap-1.5">
+              <span className="truncate font-medium text-[13px] flex-1">{label(s)}</span>
+              {s.costUSD && !cost.hidden ? (
+                <span className="text-[11px] text-muted" title={`${cost.label}. ${cost.hint}`}>
+                  {usd(s.costUSD)}
+                </span>
+              ) : null}
+              {closable && <span className="w-4 shrink-0" />}
+            </div>
+            <div className="flex items-center gap-1.5 text-[12px] text-muted min-w-0">
+              <span className={`shrink-0 ${look.text}`} title={look.hint}>
+                {opening === s.id ? "opening" : look.label}
+              </span>
+              {ticket && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{ticket}</span>}
+              {!g.workspace && it.workspace && <span className="truncate text-faint">· {it.workspace}</span>}
+              <span className="truncate ml-auto shrink-0">{ago(s.updatedAt)}</span>
+            </div>
+          </button>
+          {s.status !== "busy" && (
+            <button
+              onClick={() => setReplying(s)}
+              className={`absolute right-1 bottom-1 rounded px-1.5 text-[11px] leading-5 ${s.status === "waiting" ? "bg-amber-soft text-amber" : "bg-ground text-muted"} opacity-0 group-hover/card:opacity-100 focus:opacity-100 max-md:opacity-100`}
+              title="Answer it from here"
+            >
+              Reply
+            </button>
+          )}
+          {closable && <CloseX onClick={() => close(t, s)} title={t ? "Close its terminal, which ends the session" : "End this session"} />}
+        </div>
+      );
+    }
+    return (
+      <div key={it.key} data-term={t!.id} className="relative shrink-0 group/card">
         <button
-          onClick={() => open(s)}
-          disabled={opening === s.id}
-          className={`group text-left relative overflow-hidden w-[250px] rounded-md border pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${
-            look.border
-          } ${s.status === "busy" && !s.background ? "sweep" : ""} ${term && term.id === shown ? "ring-1 ring-cobalt" : ""}`}
-          title={`${label(s)}\n${[s.ticket, shortPath(s.cwd), s.branch].filter(Boolean).join(" · ")}\nClick to go to its terminal`}
+          onClick={() => {
+            navigate({ to: "/terminals", search: { id: t!.id } });
+            focusOnCanvas(t!.id);
+          }}
+          className={`text-left relative overflow-hidden w-[200px] rounded-md border border-line pl-2.5 pr-2 py-1 bg-raised hover:border-faint ${t!.id === shown ? "ring-1 ring-cobalt" : ""}`}
+          title={`${t!.command}\n${t!.node && t!.node !== "local" ? `on ${t!.node}: ` : ""}${t!.cwd}\nstarted ${ago(t!.createdAt)}`}
         >
-          <span className={`absolute left-0 top-0 bottom-0 w-1 ${look.dot} ${s.status === "idle" ? "opacity-50" : ""}`} />
+          <span className={`absolute left-0 top-0 bottom-0 w-1 ${t!.state === "disconnected" ? "bg-amber" : t!.exited === undefined ? "bg-green opacity-50" : "bg-line"}`} />
           <div className="flex items-center gap-1.5">
-            <span className="truncate font-medium text-[13px] flex-1">{label(s)}</span>
-            {s.costUSD && !cost.hidden ? <span className="text-[11px] text-muted" title={`${cost.label}. ${cost.hint}`}>{usd(s.costUSD)}</span> : null}
-            {closable && <span className="w-5 shrink-0" />}
+            <span className="truncate font-medium text-[13px] flex-1">{t!.title}</span>
+            <span className="w-4 shrink-0" />
           </div>
-          <div className="flex items-center gap-1.5 text-[12px] text-ink/80 min-w-0">
-            {s.ticket && <span className="shrink-0 rounded bg-ground px-1 font-mono text-[11px] text-ink">{s.ticket}</span>}
-            <span className={`truncate ${where.branch ? "shrink-0 max-w-[60%]" : ""}`}>{where.folder}</span>
-            {where.branch && <span className="truncate text-faint font-mono text-[11px]">{where.branch}</span>}
-          </div>
-          <div className="flex items-center gap-1.5 text-[12px] text-muted">
-            <span className={look.text} title={look.hint}>{opening === s.id ? "opening" : look.label}</span>
-            {workspaceOf(term?.id) && <span className="truncate text-faint" title="The canvas workspace it's on">· {workspaceOf(term?.id)}</span>}
-            <span className="truncate ml-auto shrink-0">{ago(s.updatedAt)}</span>
+          <div className="flex items-center gap-1.5 text-[12px] text-muted min-w-0">
+            <span className="shrink-0">{t!.state === "disconnected" ? "reconnecting" : t!.exited === undefined ? "shell" : "exited"}</span>
+            <span className="truncate text-faint">{[t!.node && t!.node !== "local" ? t!.node : "", base(t!.cwd)].filter(Boolean).join(" · ")}</span>
+            <span className="truncate ml-auto shrink-0">{ago(t!.createdAt)}</span>
           </div>
         </button>
-        {s.status !== "busy" && (
-          <button
-            onClick={() => setReplying(s)}
-            className={`absolute right-1.5 bottom-1.5 rounded px-1.5 text-[11px] leading-5 ${s.status === "waiting" ? "bg-amber-soft text-amber" : "bg-ground text-muted"} opacity-0 group-hover/card:opacity-100 focus:opacity-100 max-md:opacity-100`}
-            title="Answer it from here"
-          >
-            Reply
-          </button>
-        )}
-        {closable && <CloseX onClick={() => close(term, s)} title={term ? "Close its terminal, which ends the session" : "End this session"} />}
-        </div>
-        );
-      })}
-      {shells.map((t) => (
-        <div key={t.id} data-term={t.id} className="relative shrink-0 group/card">
-          <button
-            onClick={() => {
-              navigate({ to: "/terminals", search: { id: t.id } });
-              focusOnCanvas(t.id);
-            }}
-            className={`text-left relative overflow-hidden w-[250px] rounded-md border border-line pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${t.id === shown ? "ring-1 ring-cobalt" : ""}`}
-            title={`${t.command}\n${t.node && t.node !== "local" ? `on ${t.node}: ` : ""}${t.cwd}\nstarted ${ago(t.createdAt)}`}
-          >
-            <span className={`absolute left-0 top-0 bottom-0 w-1 ${t.state === "disconnected" ? "bg-amber" : t.exited === undefined ? "bg-green opacity-50" : "bg-line"}`} />
-            <div className="flex items-center gap-1.5">
-              <span className="truncate font-medium text-[13px] flex-1">{t.title}</span>
-              <span className="w-5 shrink-0" />
+        <CloseX onClick={() => close(t)} title="Close this terminal" />
+      </div>
+    );
+  };
+
+  return (
+    <div ref={strip} className="drag overlay-gap flex items-stretch gap-2 overflow-x-auto px-4 py-1.5 border-b border-line bg-panel min-h-[58px]">
+      {!items.length && <div className="text-muted self-center">No sessions running.</div>}
+      {ordered.map((g) =>
+        headed ? (
+          <div key={g.key || "rest"} className="shrink-0 flex flex-col gap-0.5 rounded-lg bg-ground/60 px-1.5 pt-0.5 pb-1.5" data-strip-group={g.ticket ?? g.workspace ?? "other"}>
+            <div className="h-4 flex items-center gap-1.5 px-0.5 text-[11px] text-muted min-w-0 max-w-full">
+              {g.ticket ? (
+                <button type="button" onClick={() => goTicket(g.ticket!)} className="flex items-center gap-1.5 min-w-0 hover:text-ink" title={`${g.ticket}${summaryOf(g.ticket) ? `: ${summaryOf(g.ticket)}` : ""}\nGo to its card on the canvas`}>
+                  <span className="font-mono font-medium text-ink shrink-0">{g.ticket}</span>
+                  {summaryOf(g.ticket) && <span className="truncate max-w-[220px]">{summaryOf(g.ticket)}</span>}
+                </button>
+              ) : (
+                <span className="truncate">{g.workspace ?? "Other terminals"}</span>
+              )}
             </div>
-            <div className="text-[12px] text-ink/80 truncate">{[t.node && t.node !== "local" ? t.node : "", shortPath(t.cwd).split("/").slice(-2).join("/")].filter(Boolean).join(" · ")}</div>
-            <div className="flex items-center gap-1.5 text-[12px] text-muted">
-              <span>{t.state === "disconnected" ? "reconnecting" : t.exited === undefined ? "shell" : "exited"}</span>
-              {workspaceOf(t.id) && <span className="truncate text-faint">· {workspaceOf(t.id)}</span>}
-              <span className="truncate ml-auto shrink-0">{ago(t.createdAt)}</span>
-            </div>
-          </button>
-          <CloseX onClick={() => close(t)} title="Close this terminal" />
-        </div>
-      ))}
+            <div className="flex items-stretch gap-1.5">{g.items.map((it) => card(it, g))}</div>
+          </div>
+        ) : (
+          g.items.map((it) => card(it, g))
+        ),
+      )}
       <Modal open={!!replying} onClose={() => setReplying(undefined)} title={replying ? label(replying) : ""} wide>
         {replying && (
           <div className="space-y-3">
@@ -214,7 +276,7 @@ export function SessionStrip() {
 
 function CloseX({ onClick, title }: { onClick: () => void; title: string }) {
   return (
-    <button onClick={onClick} className="absolute right-1 top-1 size-6 rounded text-faint hover:text-red hover:bg-red-soft" title={title} aria-label={title}>
+    <button onClick={onClick} className="absolute right-0.5 top-0.5 size-5 rounded text-faint hover:text-red hover:bg-red-soft text-[13px] leading-none" title={title} aria-label={title}>
       ×
     </button>
   );

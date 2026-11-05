@@ -619,10 +619,10 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   listRef.current = list;
   useEffect(
     () =>
-      onFocusRequest((term) => {
-        const home = listRef.current.find((c) => c.nodes.some((n) => n.kind === "term" && n.ref === term));
-        const node = home?.nodes.find((n) => n.kind === "term" && n.ref === term);
-        if (home && node) goToRef.current(home.id, node, 1);
+      onFocusRequest(({ kind, ref }) => {
+        const home = listRef.current.find((c) => c.nodes.some((n) => n.kind === kind && n.ref === ref));
+        const node = home?.nodes.find((n) => n.kind === kind && n.ref === ref);
+        if (home && node) goToRef.current(home.id, node, kind === "term" ? 1 : undefined);
       }),
     [],
   );

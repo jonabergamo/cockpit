@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { saveView, savedView, type TermView } from "../lib/canvas";
+import { saveView, savedView, setStripGroup, useStripGroup, type StripGroup, type TermView } from "../lib/canvas";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { Tabs } from "./ui";
 
@@ -8,6 +8,7 @@ import { Tabs } from "./ui";
 export function TerminalSection() {
   const [view, setView] = useState(savedView);
   const copy = useCopyOnSelect();
+  const group = useStripGroup();
   return (
     <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
       <div>
@@ -26,6 +27,20 @@ export function TerminalSection() {
         ]}
       />
       <p className="text-[13px] text-muted">{view === "canvas" ? "Every terminal on a canvas you arrange, with its ticket, notes, changes and runs, in workspaces. A card at the top takes you to its terminal there." : "One terminal at a time, with its changes beside it. The cards at the top are its tabs."}</p>
+      <div className="flex items-center gap-3 text-[13px]">
+        <span className="flex-1 min-w-0">
+          <span className="block">Group the cards at the top by</span>
+          <span className="block text-[12px] text-faint">{group === "ticket" ? "The ticket each one works on, the rest by workspace once there's more than one." : "The canvas workspace each one is on."}</span>
+        </span>
+        <Tabs<StripGroup>
+          value={group}
+          onChange={setStripGroup}
+          items={[
+            { value: "ticket", label: "Ticket" },
+            { value: "workspace", label: "Workspace" },
+          ]}
+        />
+      </div>
       <label className="flex items-center gap-2 text-[13px]">
         <input type="checkbox" checked={copy} onChange={(e) => termPrefs.setCopyOnSelect(e.target.checked)} />
         Copy text as soon as you select it
