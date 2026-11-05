@@ -16,6 +16,7 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
+  type FinalConnectionState,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -26,6 +27,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CanvasInfo, CanvasNode, SessionStatus, TermInfo } from "@cockpit/shared";
+import { useAgentName } from "../lib/agent";
 import { api } from "../lib/api";
 import { saveView, saveWorkspace, savedWorkspace, tabId, useCanvases } from "../lib/canvas";
 import { shortPath } from "../lib/format";
@@ -40,6 +42,7 @@ import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/Ch
 import { ActionsCtx, useActions, type Actions, type LinkData, type LinkKind } from "./canvas/context";
 import { LinkEdge, Ports } from "./canvas/LinkEdge";
 import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
+import { SpawnMenu, type SpawnKind, type SpawnOption } from "./canvas/SpawnMenu";
 import { TicketPicker } from "./canvas/TicketPicker";
 import { WaitingStrip } from "./canvas/WaitingStrip";
 import { Terminal } from "./Terminal";
@@ -144,6 +147,9 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
           {shortPath(t.cwd)}
         </span>
         <div className="ml-auto flex items-center gap-0.5 nodrag shrink-0">
+          <button type="button" onClick={(e) => a.spawn(id, e.currentTarget.getBoundingClientRect())} className={iconBtn} title="A new terminal beside this one, in its folder, linked to it" aria-label="New linked terminal">
+            +
+          </button>
           {a.others.length > 0 && (
             <select value="" onChange={(e) => e.target.value && a.move(t.id, e.target.value)} className="h-6 rounded bg-transparent text-faint hover:text-ink text-[12px] px-1 cursor-pointer" title="Move it to another workspace" aria-label="Move to workspace">
               <option value="">Move</option>
@@ -680,6 +686,67 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       await new Promise((r) => setTimeout(r, 500));
     }
   };
+  // What to open beside a card: shown where a line from it was let go over empty canvas, or under its + button.
+  // at: where the new card goes (beside the card when not said).
+  const agent = useAgentName();
+  const [spawning, setSpawning] = useState<{ from: string; x: number; y: number; at?: { x: number; y: number } }>();
+  const spawnOptions = (fromId: string): SpawnOption[] => {
+    const n = ws?.nodes.find((x) => x.id === fromId);
+    if (n?.kind === "ticket") {
+      const noWt = worktrees.data?.some((w) => w.ticket === n.ref && !w.main) ? undefined : "No worktree yet: make one from the card first";
+      return [
+        { kind: "claude", label: `${agent} on this ticket`, hint: "In its worktree, told which ticket to work on", disabled: noWt },
+        { kind: "shell", label: "Shell in its worktree", hint: "A plain terminal there", disabled: noWt },
+      ];
+    }
+    return [
+      { kind: "claude", label: `New ${agent}`, hint: "Linked to this terminal by a line" },
+      { kind: "review", label: `${agent} to review its turns`, hint: "Each turn this one finishes goes there to review" },
+      { kind: "shell", label: "New shell", hint: "A plain terminal, linked to this one" },
+    ];
+  };
+  const spawnFrom = async (fromId: string, kind: SpawnKind, at?: { x: number; y: number }) => {
+    const cur = wsRef.current;
+    const from = cur?.nodes.find((x) => x.id === fromId);
+    if (!cur || !from) return;
+    // the folder and machine it opens on: the terminal's (where it is now, or else where it started), or the ticket's worktree
+    const t = from.kind === "term" ? byId.get(from.ref) : undefined;
+    const wt = from.kind === "ticket" ? worktrees.data?.find((w) => w.ticket === from.ref && !w.main) : undefined;
+    const ticket = from.kind === "ticket" ? [...(ticketsQ.data?.tickets ?? []), ...(ticketsQ.data?.epics ?? [])].find((x) => x.key === from.ref) : undefined;
+    const node = t?.node ?? wt?.node;
+    const now = t ? (await api.get<{ cwd: string | null }>(`/code/terms/${t.id}/changes`).catch(() => ({ cwd: null }))).cwd : undefined;
+    const cwd = now ?? t?.cwd ?? wt?.path;
+    if (!cwd) return;
+    const folder = shortPath(cwd).split("/").pop() ?? cwd;
+    const open = (dir: string) =>
+      kind === "shell"
+        ? api.post<{ id: string }>("/code/terms", { cwd: dir, title: `shell · ${folder}`, node })
+        : api.post<{ id: string }>("/claude/launch", {
+            cwd: dir,
+            node,
+            title: from.kind === "ticket" ? from.ref : kind === "review" ? `review · ${folder}` : `${agent.toLowerCase()} · ${folder}`,
+            ...(from.kind === "ticket" ? { prompt: ticket?.url ?? from.ref, ticket: from.ref } : {}),
+          });
+    // a shell that cd'd somewhere cockpit doesn't open terminals in: the folder it started in instead
+    const made = await open(cwd).catch((e) => (t && cwd !== t.cwd ? open(t.cwd) : Promise.reject(e)));
+    const card = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: made.id, ...(at ?? { x: from.x + from.w + 40, y: from.y }), by: tabId });
+    const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: fromId, target: card.id, by: tabId });
+    if (kind === "review") await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "source", role: "review", limit: 3 }, by: tabId });
+    await qc.invalidateQueries({ queryKey: ["terms"] });
+    await refresh();
+    show(card);
+  };
+  // a line let go over empty canvas, from a terminal or a ticket: what to open there
+  const connectEnd = (e: MouseEvent | TouchEvent, s: FinalConnectionState) => {
+    if (s.toNode || !s.fromNode) return;
+    const kind = ws?.nodes.find((n) => n.id === s.fromNode!.id)?.kind;
+    if (kind !== "term" && kind !== "ticket") return;
+    const pt = "changedTouches" in e ? e.changedTouches[0] : e;
+    const p = flow.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
+    // the new card hangs off the side the line came out of
+    const left = p.x < s.fromNode.position.x;
+    setSpawning({ from: s.fromNode.id, x: pt.clientX, y: pt.clientY, at: { x: Math.round(left ? p.x - TERM_W : p.x), y: Math.round(p.y - TERM_H / 2) } });
+  };
   // a line drawn from one card's dot to another's
   const connect = (c: Connection) => {
     if (!ws || !c.source || !c.target || c.source === c.target) return;
@@ -729,6 +796,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, nodes: c.nodes.filter((n) => n.id !== node), edges: c.edges.filter((e) => e.source !== node && e.target !== node) })));
       guard(api.del(`/canvas/nodes/${node}?by=${tabId}`));
     },
+    spawn: (node, anchor) => setSpawning({ from: node, x: anchor.left, y: anchor.bottom + 4 }),
     setRelay: (edge, relay) => {
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.map((e) => (e.id === edge ? { ...e, relay: relay ?? undefined, hops: 0 } : e)) })));
       guard(api.patch(`/canvas/edges/${edge}`, { relay, by: tabId }).catch((e) => (refresh(), Promise.reject(e))));
@@ -826,6 +894,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
             onEdgesChange={onEdgesChange}
             edgeTypes={edgeTypes}
             onConnect={connect}
+            onConnectEnd={connectEnd}
             connectionMode={ConnectionMode.Loose}
             connectionLineStyle={{ stroke: "var(--cobalt)", strokeWidth: 2 }}
             minZoom={0.2}
@@ -843,6 +912,20 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
             <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "term" && (n.data as TermData).status === "waiting" ? "var(--amber)" : n.type === "ticket" ? "var(--cobalt)" : n.type === "changes" ? "var(--green)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
           </ReactFlow>
         </ActionsCtx.Provider>
+        {spawning && (
+          <SpawnMenu
+            x={spawning.x}
+            y={spawning.y}
+            from={found.find((c) => c.id === spawning.from)?.label ?? "it"}
+            options={spawnOptions(spawning.from)}
+            onClose={() => setSpawning(undefined)}
+            onPick={(kind) => {
+              const s = spawning;
+              setSpawning(undefined);
+              guard(spawnFrom(s.from, kind, s.at));
+            }}
+          />
+        )}
         {recap && recap.ws === ws?.id && (
           <AwayPanel
             ws={recap.ws}

@@ -91,7 +91,10 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
         {t && <StatusTag status={t.status} category={t.statusCategory} />}
         {t?.type && <span className="text-faint truncate">{t.type}</span>}
         {t?.points !== undefined && <span className="text-faint tabular-nums">{t.points} pt</span>}
-        <button type="button" onClick={() => a.removeCard(id)} className="nodrag ml-auto size-6 grid place-items-center rounded text-faint hover:text-red hover:bg-ground" title="Take it off the canvas (the ticket stays as it is)" aria-label="Remove ticket card">
+        <button type="button" onClick={(e) => a.spawn(id, e.currentTarget.getBoundingClientRect())} className="nodrag ml-auto size-6 grid place-items-center rounded text-faint hover:text-ink hover:bg-ground" title="A new terminal in its worktree, linked to it" aria-label="New linked terminal">
+          +
+        </button>
+        <button type="button" onClick={() => a.removeCard(id)} className="nodrag size-6 grid place-items-center rounded text-faint hover:text-red hover:bg-ground" title="Take it off the canvas (the ticket stays as it is)" aria-label="Remove ticket card">
           ×
         </button>
       </div>

@@ -11,6 +11,8 @@ export interface Actions {
   removeNote: (node: string) => void;
   removeCard: (node: string) => void;
   removeEdge: (edge: string) => void;
+  // the menu of what to open beside a card, in its folder, linked to it; anchored under the button that asked
+  spawn: (node: string, anchor: DOMRect) => void;
   // a line between two terminals relaying turns, or not (null)
   setRelay: (edge: string, relay: CanvasRelay | null) => void;
   // a terminal was just started from a ticket card: it gets a changes card of its own once it's on the canvas

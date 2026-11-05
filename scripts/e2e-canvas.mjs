@@ -276,6 +276,38 @@ try {
     await page.getByRole("button", { name: "Got it" }).click();
   });
 
+  await step("a line let go over empty canvas, or a card's +, opens a terminal beside it, in its folder and linked", async () => {
+    const termCards = async () => (await api("GET", "/canvas")).flatMap((c) => c.nodes.filter((n) => n.kind === "term").map((n) => ({ ...n, canvas: c })));
+    const from = (await termCards()).find((n) => n.ref === globalThis.charlie);
+    const before = new Set((await termCards()).map((n) => n.ref));
+    await page.goto(`${base}/terminals?view=canvas&id=${globalThis.charlie}`);
+    await page.waitForSelector(`[data-card="${globalThis.charlie}"] .xterm-rows`);
+    await page.locator(".react-flow__controls-zoomout").click();
+    await page.locator(".react-flow__controls-zoomout").click();
+    await page.waitForTimeout(400);
+    // from charlie's right dot to empty canvas under every card
+    const dot = await page.locator(`.react-flow__node:has([data-card="${globalThis.charlie}"]) .react-flow__handle-right`).boundingBox();
+    const pane = await page.locator(".react-flow__pane").boundingBox();
+    const bottom = await page.evaluate(() => Math.max(...[...document.querySelectorAll(".react-flow__node")].map((n) => n.getBoundingClientRect().bottom)));
+    const drop = { x: dot.x + 120, y: Math.min(bottom + 60, pane.y + pane.height - 30) };
+    await page.mouse.move(dot.x + dot.width / 2, dot.y + dot.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(drop.x, drop.y, { steps: 10 });
+    await page.mouse.up();
+    await page.getByRole("menu").getByRole("menuitem", { name: /New shell/ }).click();
+    const made = await until("a new shell", async () => (await termCards()).find((n) => !before.has(n.ref)), 15_000);
+    const terms = await api("GET", "/code/terms");
+    expect(terms.find((t) => t.id === made.ref)?.cwd === terms.find((t) => t.id === globalThis.charlie)?.cwd, "it didn't open in charlie's folder");
+    await until("linked to charlie", async () => (await api("GET", "/canvas")).flatMap((c) => c.edges).some((e) => (e.source === from.id && e.target === made.id) || (e.target === from.id && e.source === made.id)));
+    // and from that one's +, another beside it
+    await page.waitForSelector(`[data-card="${made.ref}"]`);
+    await page.locator(`[data-card="${made.ref}"]`).getByRole("button", { name: "New linked terminal" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: /New shell/ }).click();
+    const next = await until("another", async () => (await termCards()).find((n) => !before.has(n.ref) && n.ref !== made.ref), 15_000);
+    expect(Math.abs(next.y - made.y) < 1 && next.x > made.x, "it isn't beside the one it came from");
+    await until("linked to it", async () => (await api("GET", "/canvas")).flatMap((c) => c.edges).some((e) => e.source === made.id && e.target === next.id));
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);
