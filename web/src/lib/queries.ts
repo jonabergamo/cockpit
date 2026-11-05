@@ -70,6 +70,8 @@ export interface RunsFilter {
   ticket?: string;
   worktree?: string;
   limit?: number;
+  terminal?: string;
+  session?: string;
 }
 export const useRuns = (f: RunsFilter = {}) => useQuery({ queryKey: ["runs", f], queryFn: () => api.get<Run[]>(`/runs${qs({ ...f })}`) });
 export const useRun = (id: string) =>

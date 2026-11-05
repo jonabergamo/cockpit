@@ -10,7 +10,7 @@ export interface FoundCard {
   detail?: string;
 }
 
-const KIND = { term: "terminal", ticket: "ticket", note: "note", changes: "changes" } as Record<string, string>;
+const KIND = { term: "terminal", ticket: "ticket", note: "note", changes: "changes", runs: "runs" } as Record<string, string>;
 
 // "/" on the canvas: any card on any workspace by its name, and Enter goes to it
 export function CardFinder({ open, cards, onClose, onPick }: { open: boolean; cards: FoundCard[]; onClose: () => void; onPick: (c: FoundCard) => void }) {

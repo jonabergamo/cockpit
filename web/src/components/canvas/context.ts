@@ -18,7 +18,13 @@ export interface Actions {
   // a terminal was just started from a ticket card: it gets a changes card of its own once it's on the canvas
   started: (ticketNode: string, term: string) => void;
   fail: (e: unknown) => void;
+  // how a card is doing, for the minimap: a ticket's CI, a runs card's latest runs
+  tone: (node: string, tone?: CardTone) => void;
+  // a card you sized yourself following its content again
+  fit: (node: string) => void;
 }
+
+export type CardTone = "fail" | "warn" | "running" | "pass";
 
 export const ActionsCtx = createContext<Actions | null>(null);
 export const useActions = () => useContext(ActionsCtx)!;

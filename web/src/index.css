@@ -381,6 +381,22 @@ body {
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 35%, transparent);
   }
 }
+/* on the map, what waits on you or fails pulses */
+.canvas-map .react-flow__minimap-node.map-waiting,
+.canvas-map .react-flow__minimap-node.map-fail {
+  animation: canvas-map-pulse 1.4s ease-in-out infinite;
+}
+@keyframes canvas-map-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-map .react-flow__minimap-node.map-waiting,
+  .canvas-map .react-flow__minimap-node.map-fail {
+    animation: none;
+  }
+}
 /* a line between two terminals relaying their turns */
 .cockpit-canvas .canvas-link-relay {
   stroke: var(--cobalt);

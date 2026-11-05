@@ -39,8 +39,10 @@ import { useTerms } from "../pages/Terminals";
 import { AwayPanel } from "./canvas/AwayPanel";
 import { CardFinder, type FoundCard } from "./canvas/CardFinder";
 import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
-import { ActionsCtx, useActions, type Actions, type LinkData, type LinkKind } from "./canvas/context";
+import { ActionsCtx, useActions, type Actions, type CardTone, type LinkData, type LinkKind } from "./canvas/context";
+import { useFit } from "./canvas/fit";
 import { LinkEdge, Ports } from "./canvas/LinkEdge";
+import { RunsCard, type RunsCardNode, type RunsFrom } from "./canvas/RunsCard";
 import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
 import { SpawnMenu, type SpawnKind, type SpawnOption } from "./canvas/SpawnMenu";
 import { TicketPicker } from "./canvas/TicketPicker";
@@ -56,13 +58,15 @@ const TICKET_W = 340;
 const TICKET_H = 190;
 const CHANGES_W = 440;
 const CHANGES_H = 420;
+const RUNS_W = 440;
+const RUNS_H = 320;
 
 // status: what its agent is doing, when an agent runs in it (busy, waiting on you, idle)
 type TermData = { term: TermInfo; title: string; status?: SessionStatus; session?: string };
-type NoteData = { fresh: boolean };
+type NoteData = { fresh: boolean; fit?: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
-type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode;
+type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode | RunsCardNode;
 type LinkEdgeT = Edge<LinkData, "link">;
 
 const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
@@ -207,9 +211,10 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
     [],
   );
   const heading = value.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") || "Note";
+  const fit = useFit({ id, selected, fit: data.fit, max: 560, minWidth: 200, minHeight: 100 });
   return (
-    <div className={`h-full w-full flex flex-col rounded-lg border bg-raised shadow-md overflow-hidden ${selected ? "border-cobalt" : "border-line"}`} data-note={id}>
-      <NodeResizer isVisible={selected} minWidth={200} minHeight={140} color="var(--cobalt)" />
+    <div className={`w-full flex flex-col rounded-lg border bg-raised shadow-md overflow-hidden ${selected ? "border-cobalt" : "border-line"}`} style={fit.style} data-note={id}>
+      {fit.resizer}
       <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 border-b border-line text-[12px] shrink-0">
         <span className="truncate font-medium text-muted">{heading}</span>
@@ -229,11 +234,12 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
           onChange={(e) => type(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
           placeholder="Markdown: what this workspace is for, what's next, links..."
-          className="nodrag nowheel nopan flex-1 min-h-0 w-full resize-none bg-transparent p-3 font-mono text-[13px] text-ink placeholder:text-faint outline-none"
+          rows={data.fit ? Math.max(5, value.split("\n").length + 1) : undefined}
+          className="nodrag nowheel nopan flex-auto min-h-0 w-full resize-none bg-transparent p-3 font-mono text-[13px] text-ink placeholder:text-faint outline-none"
           aria-label="Note text"
         />
       ) : (
-        <div className="nowheel flex-1 min-h-0 overflow-auto p-3 text-[13px]" onDoubleClick={() => setEditing(true)}>
+        <div className="nowheel flex-auto min-h-0 overflow-auto p-3 text-[13px]" onDoubleClick={() => setEditing(true)}>
           {value.trim() ? <Markdown>{value}</Markdown> : <span className="text-faint">Empty. Double-click to write.</span>}
         </div>
       )}
@@ -241,11 +247,23 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   );
 }
 
-const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard, changes: ChangesCard };
+const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard, changes: ChangesCard, runs: RunsCard };
 const edgeTypes = { link: LinkEdge };
 
 // what a line between these two kinds of card stands for
-const kindOf = (a?: string, b?: string): LinkKind => (a === "changes" || b === "changes" ? "watch" : a === "note" || b === "note" ? "note" : a === "ticket" || b === "ticket" ? "work" : "talk");
+const watches = (k?: string) => k === "changes" || k === "runs";
+const kindOf = (a?: string, b?: string): LinkKind => (watches(a) || watches(b) ? "watch" : a === "note" || b === "note" ? "note" : a === "ticket" || b === "ticket" ? "work" : "talk");
+
+// the minimap's colours: waiting on you, working, failing and passing stand out from across the canvas
+const TONE_COLOUR: Record<CardTone, string> = { fail: "var(--red)", warn: "var(--amber)", running: "var(--cobalt)", pass: "var(--green)" };
+const MAP = "cockpit.canvasMap";
+const readMap = () => {
+  try {
+    return localStorage.getItem(MAP) !== "0";
+  } catch {
+    return true;
+  }
+};
 
 // away this long and coming back shows what happened meanwhile
 const AWAY_MS = 15 * 60_000;
@@ -425,6 +443,15 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   }, [wsId]);
   const [finding, setFinding] = useState(false);
   const [keysShown, setKeysShown] = useState(false);
+  const [tones, setTones] = useState<Record<string, CardTone | undefined>>({});
+  const [mapShown, setMapShown] = useState(readMap);
+  const toggleMap = () =>
+    setMapShown((v) => {
+      try {
+        localStorage.setItem(MAP, v ? "0" : "1");
+      } catch {}
+      return !v;
+    });
   const ticketsQ = useTickets();
   const found: FoundCard[] = list.flatMap((c) =>
     c.nodes.flatMap((n): FoundCard[] => {
@@ -435,7 +462,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       }
       if (n.kind === "ticket") return [{ ...base, label: n.ref, detail: [...(ticketsQ.data?.tickets ?? []), ...(ticketsQ.data?.epics ?? [])].find((t) => t.key === n.ref)?.summary }];
       if (n.kind === "note") return [{ ...base, label: qc.getQueryData<{ text: string }>(["note", n.id])?.text.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") || "Note" }];
-      return [{ ...base, label: "Changes" }];
+      return [{ ...base, label: n.kind === "runs" ? "Runs" : "Changes" }];
     }),
   );
 
@@ -484,6 +511,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       } else if (e.key === "w") goWaiting();
       else if (e.key === "f") flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 });
       else if (e.key === "?") setKeysShown((v) => !v);
+      else if (e.key === "m") toggleMap();
       else if (/^[1-9]$/.test(e.key) && list[Number(e.key) - 1]) pick(list[Number(e.key) - 1].id);
     };
     window.addEventListener("keydown", onKey);
@@ -507,23 +535,36 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
         if (wt) return { root: wt.path, node: wt.node, label: n!.ref };
       }
     };
+    // a runs card shows what the terminal it's linked to ran, or else the ticket's runs
+    const runsOf = (id: string): RunsFrom | undefined => {
+      const ends = links.filter((e) => e.source === id || e.target === id).map((e) => cards.get(e.source === id ? e.target : e.source));
+      const t = ends.map((n) => (n?.kind === "term" ? byId.get(n.ref) : undefined)).find(Boolean);
+      if (t) return { term: t.id, node: t.node, label: titleOf(t), session: sessionOf(t)?.id };
+      const tk = ends.find((n) => n?.kind === "ticket");
+      if (tk) return { ticket: tk.ref, label: tk.ref };
+    };
     setNodes((prev) => {
       const old = new Map(prev.map((n) => [n.id, n]));
       const out: CardNode[] = [];
       for (const n of ws.nodes) {
         const was = old.get(n.id);
         const keep = moving.current.has(n.id) ? was : undefined;
-        const base = { id: n.id, position: keep?.position ?? { x: n.x, y: n.y }, width: keep?.width ?? n.w, height: keep?.height ?? n.h, dragHandle: ".card-handle", selected: was?.selected };
+        // a card that fits its content is left without a height, so it takes what it shows
+        const base = { id: n.id, position: keep?.position ?? { x: n.x, y: n.y }, width: keep?.width ?? n.w, height: keep?.height ?? (n.fit ? undefined : n.h), initialHeight: n.h, dragHandle: ".card-handle", selected: was?.selected };
         if (n.kind === "note") {
-          out.push({ ...base, type: "note", data: { fresh: n.id === fresh } });
+          out.push({ ...base, type: "note", data: { fresh: n.id === fresh, fit: n.fit } });
           continue;
         }
         if (n.kind === "ticket") {
-          out.push({ ...base, type: "ticket", data: { key: n.ref, terms: linked(n.id) } });
+          out.push({ ...base, type: "ticket", data: { key: n.ref, terms: linked(n.id), fit: n.fit } });
           continue;
         }
         if (n.kind === "changes") {
-          out.push({ ...base, type: "changes", data: { from: fromOf(n.id) } });
+          out.push({ ...base, type: "changes", data: { from: fromOf(n.id), fit: n.fit } });
+          continue;
+        }
+        if (n.kind === "runs") {
+          out.push({ ...base, type: "runs", data: { from: runsOf(n.id), fit: n.fit } });
           continue;
         }
         // its terminal has closed, or its machine hasn't listed it yet
@@ -581,12 +622,20 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticket, list, ws, nodes, flow]);
 
-  // once a drag or resize ends, the new place goes to the server and to the cached copy at once
-  const commit = (ids: string[]) =>
+  // once a drag or resize ends, the new place goes to the server and to the cached copy at once. A card that fit
+  // its content and was given another height by hand keeps that height from then on (dragging only its width
+  // doesn't count); from: each resized card's height when the resize started.
+  const commit = (ids: string[], from = new Map<string, number>()) =>
     setTimeout(() => {
       const cur = wsRef.current;
       if (!cur) return;
-      const boxes = nodesRef.current.filter((n) => ids.includes(n.id)).map((n) => ({ id: n.id, x: n.position.x, y: n.position.y, w: n.width ?? n.measured?.width ?? TERM_W, h: n.height ?? n.measured?.height ?? TERM_H }));
+      const boxes = nodesRef.current
+        .filter((n) => ids.includes(n.id))
+        .map((n) => {
+          const h = n.height ?? n.measured?.height ?? TERM_H;
+          const start = from.get(n.id);
+          return { id: n.id, x: n.position.x, y: n.position.y, w: n.width ?? n.measured?.width ?? TERM_W, h, ...(start !== undefined && n.type !== "term" && Math.abs(h - start) > 4 ? { fit: false } : {}) };
+        });
       const at = new Map(boxes.map((b) => [b.id, b]));
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => (c.id !== cur.id ? c : { ...c, nodes: c.nodes.map((n) => ({ ...n, ...at.get(n.id) })) })));
       ids.forEach((i) => moving.current.delete(i));
@@ -596,17 +645,49 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       });
     }, 50);
 
+  // the height each card had when you started resizing it
+  const sizedFrom = useRef(new Map<string, number>());
+  // a card that fits its content tells the server its height once it settles, so new cards go clear of it
+  const grown = useRef(new Set<string>());
+  const growTimer = useRef(0);
+  const grew = (id: string) => {
+    if (!wsRef.current?.nodes.find((n) => n.id === id)?.fit || moving.current.has(id)) return;
+    grown.current.add(id);
+    clearTimeout(growTimer.current);
+    growTimer.current = window.setTimeout(() => {
+      const stored = new Map(wsRef.current?.nodes.map((n) => [n.id, n.h]));
+      const ids = [...grown.current].filter((i) => {
+        const n = nodesRef.current.find((x) => x.id === i);
+        const h = n?.measured?.height;
+        return !!h && Math.abs(h - (stored.get(i) ?? 0)) > 8;
+      });
+      grown.current.clear();
+      if (ids.length) commit(ids);
+    }, 1500);
+  };
   const onNodesChange = (changes: NodeChange<CardNode>[]) => {
     // cards only leave through their own buttons
     applyChanges(changes.filter((c) => c.type !== "remove"));
     const ended: string[] = [];
     for (const c of changes) {
       if (c.type !== "position" && c.type !== "dimensions") continue;
+      if (c.type === "dimensions" && c.resizing === undefined) {
+        grew(c.id);
+        continue;
+      }
       const busy = c.type === "position" ? c.dragging : c.resizing;
+      if (c.type === "dimensions" && c.resizing && !sizedFrom.current.has(c.id)) {
+        const n = nodesRef.current.find((x) => x.id === c.id);
+        sizedFrom.current.set(c.id, n?.height ?? n?.measured?.height ?? 0);
+      }
       if (busy) moving.current.add(c.id);
       else if (busy === false) ended.push(c.id);
     }
-    if (ended.length) commit(ended);
+    if (ended.length) {
+      const from = new Map(ended.flatMap((i) => (sizedFrom.current.has(i) ? [[i, sizedFrom.current.get(i)!] as const] : [])));
+      ended.forEach((i) => sizedFrom.current.delete(i));
+      commit(ended, from);
+    }
   };
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["canvas"] });
@@ -666,8 +747,19 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       }),
     );
   };
+  // the same for a runs card
+  const newRuns = () => {
+    if (!ws) return;
+    const sel = nodesRef.current.find((n) => n.selected && (n.type === "term" || n.type === "ticket"));
+    guard(
+      api.post<{ node: CanvasNode }>(`/canvas/${ws.id}/runs`, { ...centre(RUNS_W, RUNS_H), link: sel?.id, by: tabId }).then(async ({ node }) => {
+        await refresh();
+        show(node);
+      }),
+    );
+  };
   // Started from a ticket card: once the new terminal is on the canvas (the server places it beside the ticket),
-  // a changes card goes under it, linked, unless that ticket's work already has one.
+  // a changes card and a runs card go under it, linked, unless that ticket's work already has them.
   const started = async (ticketNode: string, term: string) => {
     const wsId = wsRef.current?.id;
     if (!wsId) return;
@@ -676,11 +768,13 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       const card = cur?.nodes.find((n) => n.kind === "term" && n.ref === term);
       if (cur && card) {
         const near = new Set([ticketNode, ...cur.edges.filter((e) => e.source === ticketNode || e.target === ticketNode).flatMap((e) => [e.source, e.target])]);
-        const watched = cur.edges.some((e) => {
-          const other = near.has(e.source) ? e.target : near.has(e.target) ? e.source : undefined;
-          return other && cur.nodes.find((n) => n.id === other)?.kind === "changes";
-        });
-        if (!watched) await guard(api.post(`/canvas/${wsId}/changes`, { link: card.id, by: tabId }).then(refresh));
+        const watched = (kind: "changes" | "runs") =>
+          cur.edges.some((e) => {
+            const other = near.has(e.source) ? e.target : near.has(e.target) ? e.source : undefined;
+            return other && cur.nodes.find((n) => n.id === other)?.kind === kind;
+          });
+        for (const kind of ["changes", "runs"] as const) if (!watched(kind)) await guard(api.post(`/canvas/${wsId}/${kind}`, { link: card.id, by: tabId }));
+        await refresh();
         return;
       }
       await new Promise((r) => setTimeout(r, 500));
@@ -697,18 +791,30 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       return [
         { kind: "claude", label: `${agent} on this ticket`, hint: "In its worktree, told which ticket to work on", disabled: noWt },
         { kind: "shell", label: "Shell in its worktree", hint: "A plain terminal there", disabled: noWt },
+        { kind: "changes", label: "Changes card", hint: "Its branch: the files and commits", disabled: noWt },
+        { kind: "runs", label: "Runs card", hint: "Its tests, lint, e2e and CI as they run" },
       ];
     }
     return [
       { kind: "claude", label: `New ${agent}`, hint: "Linked to this terminal by a line" },
       { kind: "review", label: `${agent} to review its turns`, hint: "Each turn this one finishes goes there to review" },
       { kind: "shell", label: "New shell", hint: "A plain terminal, linked to this one" },
+      { kind: "changes", label: "Changes card", hint: "The branch it's on: files and commits" },
+      { kind: "runs", label: "Runs card", hint: "The tests, lint and e2e it runs, as they go" },
     ];
   };
   const spawnFrom = async (fromId: string, kind: SpawnKind, at?: { x: number; y: number }) => {
     const cur = wsRef.current;
     const from = cur?.nodes.find((x) => x.id === fromId);
     if (!cur || !from) return;
+    // a card that watches it goes where the line was let go, or under it
+    if (kind === "changes" || kind === "runs") {
+      const { node } = await api.post<{ node: CanvasNode }>(`/canvas/${cur.id}/${kind}`, { ...(at ?? {}), link: at ? undefined : fromId, by: tabId });
+      if (at) await api.post(`/canvas/${cur.id}/edges`, { source: fromId, target: node.id, by: tabId });
+      await refresh();
+      show(node);
+      return;
+    }
     // the folder and machine it opens on: the terminal's (where it is now, or else where it started), or the ticket's worktree
     const t = from.kind === "term" ? byId.get(from.ref) : undefined;
     const wt = from.kind === "ticket" ? worktrees.data?.find((w) => w.ticket === from.ref && !w.main) : undefined;
@@ -807,6 +913,23 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     },
     started: (ticketNode, term) => void started(ticketNode, term),
     fail: setErr,
+    tone: (node, tone) => setTones((t) => (t[node] === tone ? t : { ...t, [node]: tone })),
+    fit: (node) => {
+      const cur = wsRef.current;
+      const n = nodesRef.current.find((x) => x.id === node);
+      if (!cur || !n) return;
+      const box = { id: node, x: n.position.x, y: n.position.y, w: n.width ?? n.measured?.width ?? RUNS_W, h: n.height ?? n.measured?.height ?? RUNS_H, fit: true };
+      qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => (c.id !== cur.id ? c : { ...c, nodes: c.nodes.map((x) => (x.id === node ? { ...x, fit: true } : x)) })));
+      guard(api.put(`/canvas/${cur.id}/layout`, { nodes: [box], by: tabId }));
+    },
+  };
+  // the colour of each card on the minimap, and whether it pulses there
+  const mapTone = (n: CardNode): CardTone | "waiting" | undefined => (n.type === "term" ? (n.data.status === "waiting" && n.data.session ? "waiting" : n.data.status === "busy" ? "running" : undefined) : tones[n.id]);
+  const mapColour = (n: CardNode) => {
+    const t = mapTone(n);
+    if (t === "waiting") return "var(--amber)";
+    if (t) return TONE_COLOUR[t];
+    return n.type === "ticket" ? "color-mix(in srgb, var(--cobalt) 40%, var(--panel))" : n.type === "note" ? "var(--line)" : "var(--faint)";
   };
 
   return (
@@ -869,11 +992,17 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           <Button size="sm" variant="ghost" onClick={newChanges} title="A card with the code changes on a branch: link it to a terminal or a ticket (or select one first)">
             + Changes
           </Button>
+          <Button size="sm" variant="ghost" onClick={newRuns} title="A card with the tests, lint, e2e and CI runs of a terminal or a ticket: link it to one (or select one first)">
+            + Runs
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
             Fit
           </Button>
           <Button size="sm" variant={recap ? "default" : "ghost"} onClick={() => (recap ? setRecap(undefined) : ws && setRecap({ ws: ws.id, since: Date.now() - 2 * 3600_000, asked: true }))} title="What the agents on this workspace did in the last two hours" className="hidden md:inline-flex">
             Recap
+          </Button>
+          <Button size="sm" variant={mapShown ? "default" : "ghost"} onClick={toggleMap} title="The map of this workspace, each card coloured by how it's doing (m)" className="hidden md:inline-flex">
+            Map
           </Button>
           <Button size="sm" variant={keysShown ? "default" : "ghost"} onClick={() => setKeysShown(!keysShown)} title="The keys that move around the canvas (?)" className="hidden md:inline-flex">
             Keys
@@ -909,9 +1038,40 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           >
             <Background gap={24} color="var(--line)" />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "term" && (n.data as TermData).status === "waiting" ? "var(--amber)" : n.type === "ticket" ? "var(--cobalt)" : n.type === "changes" ? "var(--green)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
+            {mapShown && (
+              <MiniMap
+                pannable
+                zoomable
+                bgColor="var(--panel)"
+                maskColor="color-mix(in srgb, var(--ground) 70%, transparent)"
+                nodeColor={mapColour}
+                nodeClassName={(n) => {
+                  const t = mapTone(n);
+                  return t ? `map-${t}` : "";
+                }}
+                nodeBorderRadius={6}
+                className="hidden md:block canvas-map"
+              />
+            )}
           </ReactFlow>
         </ActionsCtx.Provider>
+        {mapShown && nodes.length > 0 && (
+          <div className="absolute right-[15px] bottom-[170px] z-[5] hidden md:flex items-center gap-2.5 px-2 h-6 rounded-md border border-line bg-panel/90 text-[11px] text-muted pointer-events-none" aria-label="Map colours">
+            {(
+              [
+                ["var(--amber)", "waiting"],
+                ["var(--cobalt)", "working"],
+                ["var(--red)", "failing"],
+                ["var(--green)", "passing"],
+              ] as const
+            ).map(([c, what]) => (
+              <span key={what} className="flex items-center gap-1">
+                <span className="size-2 rounded-sm" style={{ background: c }} />
+                {what}
+              </span>
+            ))}
+          </div>
+        )}
         {spawning && (
           <SpawnMenu
             x={spawning.x}
@@ -963,6 +1123,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
                 ["/", "find any card"],
                 ["w", "the next terminal waiting on you"],
                 ["f", "fit every card on screen"],
+                ["m", "the map, coloured by how each card is doing"],
                 ["1–9", "a workspace"],
                 ["?", "these keys"],
               ].map(([k, what]) => (

@@ -46,6 +46,8 @@ for (const [col, type] of [
   ["hops", "integer not null default 0"],
 ] as const)
   if (!db.prepare<[], { name: string }>("pragma table_info(canvas_edges)").all().some((c) => c.name === col)) db.exec(`alter table canvas_edges add column ${col} ${type}`);
+// a card that sizes its height to what it shows (0 once you size it yourself); unset is the card's own default
+if (!db.prepare<[], { name: string }>("pragma table_info(canvas_nodes)").all().some((c) => c.name === "fit")) db.exec("alter table canvas_nodes add column fit integer");
 
 export const TERM_W = 720;
 export const TERM_H = 440;
@@ -55,15 +57,17 @@ export const TICKET_W = 340;
 export const TICKET_H = 190;
 export const CHANGES_W = 440;
 export const CHANGES_H = 420;
+export const RUNS_W = 440;
+export const RUNS_H = 320;
 const GAP = 40;
 
-type NodeRow = CanvasNode & { canvas: string };
+type NodeRow = Omit<CanvasNode, "fit"> & { canvas: string; fit: number | null };
 type At = { x: number; y: number };
 
 const notesDir = (canvas: string) => join(paths.data, "canvas", canvas);
 const notePath = (canvas: string, file: string) => join(notesDir(canvas), file);
 
-const COLS = "id, canvas, kind, ref, x, y, w, h";
+const COLS = "id, canvas, kind, ref, x, y, w, h, fit";
 const rowsOf = (canvas: string) => db.prepare<[string], NodeRow>(`select ${COLS} from canvas_nodes where canvas = ? order by created_at`).all(canvas);
 const nodeRow = (id: string) => db.prepare<[string], NodeRow>(`select ${COLS} from canvas_nodes where id = ?`).get(id);
 const refRow = (kind: CanvasNode["kind"], ref: string) => db.prepare<[string, string], NodeRow>(`select ${COLS} from canvas_nodes where kind = ? and ref = ?`).get(kind, ref);
@@ -71,7 +75,8 @@ const canvasRow = (id: string) => db.prepare<[string], { id: string; name: strin
 type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number };
 const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops } : {}) });
 const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
-const strip = ({ canvas: _, ...n }: NodeRow): CanvasNode => n;
+// every card but a terminal fits its content until you size it yourself
+const strip = ({ canvas: _, fit, ...n }: NodeRow): CanvasNode => (n.kind === "term" ? n : { ...n, fit: fit !== 0 });
 
 // there's always a first workspace, for the terminals opened elsewhere to land on
 function first() {
@@ -142,7 +147,7 @@ function place(canvas: string, kind: CanvasNode["kind"], ref: string, w: number,
   const spot = freeSpot(rowsOf(canvas), w, h, at);
   const id = randomUUID();
   db.prepare("insert into canvas_nodes (id, canvas, kind, ref, x, y, w, h, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, canvas, kind, ref, spot.x, spot.y, w, h, Date.now());
-  return { id, kind, ref, x: spot.x, y: spot.y, w, h } satisfies CanvasNode;
+  return strip({ id, canvas, kind, ref, x: spot.x, y: spot.y, w, h, fit: null });
 }
 
 // A terminal or a ticket onto a workspace, taken off the one it was on (and out of that one's lines)
@@ -175,14 +180,17 @@ export function addNote(canvas: string, at?: At, text = "") {
   return place(canvas, "note", file, NOTE_W, NOTE_H, at);
 }
 
-// A changes card shows the branch of what it's linked to. Given a card to link it to, it goes under that card.
-export function addChanges(canvas: string, at?: At, link?: string) {
+// A changes card shows the branch of what it's linked to, a runs card its runs (tests, lint, e2e, CI...). Given a
+// card to link it to, it goes under that card, beside any other card already hanging there.
+function addPanel(kind: "changes" | "runs", w: number, h: number, canvas: string, at?: At, link?: string) {
   if (!canvasRow(canvas)) throw new Error("No such workspace");
   const to = link ? nodeRow(link) : undefined;
   if (link && to?.canvas !== canvas) throw new Error("That card isn't on this workspace");
-  const n = place(canvas, "changes", randomUUID(), CHANGES_W, CHANGES_H, to ? { x: to.x, y: to.y + to.h + GAP } : at);
+  const n = place(canvas, kind, randomUUID(), w, h, to ? { x: to.x, y: to.y + to.h + GAP } : at);
   return { node: n, edge: to ? addEdge(canvas, to.id, n.id) : undefined };
 }
+export const addChanges = (canvas: string, at?: At, link?: string) => addPanel("changes", CHANGES_W, CHANGES_H, canvas, at, link);
+export const addRuns = (canvas: string, at?: At, link?: string) => addPanel("runs", RUNS_W, RUNS_H, canvas, at, link);
 
 export function readNote(node: string) {
   const n = nodeRow(node);
@@ -270,11 +278,12 @@ export function resetHops(term: string) {
   return db.prepare("update canvas_edges set hops = 0 where relay is not null and hops > 0 and (source = ? or target = ?)").run(card.id, card.id).changes > 0;
 }
 
-// where cards were dragged or resized to; ids from another workspace are left alone
-export function saveLayout(canvas: string, nodes: Pick<CanvasNode, "id" | "x" | "y" | "w" | "h">[]) {
-  const update = db.prepare("update canvas_nodes set x = ?, y = ?, w = ?, h = ? where id = ? and canvas = ?");
+// where cards were dragged or resized to, and whether each still fits its content; ids from another workspace are
+// left alone. A card that fits its content sends its height as it grows, so new cards aren't placed over it.
+export function saveLayout(canvas: string, nodes: (Pick<CanvasNode, "id" | "x" | "y" | "w" | "h"> & { fit?: boolean })[]) {
+  const update = db.prepare("update canvas_nodes set x = ?, y = ?, w = ?, h = ?, fit = coalesce(?, fit) where id = ? and canvas = ?");
   db.transaction(() => {
-    for (const n of nodes) if ([n.x, n.y, n.w, n.h].every(Number.isFinite)) update.run(n.x, n.y, Math.max(160, n.w), Math.max(120, n.h), n.id, canvas);
+    for (const n of nodes) if ([n.x, n.y, n.w, n.h].every(Number.isFinite)) update.run(n.x, n.y, Math.max(160, n.w), Math.max(80, n.h), typeof n.fit === "boolean" ? Number(n.fit) : null, n.id, canvas);
   })();
 }
 
@@ -319,7 +328,7 @@ export function syncTerms(terms: TermInfo[], ticketOf: (t: TermInfo) => string |
     const canvas = beside?.canvas ?? to;
     const n = place(canvas, "term", t.id, TERM_W, TERM_H, beside && { x: beside.x + beside.w + GAP, y: beside.y });
     setNode.run(t.node ?? "local", n.id);
-    placed.set(t.id, { ...n, canvas, node: t.node ?? "local" });
+    placed.set(t.id, { ...n, canvas, fit: null, node: t.node ?? "local" });
     changed = true;
   }
   if (changed) tidyEdges();

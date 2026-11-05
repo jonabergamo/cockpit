@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
-export type SpawnKind = "claude" | "review" | "shell";
+// a terminal, or a card that watches the one it came from
+export type SpawnKind = "claude" | "review" | "shell" | "changes" | "runs";
 export interface SpawnOption {
   kind: SpawnKind;
   label: string;

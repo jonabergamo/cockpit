@@ -69,7 +69,7 @@ export const canvasRoutes = new Hono()
     return c.json({ ok: true });
   })
   .put("/:id/layout", async (c) => {
-    const b = await c.req.json<{ nodes: { id: string; x: number; y: number; w: number; h: number }[]; by?: string }>();
+    const b = await c.req.json<{ nodes: { id: string; x: number; y: number; w: number; h: number; fit?: boolean }[]; by?: string }>();
     canvas.saveLayout(c.req.param("id"), b.nodes ?? []);
     changed(b.by);
     return c.json({ ok: true });
@@ -110,6 +110,16 @@ export const canvasRoutes = new Hono()
     const b = await c.req.json<At & { link?: string }>();
     try {
       const made = canvas.addChanges(c.req.param("id"), at(b), b.link);
+      changed(b.by);
+      return c.json(made);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
+  .post("/:id/runs", async (c) => {
+    const b = await c.req.json<At & { link?: string }>();
+    try {
+      const made = canvas.addRuns(c.req.param("id"), at(b), b.link);
       changed(b.by);
       return c.json(made);
     } catch (e) {

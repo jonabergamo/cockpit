@@ -110,6 +110,32 @@ try {
     expect((await edges()).length === 1, "its line is still there");
   });
 
+  await step("a runs card from a ticket's + shows that ticket's runs, a failing one opened", async () => {
+    // the demo doesn't record runs, so the list the card asks for is made up here
+    const now = Date.now();
+    const run = (id, status, startedAt) => ({ id, kind: "e2e", name: "checkout flow", source: "script", ticket: "ACME-418", command: "pnpm e2e checkout", status, startedAt, updatedAt: startedAt + 30_000, endedAt: startedAt + 30_000, summary: status === "fail" ? { failed: 1, passed: 3, failing: ["pays with a saved card"] } : { passed: 4 }, artifacts: [], meta: {} });
+    let asked;
+    await page.route(/\/api\/runs\?/, (r) => {
+      asked = new URL(r.request().url()).searchParams.get("ticket");
+      return r.fulfill({ json: [run("r2", "fail", now - 60_000), run("r1", "pass", now - 3_600_000)] });
+    });
+    await page.route(/\/api\/runs\/r2\?/, (r) => r.fulfill({ json: { ...run("r2", "fail", now - 60_000), tail: ["✗ pays with a saved card", "expected 200, got 500"], steps: [], panels: [] } }));
+    await fit();
+    await page.locator(ticket("ACME-418")).getByRole("button", { name: "New linked terminal" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: /Runs card/ }).click();
+    const card = page.locator("[data-runs]");
+    await card.getByText("1 failing").waitFor();
+    expect(asked === "ACME-418", `it asked for the runs of ${asked}`);
+    expect((await card.locator("[data-run]").count()) === 1, "the two runs of one command aren't one row");
+    await card.getByText("expected 200, got 500").waitFor();
+    await card.getByRole("button", { name: "Open the run" }).waitFor();
+    expect((await card.getAttribute("data-tone")) === "fail", "the card isn't red");
+    const node = (await api("GET", "/canvas")).flatMap((c) => c.nodes).find((n) => n.kind === "runs");
+    const t418 = await cockpit.canvasOf("ticket", "ACME-418");
+    expect(!!node && (await edges()).some((e) => e.target === node.id && t418.nodes.some((n) => n.id === e.source && n.kind === "ticket")), "it isn't linked to the ticket");
+    await page.unroute(/\/api\/runs/);
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

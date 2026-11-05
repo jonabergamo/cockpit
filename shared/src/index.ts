@@ -135,14 +135,16 @@ export type TermState = "running" | "disconnected" | "exited";
 // linking them. A terminal or a ticket sits on one workspace at a time; a note is a markdown file of its own.
 export interface CanvasNode {
   id: string;
-  // changes: the branch changes of whatever terminal or ticket it's linked to
-  kind: "term" | "note" | "ticket" | "changes";
-  // the terminal's id, the ticket's key, or the note's file name (a changes card's own id, it has nothing else)
+  // changes: the branch changes of whatever terminal or ticket it's linked to; runs: its tests, lint, e2e, CI...
+  kind: "term" | "note" | "ticket" | "changes" | "runs";
+  // the terminal's id, the ticket's key, or the note's file name (a changes or runs card's own id, it has nothing else)
   ref: string;
   x: number;
   y: number;
   w: number;
   h: number;
+  // every card but a terminal: its height follows what it shows, until you size it yourself
+  fit?: boolean;
 }
 
 // a line you drew between two cards of a workspace

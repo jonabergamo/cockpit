@@ -285,6 +285,9 @@ export interface RunFilter {
   status?: RunStatus;
   since?: number;
   limit?: number;
+  // what a terminal ran: the runs it started, or that the agent in it (this session) ran
+  terminal?: string;
+  session?: string;
 }
 
 // The worktree (or the main checkout) someone picked in "Run something"

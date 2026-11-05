@@ -66,6 +66,8 @@ const filter = (q: Record<string, string>): RunFilter => ({
   status: ["running", "pass", "fail", "cancelled"].includes(q.status) ? (q.status as RunStatus) : undefined,
   since: Number(q.since) || undefined,
   limit: Number(q.limit) || undefined,
+  terminal: q.terminal || undefined,
+  session: q.session || undefined,
 });
 
 export const runs = new Hono()
@@ -226,7 +228,8 @@ export const runs = new Hono()
   })
   .post("/:id/send", async (c) => {
     try {
-      await sendRunFailure(c.req.param("id"));
+      const b = ((await c.req.json().catch(() => ({}))) ?? {}) as { session?: string };
+      await sendRunFailure(c.req.param("id"), typeof b.session === "string" ? b.session : undefined);
       return c.json({ ok: true });
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);

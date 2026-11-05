@@ -1,4 +1,4 @@
-import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
+import { type Node, type NodeProps } from "@xyflow/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -7,11 +7,12 @@ import { api, qs } from "../../lib/api";
 import { ago } from "../../lib/format";
 import { DiffReview } from "../DiffReview";
 import { useActions } from "./context";
+import { useFit } from "./fit";
 import { Ports } from "./LinkEdge";
 
 // what it shows the branch of: a terminal (its repo is wherever it sits) or a ticket's worktree
 export type ChangesFrom = { term: string; node?: string; label: string; session?: string } | { root: string; node?: string; label: string };
-export type ChangesData = { from?: ChangesFrom };
+export type ChangesData = { from?: ChangesFrom; fit?: boolean };
 export type ChangesCardNode = Node<ChangesData, "changes">;
 
 interface BranchFile {
@@ -100,9 +101,10 @@ export function ChangesCard({ id, data, selected }: NodeProps<ChangesCardNode>) 
         ? `Couldn't read the branch: ${b.error instanceof Error ? b.error.message : b.error}`
         : undefined;
 
+  const fit = useFit({ id, selected, fit: data.fit, max: 640, minWidth: 300, minHeight: 120 });
   return (
-    <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden text-[12px] ${selected ? "border-cobalt" : "border-line"}`} data-changes={id}>
-      <NodeResizer isVisible={selected} minWidth={300} minHeight={200} color="var(--cobalt)" />
+    <div className={`w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden text-[12px] ${selected ? "border-cobalt" : "border-line"}`} style={fit.style} data-changes={id}>
+      {fit.resizer}
       <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
         <span className="font-medium">Changes</span>
@@ -124,7 +126,7 @@ export function ChangesCard({ id, data, selected }: NodeProps<ChangesCardNode>) 
         </button>
       </div>
       {empty || !d ? (
-        <div className="flex-1 grid place-items-center px-6 text-center text-muted">{empty ?? "Reading the branch"}</div>
+        <div className="flex-auto grid place-items-center px-6 py-8 text-center text-muted">{empty ?? "Reading the branch"}</div>
       ) : (
         <>
           <div className="flex items-center gap-3 px-3 h-7 border-b border-line text-muted shrink-0">
@@ -152,7 +154,7 @@ export function ChangesCard({ id, data, selected }: NodeProps<ChangesCardNode>) 
               )}
             </div>
           </div>
-          <div className="nowheel flex-1 min-h-0 overflow-y-auto py-1">
+          <div className="nowheel flex-auto min-h-0 overflow-y-auto py-1">
             {d.files.length ? d.files.map((f) => <FileRow key={f.path} f={f} root={d.root} node={node} />) : <div className="px-3 py-2 text-muted">Nothing changed on this branch yet.</div>}
             {d.more > 0 && <div className="px-3 py-1 text-faint">and {d.more} more files</div>}
           </div>

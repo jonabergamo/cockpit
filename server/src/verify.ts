@@ -81,8 +81,9 @@ export async function sendFailure(worktree: string) {
   await sendToWorker(`\`${config.repo.verifyCommand}\` fails in this worktree. Fix it, then run it again to check.\n\nEnd of its output:\n${r.summary}`, worktree);
 }
 
-// The same for any run on the Runs screen: to the session that ran it, else the one in its worktree
-export async function sendRunFailure(id: string) {
+// The same for any run on the Runs screen: to the session given (a canvas card's terminal), else the one that ran
+// it, else the one in its worktree
+export async function sendRunFailure(id: string, to?: string) {
   const r = getRun(id);
   if (!r) throw new Error("No such run");
   if (r.status !== "fail") throw new Error("That run didn't fail");
@@ -90,7 +91,7 @@ export async function sendRunFailure(id: string) {
   const what = r.command ? `\`${r.command}\`` : r.name;
   const failing = r.summary.failing?.length ? `\n\nFailing:\n${r.summary.failing.map((f) => `- ${f}`).join("\n")}` : "";
   const url = typeof r.meta.url === "string" ? `\n\n${r.meta.url}` : "";
-  await sendToWorker(`${what} fails${r.worktree ? " in this worktree" : ""}. Fix it, then run it again to check.${failing}${url}${tail ? `\n\nEnd of its output:\n${tail}` : ""}`, r.worktree, r.meta.session);
+  await sendToWorker(`${what} fails${r.worktree ? " in this worktree" : ""}. Fix it, then run it again to check.${failing}${url}${tail ? `\n\nEnd of its output:\n${tail}` : ""}`, r.worktree, to ?? r.meta.session);
 }
 
 export function startVerify() {

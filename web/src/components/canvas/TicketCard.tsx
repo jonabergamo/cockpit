@@ -1,4 +1,4 @@
-import { NodeResizer, type Node, type NodeProps } from "@xyflow/react";
+import { type Node, type NodeProps } from "@xyflow/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { Epic, PullRequest, Ticket } from "@cockpit/shared";
@@ -11,6 +11,7 @@ import { PrBadge } from "../../pages/Tickets";
 import { PrFix } from "../PrFix";
 import { Button, StatusTag, Tag } from "../ui";
 import { useActions } from "./context";
+import { useFit } from "./fit";
 import { Ports } from "./LinkEdge";
 
 // an open PR's checks: running, passed or failing (the PR badge already says when it's failing; this says it for all)
@@ -25,7 +26,7 @@ function Checks({ pr }: { pr: PullRequest }) {
   );
 }
 
-export type TicketData = { key: string; terms: number };
+export type TicketData = { key: string; terms: number; fit?: boolean };
 export type TicketCardNode = Node<TicketData, "ticket">;
 
 const useTicket = (key: string): Ticket | Epic | undefined => {
@@ -76,9 +77,12 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
   const failing = open.some((p) => p.checks === "fail");
   const sentBack = open.some((p) => p.reviewDecision === "CHANGES_REQUESTED");
   const edge = selected ? "border-cobalt" : failing ? "border-red" : sentBack ? "border-amber" : "border-cobalt/40";
+  const tone = failing ? "fail" : sentBack ? "warn" : open.some((p) => p.checks === "pending") ? "running" : open.length ? "pass" : undefined;
+  useEffect(() => a.tone(id, tone), [id, tone, a]);
+  const fit = useFit({ id, selected, fit: data.fit, max: 420, minWidth: 260, minHeight: 120 });
   return (
-    <div className={`h-full w-full flex flex-col rounded-lg border-2 bg-panel shadow-lg overflow-hidden ${edge}`} data-ticket={data.key} data-ci={failing ? "fail" : open.some((p) => p.checks === "pending") ? "pending" : open.length ? "pass" : undefined}>
-      <NodeResizer isVisible={selected} minWidth={260} minHeight={150} color="var(--cobalt)" />
+    <div className={`w-full flex flex-col rounded-lg border-2 bg-panel shadow-lg overflow-hidden ${edge}`} style={fit.style} data-ticket={data.key} data-ci={failing ? "fail" : open.some((p) => p.checks === "pending") ? "pending" : open.length ? "pass" : undefined}>
+      {fit.resizer}
       <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-cobalt-soft border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
         {t?.url ? (
@@ -98,7 +102,7 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
           ×
         </button>
       </div>
-      <div className="flex-1 min-h-0 flex flex-col gap-2 p-2.5 text-[13px]">
+      <div className="flex-auto min-h-0 flex flex-col gap-2 p-2.5 text-[13px]">
         <div className="line-clamp-2 font-medium">{t?.summary ?? <span className="text-faint font-normal">Not one of your open tickets, so cockpit has no details for it.</span>}</div>
         <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
           {wt ? (

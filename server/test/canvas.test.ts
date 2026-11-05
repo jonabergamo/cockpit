@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TermInfo } from "@cockpit/shared";
 import { paths } from "../src/config.ts";
 import { db } from "../src/db.ts";
-import { addChanges, addEdge, addNote, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
+import { addChanges, addEdge, addNote, addRuns, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
 import { ticketOfTerm } from "../src/routes/canvas.ts";
 
 const term = (id: string, more: Partial<TermInfo> = {}): TermInfo => ({ id, title: id, cwd: "/tmp", command: "bash", createdAt: 0, node: "local", ...more });
@@ -168,6 +168,37 @@ describe("changes cards", () => {
   });
 });
 
+describe("runs cards", () => {
+  it("goes under the card it's linked to, beside a changes card already there", () => {
+    syncTerms([term("a")]);
+    const main = onCanvas("Main");
+    const t = main.nodes[0];
+    const changes = addChanges(main.id, undefined, t.id).node;
+    const { node, edge } = addRuns(main.id, undefined, t.id);
+    expect(node).toMatchObject({ kind: "runs", y: t.y + t.h + 40 });
+    expect(node.x).toBeGreaterThanOrEqual(changes.x + changes.w);
+    expect(edge).toMatchObject({ source: t.id, target: node.id });
+  });
+});
+
+describe("cards that fit their content", () => {
+  it("fit until you size one yourself; a terminal never does", () => {
+    syncTerms([term("a")]);
+    const main = onCanvas("Main");
+    const { node } = addRuns(main.id, { x: 2000, y: 0 });
+    const note = addNote(main.id, { x: 3000, y: 0 });
+    expect(node.fit).toBe(true);
+    expect(note.fit).toBe(true);
+    expect(onCanvas("Main").nodes.find((n) => n.kind === "term")?.fit).toBeUndefined();
+    saveLayout(main.id, [{ id: node.id, x: 2000, y: 0, w: 440, h: 500, fit: false }]);
+    // a later move that doesn't say leaves it as it was
+    saveLayout(main.id, [{ id: node.id, x: 2100, y: 0, w: 440, h: 500 }]);
+    expect(onCanvas("Main").nodes.find((n) => n.id === node.id)).toMatchObject({ fit: false, x: 2100, h: 500 });
+    saveLayout(main.id, [{ id: node.id, x: 2100, y: 0, w: 440, h: 96, fit: true }]);
+    expect(onCanvas("Main").nodes.find((n) => n.id === node.id)).toMatchObject({ fit: true, h: 96 });
+  });
+});
+
 describe("after a reboot", () => {
   it("hands a card to the terminal reopened in its place, where it was", () => {
     syncTerms([term("old"), term("shell")]);
@@ -202,7 +233,7 @@ describe("notes and layout", () => {
     saveLayout(main.id, [{ id, x: 1, y: 2, w: 10, h: Number.NaN }]);
     expect(onCanvas("Main").nodes[0]).toMatchObject({ x: 0, y: 0 });
     saveLayout(main.id, [{ id, x: 1, y: 2, w: 10, h: 20 }]);
-    expect(onCanvas("Main").nodes[0]).toMatchObject({ x: 1, y: 2, w: 160, h: 120 });
+    expect(onCanvas("Main").nodes[0]).toMatchObject({ x: 1, y: 2, w: 160, h: 80 });
   });
 
   it("doesn't drop a new card on top of another", () => {

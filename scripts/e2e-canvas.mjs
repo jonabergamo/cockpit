@@ -308,6 +308,84 @@ try {
     await until("linked to it", async () => (await api("GET", "/canvas")).flatMap((c) => c.edges).some((e) => e.source === made.id && e.target === next.id));
   });
 
+  const allNodes = async () => (await api("GET", "/canvas")).flatMap((c) => c.nodes);
+  let runsCard;
+  await step("a runs card linked to a terminal shows its runs as they happen, opens a failing one and turns red", async () => {
+    const charlie = globalThis.charlie;
+    await page.goto(`${base}/terminals?view=canvas&id=${charlie}`);
+    await page.waitForSelector(`[data-card="${charlie}"] .xterm-rows`);
+    await page.locator(`[data-card="${charlie}"]`).getByRole("button", { name: "New linked terminal" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: /Runs card/ }).click();
+    runsCard = await until("a runs card", async () => (await allNodes()).find((n) => n.kind === "runs"));
+    const from = (await allNodes()).find((n) => n.kind === "term" && n.ref === charlie);
+    expect((await api("GET", "/canvas")).flatMap((c) => c.edges).some((e) => e.source === from.id && e.target === runsCard.id), "it isn't linked to charlie");
+    const card = page.locator(`[data-runs="${runsCard.id}"]`);
+    await card.getByText(/No runs yet/).waitFor();
+    // a failing test run in that terminal, as cockpit records one
+    await api("POST", "/runs", { finished: true, command: "pnpm test", name: "unit tests", status: "fail", exitCode: 1, output: "FAIL src/sum.test.ts > adds two numbers\n Tests  1 failed | 4 passed (5)", meta: { terminal: charlie } });
+    await card.getByText("1 failing").waitFor();
+    // opened by itself, with what failed
+    await card.getByText("src/sum.test.ts > adds two numbers", { exact: false }).first().waitFor();
+    expect((await card.getAttribute("data-tone")) === "fail", "the card isn't red");
+    await page.locator(".canvas-map .react-flow__minimap-node.map-fail").first().waitFor({ state: "attached" });
+    // another terminal's run isn't one of its own
+    await api("POST", "/runs", { finished: true, command: "pnpm lint", name: "lint elsewhere", status: "fail", exitCode: 1, meta: { terminal: "someone-else" } });
+    // fixed: the same command passes, and stays one row with the failure before it as a dot
+    await api("POST", "/runs", { finished: true, command: "pnpm test", name: "unit tests", status: "pass", exitCode: 0, output: "Tests  5 passed (5)", meta: { terminal: charlie } });
+    await card.getByText("1 passing").waitFor();
+    await until("green", async () => (await card.getAttribute("data-tone")) === "pass");
+    expect((await card.locator("[data-run]").count()) === 1, "the two runs of one command aren't one row");
+    expect(!(await card.getByText("lint elsewhere").count()), "it shows another terminal's run");
+    await page.locator(".canvas-map .react-flow__minimap-node.map-pass").first().waitFor({ state: "attached" });
+    await card.locator(".card-handle").dblclick();
+    await page.waitForTimeout(400);
+  });
+
+  await step("a card that isn't a terminal fits what it shows, until you size it yourself", async () => {
+    const mine = async () => (await allNodes()).find((n) => n.id === runsCard.id);
+    // one row and a header, nowhere near its 320 to start with
+    const fitted = await until("its height follows its rows", async () => {
+      const n = await mine();
+      return n.fit && n.h < 200 && n;
+    });
+    const card = page.locator(`[data-runs="${runsCard.id}"]`);
+    await card.locator(".card-handle").click();
+    const corner = await page.locator(`.react-flow__node:has([data-runs="${runsCard.id}"]) .react-flow__resize-control.handle.bottom.right`).boundingBox();
+    await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(corner.x + corner.width / 2, corner.y + 160, { steps: 8 });
+    await page.mouse.up();
+    const sized = await until("sized by hand", async () => {
+      const n = await mine();
+      return n.fit === false && n.h > fitted.h + 60 && n;
+    });
+    // the box keeps the height you gave it
+    await page.waitForTimeout(300);
+    const box = await card.boundingBox();
+    const zoom = await page.evaluate(() => Number(getComputedStyle(document.querySelector(".react-flow__viewport")).transform.split(",")[3]) || 1);
+    expect(Math.abs(box.height / zoom - sized.h) < 6, `it's ${box.height / zoom} high, not the ${sized.h} it was given`);
+    await card.getByRole("button", { name: "Fit its height to what it shows" }).click();
+    await until("fits again", async () => {
+      const n = await mine();
+      return n.fit && Math.abs(n.h - fitted.h) < 12;
+    });
+  });
+
+  await step("the map colours each card by how it's doing, and m hides it", async () => {
+    await page.locator(".canvas-map").waitFor({ state: "attached" });
+    await page.getByLabel("Map colours").waitFor({ state: "attached" });
+    // out of any terminal, on empty canvas under the cards, so the key goes to the canvas
+    const pane = await page.locator(".react-flow__pane").boundingBox();
+    await page.mouse.click(pane.x + pane.width / 2, pane.y + pane.height - 30);
+    await page.keyboard.press("m");
+    await page.locator(".canvas-map").waitFor({ state: "detached" });
+    await page.reload();
+    await page.waitForSelector(".react-flow__node");
+    expect(!(await page.locator(".canvas-map").count()), "the map came back after a reload");
+    await page.getByRole("button", { name: "Map", exact: true }).click();
+    await page.locator(".canvas-map").waitFor({ state: "attached" });
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);
