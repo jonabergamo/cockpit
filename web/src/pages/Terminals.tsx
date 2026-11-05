@@ -1,9 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { DiffReview } from "../components/DiffReview";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { DiffReview } from "../components/LazyDiffReview";
 import { FileTree } from "../components/FileTree";
-import { GitHistory } from "../components/GitHistory";
 import { Terminal } from "../components/Terminal";
 import { Button, Empty, ErrorNote } from "../components/ui";
 import { api } from "../lib/api";
@@ -18,6 +17,9 @@ import type { TermInfo } from "@cockpit/shared";
 import { useAgentName } from "../lib/agent";
 import { saveView, savedView, type TermView } from "../lib/canvas";
 import { TermCanvas } from "../components/TermCanvas";
+
+// its diffs run on the code editor, so it is fetched once the history is opened, not with the app
+const GitHistory = lazy(() => import("../components/GitHistory").then((m) => ({ default: m.GitHistory })));
 
 // kept current by the `terms` push, see main.tsx
 export const useTerms = () => useQuery({ queryKey: ["terms"], queryFn: () => api.get<TermInfo[]>("/code/terms") });
@@ -313,7 +315,9 @@ function ChangesSide({ id, onHide }: { id: string; onHide: () => void }) {
           </button>
           {history && (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <GitHistory root={d.root} />
+              <Suspense fallback={null}>
+                <GitHistory root={d.root} />
+              </Suspense>
             </div>
           )}
         </>

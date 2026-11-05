@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useAgentName } from "../../lib/agent";
 import { api, qs } from "../../lib/api";
 import { ago } from "../../lib/format";
-import { DiffReview } from "../DiffReview";
+import { DiffReview } from "../LazyDiffReview";
 import { useActions } from "./context";
 import { useFit } from "./fit";
 import { Ports } from "./LinkEdge";

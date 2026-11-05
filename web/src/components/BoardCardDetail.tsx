@@ -11,7 +11,7 @@ import { asPr } from "../pages/Board";
 import { PrBadge } from "../pages/Tickets";
 import { PrFix } from "./PrFix";
 import { ReplyPanel } from "./ReplyPanel";
-import { DiffReview } from "./DiffReview";
+import { DiffReview } from "./LazyDiffReview";
 import { JobLog } from "./JobLog";
 import { BudgetEditor } from "./Budget";
 import { Button, ErrorNote, Tag } from "./ui";

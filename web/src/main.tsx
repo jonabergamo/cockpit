@@ -1,22 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createRootRoute, createRoute, createRouter, redirect, RouterProvider } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Layout } from "./components/Layout";
 import { EmbedTerminal } from "./components/EmbedTerminal";
 import { PluginFrame } from "./components/PluginFrame";
-import { BoardPage } from "./pages/Board";
-import { TaskGroupPage } from "./pages/Tasks";
-import { CodePage } from "./pages/Code";
-import { MemoryPage } from "./pages/Memory";
-import { ReviewsPage } from "./pages/Reviews";
-import { RunPage, RunsPage } from "./pages/Runs";
-import { SessionPage } from "./pages/Session";
 import { SETTINGS_TABS, SettingsPage, type SettingsTab } from "./pages/Settings";
-import { TerminalsPage } from "./pages/Terminals";
-import { TodayPage } from "./pages/Today";
-import { WorkflowPage } from "./pages/Workflows";
-import { ReportScreen, SessionsScreen, TicketsScreen, UsageScreen, WeekScreen } from "./pages/Hubs";
 import { listen } from "./lib/live";
 import { tabId } from "./lib/canvas";
 import { show } from "./lib/notifications";
@@ -29,6 +18,7 @@ import "./index.css";
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
+// each screen is fetched the first time it's opened, so the window shows sooner (the code editor alone is megabytes)
 const root = createRootRoute({ component: Layout });
 
 // Screens that became a tab or a filter of another keep their address: it lands on that tab, query string and all.
@@ -42,29 +32,29 @@ const moved = (path: string, to: string, extra: Record<string, string>) =>
   });
 
 const routes = [
-  createRoute({ getParentRoute: () => root, path: "/", component: TodayPage }),
-  createRoute({ getParentRoute: () => root, path: "/board", component: BoardPage, validateSearch: (s): { card?: string; filter?: "tasks"; view?: "tickets" | "board" | "tasks" } => ({ card: str(s.card), filter: s.filter === "tasks" ? "tasks" : undefined, view: s.view === "tickets" || s.view === "board" || s.view === "tasks" ? s.view : undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/", component: lazyRouteComponent(() => import("./pages/Today"), "TodayPage") }),
+  createRoute({ getParentRoute: () => root, path: "/board", component: lazyRouteComponent(() => import("./pages/Board"), "BoardPage"), validateSearch: (s): { card?: string; filter?: "tasks"; view?: "tickets" | "board" | "tasks" } => ({ card: str(s.card), filter: s.filter === "tasks" ? "tasks" : undefined, view: s.view === "tickets" || s.view === "board" || s.view === "tasks" ? s.view : undefined }) }),
   moved("/tasks", "/board", { filter: "tasks" }),
-  createRoute({ getParentRoute: () => root, path: "/tasks/$group", component: TaskGroupPage }),
-  createRoute({ getParentRoute: () => root, path: "/sessions", component: SessionsScreen, validateSearch: (s): { tab?: "workflows" } => ({ tab: s.tab === "workflows" ? "workflows" : undefined }) }),
-  createRoute({ getParentRoute: () => root, path: "/sessions/$id", component: SessionPage, validateSearch: (s): { agent?: string } => ({ agent: str(s.agent) }) }),
+  createRoute({ getParentRoute: () => root, path: "/tasks/$group", component: lazyRouteComponent(() => import("./pages/Tasks"), "TaskGroupPage") }),
+  createRoute({ getParentRoute: () => root, path: "/sessions", component: lazyRouteComponent(() => import("./pages/Hubs"), "SessionsScreen"), validateSearch: (s): { tab?: "workflows" } => ({ tab: s.tab === "workflows" ? "workflows" : undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/sessions/$id", component: lazyRouteComponent(() => import("./pages/Session"), "SessionPage"), validateSearch: (s): { agent?: string } => ({ agent: str(s.agent) }) }),
   moved("/workflows", "/sessions", { tab: "workflows" }),
-  createRoute({ getParentRoute: () => root, path: "/workflows/$id", component: WorkflowPage }),
-  createRoute({ getParentRoute: () => root, path: "/tickets", component: TicketsScreen, validateSearch: (s): { key?: string; tab?: "worktrees" } => ({ key: str(s.key), tab: s.tab === "worktrees" ? "worktrees" : undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/workflows/$id", component: lazyRouteComponent(() => import("./pages/Workflows"), "WorkflowPage") }),
+  createRoute({ getParentRoute: () => root, path: "/tickets", component: lazyRouteComponent(() => import("./pages/Hubs"), "TicketsScreen"), validateSearch: (s): { key?: string; tab?: "worktrees" } => ({ key: str(s.key), tab: s.tab === "worktrees" ? "worktrees" : undefined }) }),
   moved("/worktrees", "/tickets", { tab: "worktrees" }),
-  createRoute({ getParentRoute: () => root, path: "/code", component: CodePage, validateSearch: (s): { root?: string; file?: string; diff?: boolean } => ({ root: str(s.root), file: str(s.file), diff: s.diff === true || s.diff === "1" || undefined }) }),
-  createRoute({ getParentRoute: () => root, path: "/terminals", component: TerminalsPage, validateSearch: (s): { id?: string; resume?: string; pid?: number; view?: "tabs" | "canvas"; ticket?: string } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined, view: s.view === "canvas" || s.view === "tabs" ? s.view : undefined, ticket: str(s.ticket) }) }),
+  createRoute({ getParentRoute: () => root, path: "/code", component: lazyRouteComponent(() => import("./pages/Code"), "CodePage"), validateSearch: (s): { root?: string; file?: string; diff?: boolean } => ({ root: str(s.root), file: str(s.file), diff: s.diff === true || s.diff === "1" || undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("./pages/Terminals"), "TerminalsPage"), validateSearch: (s): { id?: string; resume?: string; pid?: number; view?: "tabs" | "canvas"; ticket?: string } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined, view: s.view === "canvas" || s.view === "tabs" ? s.view : undefined, ticket: str(s.ticket) }) }),
   moved("/canvas", "/terminals", { view: "canvas" }),
-  createRoute({ getParentRoute: () => root, path: "/memory", component: MemoryPage, validateSearch: (s): { path?: string } => ({ path: str(s.path) }) }),
-  createRoute({ getParentRoute: () => root, path: "/usage", component: UsageScreen }),
-  createRoute({ getParentRoute: () => root, path: "/weekly", component: WeekScreen, validateSearch: (s): { week?: string } => ({ week: str(s.week) }) }),
+  createRoute({ getParentRoute: () => root, path: "/memory", component: lazyRouteComponent(() => import("./pages/Memory"), "MemoryPage"), validateSearch: (s): { path?: string } => ({ path: str(s.path) }) }),
+  createRoute({ getParentRoute: () => root, path: "/usage", component: lazyRouteComponent(() => import("./pages/Hubs"), "UsageScreen") }),
+  createRoute({ getParentRoute: () => root, path: "/weekly", component: lazyRouteComponent(() => import("./pages/Hubs"), "WeekScreen"), validateSearch: (s): { week?: string } => ({ week: str(s.week) }) }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: SettingsPage, validateSearch: (s): { tab?: SettingsTab } => ({ tab: SETTINGS_TABS.includes(s.tab as SettingsTab) ? (s.tab as SettingsTab) : undefined }) }),
-  createRoute({ getParentRoute: () => root, path: "/runs", component: RunsPage, validateSearch: (s): { kind?: string; status?: string; ticket?: string; worktree?: string; group?: string; summary?: string } => ({ kind: str(s.kind), status: str(s.status), ticket: str(s.ticket), worktree: str(s.worktree), group: str(s.group), summary: str(s.summary) }) }),
-  createRoute({ getParentRoute: () => root, path: "/runs/$id", component: RunPage }),
+  createRoute({ getParentRoute: () => root, path: "/runs", component: lazyRouteComponent(() => import("./pages/Runs"), "RunsPage"), validateSearch: (s): { kind?: string; status?: string; ticket?: string; worktree?: string; group?: string; summary?: string } => ({ kind: str(s.kind), status: str(s.status), ticket: str(s.ticket), worktree: str(s.worktree), group: str(s.group), summary: str(s.summary) }) }),
+  createRoute({ getParentRoute: () => root, path: "/runs/$id", component: lazyRouteComponent(() => import("./pages/Runs"), "RunPage") }),
   createRoute({ getParentRoute: () => root, path: "/p/$plugin/$screen", component: PluginFrame }),
   createRoute({ getParentRoute: () => root, path: "/embed/terminal/$id", component: EmbedTerminal }),
-  createRoute({ getParentRoute: () => root, path: "/reviews", component: ReviewsPage, validateSearch: (s): { id?: number; pr?: string } => ({ id: s.id ? Number(s.id) : undefined, pr: str(s.pr) }) }),
-  createRoute({ getParentRoute: () => root, path: "/report", component: ReportScreen, validateSearch: (s): { sprint?: number; scope?: "me" } => ({ sprint: s.sprint ? Number(s.sprint) : undefined, scope: s.scope === "me" ? "me" : undefined }) }),
+  createRoute({ getParentRoute: () => root, path: "/reviews", component: lazyRouteComponent(() => import("./pages/Reviews"), "ReviewsPage"), validateSearch: (s): { id?: number; pr?: string } => ({ id: s.id ? Number(s.id) : undefined, pr: str(s.pr) }) }),
+  createRoute({ getParentRoute: () => root, path: "/report", component: lazyRouteComponent(() => import("./pages/Hubs"), "ReportScreen"), validateSearch: (s): { sprint?: number; scope?: "me" } => ({ sprint: s.sprint ? Number(s.sprint) : undefined, scope: s.scope === "me" ? "me" : undefined }) }),
 ];
 
 const router = createRouter({ routeTree: root.addChildren(routes), defaultPreload: "intent" });
