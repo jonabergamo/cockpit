@@ -99,8 +99,8 @@ function Detail({ r, session, onFail }: { r: Run; session?: string; onFail: (e: 
           {failing.length > 8 && <li className="text-faint">and {failing.length - 8} more</li>}
         </ul>
       )}
-      {picture?.type === "image" && <img src={src} alt={picture.name} className="max-h-44 rounded border border-line object-contain self-start" />}
-      {picture?.type === "video" && <video src={src} controls muted className="max-h-44 rounded border border-line self-start" />}
+      {picture?.type === "image" && <img src={src} alt={picture.name} className="nowheel max-h-80 rounded border border-line object-contain self-start bg-black" />}
+      {picture?.type === "video" && <video key={src} src={src} controls muted playsInline preload="metadata" className="nowheel nopan max-h-[420px] max-w-full rounded border border-line self-start bg-black" data-run-video={r.id} />}
       {tail.length > 0 && (
         <pre className="nowheel max-h-48 overflow-auto rounded bg-panel border border-line font-mono text-[11px] leading-[1.45] p-2 text-muted whitespace-pre-wrap break-all">{tail.slice(-24).join("\n")}</pre>
       )}

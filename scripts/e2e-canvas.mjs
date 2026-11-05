@@ -369,6 +369,28 @@ try {
     await page.waitForTimeout(400);
   });
 
+  await step("a recording run's screen shows beside its runs card while it runs, and goes when it ends", async () => {
+    const charlie = globalThis.charlie;
+    // the screen a plugin would serve for a simulator: any picture, made up here
+    const frame = await page.screenshot({ clip: { x: 0, y: 0, width: 60, height: 100 }, type: "jpeg" });
+    await page.route(/\/api\/e2e-sim\/frame/, (r) => r.fulfill({ body: frame, contentType: "image/jpeg" }));
+    const run = await api("POST", "/runs", { kind: "e2e", name: "checkout flow on the simulator", command: "maestro test checkout.yaml", meta: { terminal: charlie, liveUrl: "/api/e2e-sim/frame", video: true } });
+    const screen = page.locator(`[data-screen="${run.id}"]`);
+    await screen.waitFor({ timeout: 15_000 });
+    await screen.getByText("Recording").waitFor();
+    await until("the picture", async () => !(await screen.getByText("Waiting for the screen").count()), 10_000);
+    // the card goes once the run ends, so the proof is taken while it's up
+    if (process.env.E2E_PROOFS) await page.screenshot({ path: join(process.env.E2E_PROOFS, "screen card while it records.png") });
+    // beside the runs card, and linked to it
+    const rc = await page.locator(`.react-flow__node:has([data-runs="${runsCard.id}"])`).boundingBox();
+    const sc = await page.locator(`.react-flow__node:has([data-screen="${run.id}"])`).boundingBox();
+    expect(Math.abs(sc.y - rc.y) < 2 && (sc.x > rc.x + rc.width || sc.x + sc.width < rc.x), "it isn't beside the runs card");
+    await page.locator(".react-flow__edge").filter({ has: page.locator(".canvas-link-watch") }).first().waitFor({ state: "attached" });
+    await api("POST", `/runs/${run.id}/event`, { phase: "done" });
+    await screen.waitFor({ state: "detached", timeout: 15_000 });
+    await page.unroute(/\/api\/e2e-sim\/frame/);
+  });
+
   await step("a card that isn't a terminal fits what it shows, until you size it yourself", async () => {
     const mine = async () => (await allNodes()).find((n) => n.id === runsCard.id);
     // one row and a header, nowhere near its 320 to start with
