@@ -560,6 +560,22 @@ try {
     await page.waitForSelector('[data-testid="canvas"]');
   });
 
+  await step("a pull request review opens on its own Reviews workspace", async () => {
+    // what the PR reviews screen opens, without going to the code host for the PR
+    const r = await shell("review #4242");
+    cleanup.push(() => api("DELETE", `/code/terms/${r.id}`).catch(() => {}));
+    await until("its card", async () => await canvasOf(r.id));
+    expect((await canvasOf(r.id)).name === "Reviews", `the review is on ${(await canvasOf(r.id)).name}`);
+    await page.goto(`${base}/terminals?view=canvas&id=${r.id}`);
+    await page.waitForSelector(`[data-card="${r.id}"] .xterm-rows`);
+    expect((await page.getByRole("tab", { name: /Reviews/ }).getAttribute("aria-selected")) === "true", "Reviews isn't the open workspace");
+    // a shell opened after it still goes on the first one
+    const s = await shell("not a review");
+    cleanup.push(() => api("DELETE", `/code/terms/${s.id}`).catch(() => {}));
+    await until("its card", async () => await canvasOf(s.id));
+    expect((await canvasOf(s.id)).name === "Main", `the shell is on ${(await canvasOf(s.id)).name}`);
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

@@ -65,6 +65,18 @@ describe("terminals", () => {
     expect(nodes.find((n) => n.ref === "split")).toMatchObject({ x: 100 + TERM_W + 40, y: 200 });
   });
 
+  it("puts a pull request review on the Reviews workspace, making it the first time", () => {
+    const review = (t: { title: string }) => t.title.startsWith("review #");
+    syncTerms([term("a"), { ...term("r1"), title: "review #12" }], undefined, review);
+    expect(onCanvas("Main").nodes.map((n) => n.ref)).toEqual(["a"]);
+    expect(onCanvas("Reviews").nodes.map((n) => n.ref)).toEqual(["r1"]);
+    // the next one joins it, beside the first, and a workspace you called reviews yourself counts
+    renameCanvas(onCanvas("Reviews").id, "reviews");
+    syncTerms([term("a"), { ...term("r1"), title: "review #12" }, { ...term("r2"), title: "review #13" }], undefined, review);
+    expect(listCanvases().map((c) => c.name)).toEqual(["Main", "reviews"]);
+    expect(onCanvas("reviews").nodes.map((n) => [n.ref, n.x])).toEqual([["r1", 0], ["r2", TERM_W + 40]]);
+  });
+
   it("keeps a terminal on one workspace at a time, with its size", () => {
     syncTerms([term("a")]);
     const main = onCanvas("Main");

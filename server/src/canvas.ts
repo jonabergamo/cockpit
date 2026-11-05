@@ -1,8 +1,8 @@
 // The Terminals canvas: workspaces of terminals, tickets and markdown notes, laid out where you put them and
 // linked by the lines you draw between them. A terminal or a ticket sits on one workspace at a time. A terminal
 // opened anywhere else in cockpit joins the canvas by itself: beside its ticket's card when it runs in that
-// ticket's worktree, beside the terminal it was split from, or else on the first workspace. So nothing running is
-// ever off the canvas.
+// ticket's worktree, beside the terminal it was split from, on the Reviews workspace when it reviews a pull request,
+// or else on the first workspace. So nothing running is ever off the canvas.
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -86,6 +86,13 @@ const strip = ({ canvas: _, fit, ...n }: NodeRow): CanvasNode => (n.kind === "te
 function first() {
   const row = db.prepare<[], { id: string }>("select id from canvases order by position, created_at limit 1").get();
   return row?.id ?? createCanvas("Main").id;
+}
+
+// where pull request reviews land, made the first time one starts (and again if it was deleted)
+export const REVIEWS = "Reviews";
+function reviewsCanvas() {
+  const row = db.prepare<[string], { id: string }>("select id from canvases where lower(name) = lower(?) order by position, created_at limit 1").get(REVIEWS);
+  return row?.id ?? createCanvas(REVIEWS).id;
 }
 
 // a line goes once either of its cards has left the workspace
@@ -310,10 +317,11 @@ export function rekeyTerms(ids: Map<string, string>) {
 }
 
 // Keeps the canvas in step with the terminals: each new one joins the canvas (beside its ticket's card when it runs
-// in that ticket's worktree, beside the terminal it was split from, or on the first workspace), and the cards of
+// in that ticket's worktree, beside the terminal it was split from, on Reviews for a PR review, or on the first
+// workspace), and the cards of
 // closed ones go. A node's terminals are only dropped while that node is listing some: until its link is up its
 // list is missing, and those still run.
-export function syncTerms(terms: TermInfo[], ticketOf: (t: TermInfo) => string | undefined = () => undefined) {
+export function syncTerms(terms: TermInfo[], ticketOf: (t: TermInfo) => string | undefined = () => undefined, isReview: (t: TermInfo) => boolean = () => false) {
   type Placed = NodeRow & { node: string | null };
   const placed = new Map(db.prepare<[], Placed>(`select ${COLS}, node from canvas_nodes where kind = 'term'`).all().map((n) => [n.ref, n]));
   const byId = new Map(terms.map((t) => [t.id, t]));
@@ -339,7 +347,7 @@ export function syncTerms(terms: TermInfo[], ticketOf: (t: TermInfo) => string |
     const key = ticketOf(t);
     const ticket = key ? refRow("ticket", key) : undefined;
     const beside = t.parent ? placed.get(t.parent) : ticket;
-    const canvas = beside?.canvas ?? to;
+    const canvas = beside?.canvas ?? (isReview(t) ? reviewsCanvas() : to);
     const n = place(canvas, "term", t.id, TERM_W, TERM_H, beside && { x: beside.x + beside.w + GAP, y: beside.y });
     setNode.run(t.node ?? "local", n.id);
     placed.set(t.id, { ...n, canvas, fit: null, node: t.node ?? "local" });

@@ -61,6 +61,10 @@ export function againNote(last: LastReview) {
   return ` This is a second look. I reviewed it at commit ${short} (${last.state.toLowerCase().replace(/_/g, " ")}, ${last.at.slice(0, 10)}). ${since}${comments}`;
 }
 
+// The terminals reviewing a pull request, for the canvas to put on its Reviews workspace: the ones a review row
+// names, and one just started whose row isn't written yet, by its title
+export const isReviewTerm = (t: { id: string; title: string }) => /^review #\d+$/.test(t.title) || !!db.prepare("select 1 from reviews where term_id = ?").get(t.id);
+
 export async function startReview(opts: { input: string; backend?: boolean; existing?: "add" | "replace"; again?: boolean }) {
   const pr = parsePr(opts.input);
   if (!pr) throw new Error("paste a pull request link or number");

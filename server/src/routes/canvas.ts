@@ -5,6 +5,7 @@ import { broadcast } from "../hub.ts";
 import { listTerms, onTermsChanged } from "../pty.ts";
 import { allWorktrees } from "../remote/work.ts";
 import { away } from "../away.ts";
+import { isReviewTerm } from "../reviews.ts";
 
 // every change is pushed, so other tabs and devices follow; by names the tab that made it, which already shows it
 const changed = (by?: string) => broadcast({ type: "canvas", by });
@@ -27,7 +28,7 @@ export async function startCanvas(reopened: Promise<Map<string, string>> = Promi
   const sync = () =>
     (queue = queue.then(async () => {
       const worktrees = await allWorktrees(false).catch(() => []);
-      if (canvas.syncTerms(listTerms(), ticketOfTerm(worktrees))) changed();
+      if (canvas.syncTerms(listTerms(), ticketOfTerm(worktrees), isReviewTerm)) changed();
     }));
   await sync();
   onTermsChanged(() => void sync());
