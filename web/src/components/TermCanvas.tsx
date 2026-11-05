@@ -29,7 +29,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CanvasInfo, CanvasNode, SessionStatus, TermInfo } from "@cockpit/shared";
 import { useAgentName } from "../lib/agent";
 import { api } from "../lib/api";
-import { saveView, saveWorkspace, savedWorkspace, tabId, useCanvases } from "../lib/canvas";
+import { onFocusRequest, saveWorkspace, savedWorkspace, setCanvasSelected, tabId, useCanvases } from "../lib/canvas";
 import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
@@ -612,6 +612,26 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, list, ws, nodes, flow]);
 
+  // A card at the top clicked: that terminal's card, on whichever workspace, selected and at 100%, every time
+  const goToRef = useRef(goTo);
+  goToRef.current = goTo;
+  const listRef = useRef(list);
+  listRef.current = list;
+  useEffect(
+    () =>
+      onFocusRequest((term) => {
+        const home = listRef.current.find((c) => c.nodes.some((n) => n.kind === "term" && n.ref === term));
+        const node = home?.nodes.find((n) => n.kind === "term" && n.ref === term);
+        if (home && node) goToRef.current(home.id, node, 1);
+      }),
+    [],
+  );
+  // and which terminal is selected here, for the strip to mark
+  const selectedTerm = nodes.find((n) => n.selected && n.type === "term") as TermCardNode | undefined;
+  const selectedId = selectedTerm?.data.term.id;
+  useEffect(() => setCanvasSelected(selectedId), [selectedId]);
+  useEffect(() => () => setCanvasSelected(undefined), []);
+
   // "Open on canvas" from a ticket: its card, put on this workspace if it isn't on one yet, and brought into view
   const ticketDone = useRef<string>(undefined);
   const ticketAsked = useRef<string>(undefined);
@@ -937,10 +957,8 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     },
     move: (term, to) => guard(api.post(`/canvas/${to}/terms`, { term, by: tabId }).then(refresh)),
     close: (term) => guard(api.del(`/code/terms/${term}`).then(() => qc.invalidateQueries({ queryKey: ["terms"] }))),
-    openTab: (term) => {
-      saveView("tabs");
-      navigate({ to: "/terminals", search: { id: term, view: "tabs" } });
-    },
+    // just this once: the view set in Settings stays the canvas
+    openTab: (term) => navigate({ to: "/terminals", search: { id: term, view: "tabs" } }),
     removeNote: (node) => {
       if (!confirm("Delete this note?")) return;
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, nodes: c.nodes.filter((n) => n.id !== node) })));
@@ -984,7 +1002,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center h-11 border-b border-line bg-panel shrink-0">
-        <div className="flex items-center gap-1 px-2 h-full border-r border-line shrink-0">{switcher}</div>
+        {switcher && <div className="flex items-center gap-1 px-2 h-full border-r border-line shrink-0">{switcher}</div>}
         <div className="flex items-center gap-0.5 px-2 h-full min-w-0 flex-1 overflow-x-auto" role="tablist" aria-label="Workspaces">
           {list.map((c) =>
             renaming === c.id ? (

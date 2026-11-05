@@ -15,7 +15,7 @@ import { shortPath } from "../lib/format";
 export type { TermInfo } from "@cockpit/shared";
 import type { TermInfo } from "@cockpit/shared";
 import { useAgentName } from "../lib/agent";
-import { saveView, savedView, type TermView } from "../lib/canvas";
+import { savedView, type TermView } from "../lib/canvas";
 import { TermCanvas } from "../components/TermCanvas";
 
 // its diffs run on the code editor, so it is fetched once the history is opened, not with the app
@@ -29,11 +29,15 @@ export function TerminalsPage() {
   const { id, resume, pid, view: asked, ticket } = useSearch({ from: "/terminals" });
   // tabs or the canvas: the link can say (a ticket only shows on the canvas), otherwise the one you used last
   const view = ticket ? "canvas" : (asked ?? savedView());
-  const setView = (v: TermView) => {
-    saveView(v);
-    navigate({ to: "/terminals", search: { id, view: v } });
-  };
-  const switcher = <ViewSwitch view={view} onChange={setView} />;
+  const setView = (v: TermView) => navigate({ to: "/terminals", search: { id, view: v } });
+  // the view is set in Settings; a link that asked for the other one (a canvas card's "open in a tab") has a way back
+  const preferred = savedView();
+  const switcher =
+    view !== preferred ? (
+      <button type="button" onClick={() => setView(preferred)} className="h-7 px-2 rounded-md text-[12px] text-cobalt hover:bg-ground whitespace-nowrap" title="The view set in Settings">
+        ← {preferred === "canvas" ? "Canvas" : "Tabs"}
+      </button>
+    ) : null;
   const navigate = useNavigate();
   const openSession = useOpenSession();
   const [resumeErr, setResumeErr] = useState<unknown>();
@@ -223,18 +227,6 @@ export function TerminalsPage() {
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-function ViewSwitch({ view, onChange }: { view: TermView; onChange: (v: TermView) => void }) {
-  return (
-    <div className="flex items-center h-7 rounded-md bg-ground p-0.5 text-[12px]" role="radiogroup" aria-label="Terminals view">
-      {(["tabs", "canvas"] as const).map((v) => (
-        <button key={v} type="button" role="radio" aria-checked={view === v} onClick={() => onChange(v)} className={`h-6 px-2 rounded capitalize ${view === v ? "bg-raised text-ink shadow-sm" : "text-muted hover:text-ink"}`} title={v === "canvas" ? "Every terminal on a canvas you can arrange, with notes and workspaces" : "One terminal at a time, with its changes beside it"}>
-          {v}
-        </button>
-      ))}
     </div>
   );
 }

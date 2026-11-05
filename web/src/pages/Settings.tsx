@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { AutomationSettings } from "../components/AutomationSettings";
 import { FontSection } from "../components/FontSettings";
+import { TerminalSection } from "../components/TerminalSettings";
 import { MachinesSection } from "../components/Machines";
 import { PluginsSection, ScreensSection } from "../components/PluginSettings";
 import { SetupSection } from "../components/SetupSection";
@@ -76,6 +77,7 @@ export function SettingsPage() {
           {!claudeMain && <p className="text-[12px] text-faint">{agent} puts no dollar figure on its sessions, so budgets and the overnight cap count tokens while it's your main agent. These dollars are for your Claude Code sessions.</p>}
         </section>
       )}
+      {tab === "general" && <TerminalSection />}
       {tab === "general" && <FontSection />}
       {tab === "automation" && (
         <>

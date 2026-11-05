@@ -37,5 +37,6 @@ export function useOpenSession() {
     const id = own?.id ?? (await api.post<Term>("/claude/launch", { resume: s.id, prompt })).id;
     if (!own) qc.invalidateQueries({ queryKey: ["terms"] });
     navigate({ to: "/terminals", search: { id } });
+    return id;
   };
 }

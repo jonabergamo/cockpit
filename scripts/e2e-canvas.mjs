@@ -450,6 +450,46 @@ try {
     await page.getByRole("tab", { name: /Main/ }).click();
   });
 
+  await step("a card at the top brings its terminal up on the canvas, every time, and Settings picks the view", async () => {
+    const charlie = globalThis.charlie;
+    await page.goto(`${base}/terminals`);
+    // the canvas is what opens when nothing says otherwise
+    await page.waitForSelector('[data-testid="canvas"]');
+    const top = page.locator(`[data-term="${charlie}"] > button`).first();
+    const onScreen = async () => {
+      const pane = await page.locator(".react-flow__pane").boundingBox();
+      const c = await page.locator(`[data-card="${charlie}"]`).boundingBox();
+      return !!c && c.x >= pane.x - 2 && c.x + c.width <= pane.x + pane.width + 2 && c.y >= pane.y - 2;
+    };
+    const away = async () => {
+      await page.locator(".react-flow__controls-zoomout").click();
+      const pane = await page.locator(".react-flow__pane").boundingBox();
+      await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 15);
+      await page.mouse.down();
+      await page.mouse.move(pane.x + 40, pane.y + 40, { steps: 6 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+    };
+    for (const time of ["first", "second"]) {
+      await away();
+      await top.click();
+      await until(`charlie in view the ${time} time`, onScreen, 5000);
+    }
+    // the strip marks the terminal selected on the canvas
+    await until("marked at the top", async () => /ring-cobalt/.test((await top.getAttribute("class")) ?? ""), 5000);
+    // tabs, from Settings, on this device
+    await page.goto(`${base}/settings`);
+    await page.getByRole("heading", { name: "Terminals" }).waitFor();
+    await page.locator("section", { has: page.getByRole("heading", { name: "Terminals" }) }).getByRole("button", { name: "Tabs", exact: true }).click();
+    await page.goto(`${base}/terminals`);
+    await page.getByTitle(/New terminal:/).first().waitFor();
+    expect(!(await page.locator('[data-testid="canvas"]').count()), "it still opens on the canvas");
+    await page.goto(`${base}/settings`);
+    await page.locator("section", { has: page.getByRole("heading", { name: "Terminals" }) }).getByRole("button", { name: "Canvas", exact: true }).click();
+    await page.goto(`${base}/terminals`);
+    await page.waitForSelector('[data-testid="canvas"]');
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

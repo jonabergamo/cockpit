@@ -3,6 +3,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { Session, TermInfo } from "@cockpit/shared";
 import { api } from "../lib/api";
+import { focusOnCanvas, savedView, useCanvasSelected, useCanvases } from "../lib/canvas";
 import { useLiveSessions } from "../lib/live";
 import { ago, shortPath, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
@@ -58,8 +59,16 @@ export function SessionStrip() {
   // the terminal open on the Terminals screen, or the parent of the split that's open there
   const path = useRouterState({ select: (r) => r.location.pathname });
   const picked = useRouterState({ select: (r) => (r.location.search as { id?: string }).id });
+  const askedView = useRouterState({ select: (r) => (r.location.search as { view?: string }).view });
+  // on the canvas, the card selected there; in tabs, the terminal open
+  const onCanvas = path === "/terminals" && (askedView ?? savedView()) === "canvas";
+  const selectedOnCanvas = useCanvasSelected();
+  // which workspace each terminal is on, said once there's more than one
+  const canvases = useCanvases().data ?? [];
+  const workspaceOf = (term?: string) => (canvases.length > 1 && term ? canvases.find((c) => c.nodes.some((n) => n.kind === "term" && n.ref === term))?.name : undefined);
   const shown = (() => {
     if (path !== "/terminals") return undefined;
+    if (onCanvas) return selectedOnCanvas;
     let id = picked;
     try {
       id ??= localStorage.getItem(LAST_TERMINAL) ?? undefined;
@@ -75,7 +84,8 @@ export function SessionStrip() {
     setOpening(s.id);
     setErr(undefined);
     try {
-      await openSession(s);
+      // on the canvas, its card comes into view however many times it's clicked
+      focusOnCanvas(await openSession(s));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -123,7 +133,7 @@ export function SessionStrip() {
           className={`group text-left relative overflow-hidden w-[250px] rounded-md border pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${
             look.border
           } ${s.status === "busy" && !s.background ? "sweep" : ""} ${term && term.id === shown ? "ring-1 ring-cobalt" : ""}`}
-          title={`${label(s)}\n${[s.ticket, shortPath(s.cwd), s.branch].filter(Boolean).join(" · ")}\nClick to open it in a terminal`}
+          title={`${label(s)}\n${[s.ticket, shortPath(s.cwd), s.branch].filter(Boolean).join(" · ")}\nClick to go to its terminal`}
         >
           <span className={`absolute left-0 top-0 bottom-0 w-1 ${look.dot} ${s.status === "idle" ? "opacity-50" : ""}`} />
           <div className="flex items-center gap-1.5">
@@ -138,7 +148,8 @@ export function SessionStrip() {
           </div>
           <div className="flex items-center gap-1.5 text-[12px] text-muted">
             <span className={look.text} title={look.hint}>{opening === s.id ? "opening" : look.label}</span>
-            <span className="truncate ml-auto">{ago(s.updatedAt)}</span>
+            {workspaceOf(term?.id) && <span className="truncate text-faint" title="The canvas workspace it's on">· {workspaceOf(term?.id)}</span>}
+            <span className="truncate ml-auto shrink-0">{ago(s.updatedAt)}</span>
           </div>
         </button>
         {s.status !== "busy" && (
@@ -157,7 +168,10 @@ export function SessionStrip() {
       {shells.map((t) => (
         <div key={t.id} data-term={t.id} className="relative shrink-0 group/card">
           <button
-            onClick={() => navigate({ to: "/terminals", search: { id: t.id } })}
+            onClick={() => {
+              navigate({ to: "/terminals", search: { id: t.id } });
+              focusOnCanvas(t.id);
+            }}
             className={`text-left relative overflow-hidden w-[250px] rounded-md border border-line pl-3 pr-2 py-1.5 bg-raised hover:border-faint ${t.id === shown ? "ring-1 ring-cobalt" : ""}`}
             title={`${t.command}\n${t.node && t.node !== "local" ? `on ${t.node}: ` : ""}${t.cwd}\nstarted ${ago(t.createdAt)}`}
           >
@@ -169,7 +183,8 @@ export function SessionStrip() {
             <div className="text-[12px] text-ink/80 truncate">{[t.node && t.node !== "local" ? t.node : "", shortPath(t.cwd).split("/").slice(-2).join("/")].filter(Boolean).join(" · ")}</div>
             <div className="flex items-center gap-1.5 text-[12px] text-muted">
               <span>{t.state === "disconnected" ? "reconnecting" : t.exited === undefined ? "shell" : "exited"}</span>
-              <span className="truncate ml-auto">{ago(t.createdAt)}</span>
+              {workspaceOf(t.id) && <span className="truncate text-faint">· {workspaceOf(t.id)}</span>}
+              <span className="truncate ml-auto shrink-0">{ago(t.createdAt)}</span>
             </div>
           </button>
           <CloseX onClick={() => close(t)} title="Close this terminal" />
