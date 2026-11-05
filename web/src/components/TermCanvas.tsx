@@ -24,7 +24,7 @@ import "@xyflow/react/dist/style.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { CanvasInfo, CanvasNode, TermInfo } from "@cockpit/shared";
+import type { CanvasInfo, CanvasNode, SessionStatus, TermInfo } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { saveView, saveWorkspace, savedWorkspace, tabId, useCanvases } from "../lib/canvas";
 import { shortPath } from "../lib/format";
@@ -38,6 +38,7 @@ import { ActionsCtx, useActions, type Actions, type LinkData, type LinkKind } fr
 import { LinkEdge, Ports } from "./canvas/LinkEdge";
 import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
 import { TicketPicker } from "./canvas/TicketPicker";
+import { WaitingStrip } from "./canvas/WaitingStrip";
 import { Terminal } from "./Terminal";
 import { Button, ErrorNote, inputClass, Markdown } from "./ui";
 
@@ -50,7 +51,8 @@ const TICKET_H = 190;
 const CHANGES_W = 440;
 const CHANGES_H = 420;
 
-type TermData = { term: TermInfo; title: string };
+// status: what its agent is doing, when an agent runs in it (busy, waiting on you, idle)
+type TermData = { term: TermInfo; title: string; status?: SessionStatus; session?: string };
 type NoteData = { fresh: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
@@ -124,15 +126,17 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
   const box = useRef<HTMLDivElement>(null);
   useZoomFix(box);
   const t = data.term;
-  const dot = t.exited !== undefined ? "bg-line" : t.state === "disconnected" ? "bg-amber animate-pulse" : "bg-green";
+  const waiting = data.status === "waiting" && !!data.session;
+  const dot = t.exited !== undefined ? "bg-line" : t.state === "disconnected" ? "bg-amber animate-pulse" : data.status === "busy" ? "bg-cobalt animate-pulse" : "bg-green";
   return (
-    <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden ${selected ? "border-cobalt" : "border-line"}`} data-card={t.id}>
+    <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden ${waiting ? "border-amber border-2 canvas-waiting" : selected ? "border-cobalt" : "border-line"}`} data-card={t.id} data-status={data.status}>
       <NodeResizer isVisible={selected} minWidth={360} minHeight={220} color="var(--cobalt)" />
       <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
         <span className={`size-2 rounded-full shrink-0 ${dot}`} />
         {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted shrink-0">{t.node}</span>}
         <span className="truncate font-medium">{data.title}</span>
+        {waiting && <span className="shrink-0 px-1.5 rounded-full bg-amber text-on-accent text-[11px] font-medium">Waiting for you</span>}
         <span className="truncate text-faint" title={t.cwd}>
           {shortPath(t.cwd)}
         </span>
@@ -155,6 +159,7 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
           </button>
         </div>
       </div>
+      {waiting && <WaitingStrip session={data.session!} onBringUp={() => a.bringUp(id)} onFail={a.fail} />}
       <div ref={box} className="relative flex-1 min-h-0 nodrag nowheel nopan">
         <Terminal id={t.id} autoFocus={false} />
       </div>
@@ -312,6 +317,26 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws, byId, live, worktrees.data]);
+  // every terminal waiting on you, on any workspace, in the order they sit; the toolbar steps through them
+  const waiting = list.flatMap((c) =>
+    c.nodes
+      .filter((n) => {
+        const t = n.kind === "term" ? byId.get(n.ref) : undefined;
+        return !!t && sessionOf(t)?.status === "waiting";
+      })
+      .map((n) => ({ canvas: c.id, node: n })),
+  );
+  const nextWaiting = useRef(0);
+  const goWaiting = () => {
+    if (!waiting.length) return;
+    const w = waiting[nextWaiting.current++ % waiting.length];
+    const go = () => flow.setCenter(w.node.x + w.node.w / 2, w.node.y + w.node.h / 2, { zoom: 1, duration: 250 });
+    if (w.canvas !== ws?.id) {
+      shownWs.current = w.canvas;
+      pick(w.canvas);
+      setTimeout(go, 80);
+    } else go();
+  };
   const [edges, setEdges, applyEdgeChanges] = useEdgesState<LinkEdgeT>([]);
   useEffect(() => setEdges((prev) => links.map((e) => ({ ...e, selected: prev.find((p) => p.id === e.id)?.selected }))), [links, setEdges]);
 
@@ -351,7 +376,8 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
         }
         // its terminal has closed, or its machine hasn't listed it yet
         const t = byId.get(n.ref);
-        if (t) out.push({ ...base, type: "term", data: { term: t, title: titleOf(t) } });
+        const s = t && sessionOf(t);
+        if (t) out.push({ ...base, type: "term", data: { term: t, title: titleOf(t), status: s?.status, session: s?.id } });
       }
       return out;
     });
@@ -590,6 +616,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
                 <button type="button" role="tab" aria-selected={c.id === ws?.id} onClick={() => pick(c.id)} onDoubleClick={() => setRenaming(c.id)} className="px-2.5 h-full text-[13px]" title="Double-click to rename">
                   {c.name}
                   <span className="ml-1.5 text-faint tabular-nums">{c.nodes.filter((n) => n.kind === "term" && byId.has(n.ref)).length || ""}</span>
+                  {waiting.some((w) => w.canvas === c.id) && <span className="ml-1.5 inline-block size-2 rounded-full bg-amber animate-pulse align-middle" title="A terminal here is waiting on you" />}
                 </button>
                 {c.id === ws?.id && list.length > 1 && (
                   <button type="button" onClick={() => removeWorkspace(c)} className="size-6 mr-0.5 rounded text-faint hover:text-red hidden group-hover:grid place-items-center" aria-label={`Delete workspace ${c.name}`}>
@@ -604,6 +631,12 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           </button>
         </div>
         <div className="flex items-center gap-1 px-2 h-full border-l border-line shrink-0">
+          {waiting.length > 0 && (
+            <button type="button" onClick={goWaiting} className="h-7 px-2 rounded-md bg-amber-soft text-amber border border-amber/50 text-[13px] font-medium flex items-center gap-1.5 hover:brightness-105" title="Go to the next terminal waiting on you">
+              <span className="size-2 rounded-full bg-amber animate-pulse" />
+              {waiting.length} waiting
+            </button>
+          )}
           {tracker && (
             <Button size="sm" variant="ghost" onClick={() => setPicking(true)} title="One of your tickets on this workspace, to start work on and link terminals to">
               + Ticket
@@ -651,7 +684,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           >
             <Background gap={24} color="var(--line)" />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "ticket" ? "var(--cobalt)" : n.type === "changes" ? "var(--green)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
+            <MiniMap pannable zoomable bgColor="var(--panel)" maskColor="color-mix(in srgb, var(--ground) 70%, transparent)" nodeColor={(n) => (n.type === "term" && (n.data as TermData).status === "waiting" ? "var(--amber)" : n.type === "ticket" ? "var(--cobalt)" : n.type === "changes" ? "var(--green)" : n.type === "note" ? "var(--faint)" : "var(--line)")} className="hidden md:block" />
           </ReactFlow>
         </ActionsCtx.Provider>
         <TicketPicker open={picking} onClose={() => setPicking(false)} onPick={addTicket} placed={new Set(list.flatMap((c) => c.nodes.filter((n) => n.kind === "ticket").map((n) => n.ref)))} />

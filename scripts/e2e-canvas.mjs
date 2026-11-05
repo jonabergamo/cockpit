@@ -195,6 +195,40 @@ try {
     await page.waitForTimeout(400);
   });
 
+  await step("a terminal waiting on you glows, the toolbar takes you there and its menu answers from the card", async () => {
+    const w = await shell("waiter");
+    await until("its card", async () => await canvasOf(w.id));
+    // a Claude asking to run something, in that terminal: the socket's sessions are swapped for this one
+    const fake = { id: "e2e-waiting", project: "e2e", cwd: w.cwd, title: "Needs a yes", status: "waiting", startedAt: Date.now(), updatedAt: Date.now(), size: 0, term: w.id };
+    const p = await page.context().newPage();
+    p.on("pageerror", (e) => errors.push(e.message));
+    await p.routeWebSocket(/\/ws$/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => {
+        if (typeof m === "string" && m.includes('"type":"sessions"')) return;
+        ws.send(m);
+      });
+      setTimeout(() => ws.send(JSON.stringify({ type: "sessions", sessions: [fake] })), 300);
+    });
+    let pressed;
+    await p.route("**/api/sessions/e2e-waiting/ask", (r) => r.fulfill({ json: { reachable: true, screen: "", question: "Run the tests?", options: [{ key: "1", label: "Yes" }, { key: "2", label: "No" }] } }));
+    await p.route("**/api/sessions/e2e-waiting/keys", async (r) => {
+      pressed = r.request().postDataJSON().keys;
+      await r.fulfill({ json: { sent: true } });
+    });
+    await p.goto(`${base}/terminals?view=canvas`);
+    await p.locator(`[data-card="${w.id}"][data-status="waiting"]`).waitFor({ state: "attached" });
+    await p.getByRole("button", { name: /1 waiting/ }).click();
+    await until("zoom 1 on it", async () => /scale\(1\)/.test(await p.locator(".react-flow__viewport").getAttribute("style")));
+    const strip = p.locator(`[data-card="${w.id}"] [data-waiting]`);
+    await strip.getByText("Run the tests?").waitFor();
+    await strip.getByRole("button", { name: /Yes/ }).click();
+    await until("the key pressed", async () => pressed?.[0] === "1");
+    if (process.env.E2E_PROOFS) await p.screenshot({ path: join(process.env.E2E_PROOFS, "waiting.png") });
+    await p.close();
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

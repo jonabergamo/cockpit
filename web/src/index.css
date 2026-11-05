@@ -365,3 +365,19 @@ body {
   stroke: var(--green);
   stroke-dasharray: 3 4;
 }
+
+/* a terminal whose agent is waiting on you glows until you answer */
+.cockpit-canvas .canvas-waiting {
+  animation: canvas-waiting 1.6s ease-in-out infinite;
+}
+@keyframes canvas-waiting {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--amber) 35%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit-canvas .canvas-waiting {
+    animation: none;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 35%, transparent);
+  }
+}
