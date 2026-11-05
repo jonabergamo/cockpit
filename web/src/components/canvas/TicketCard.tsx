@@ -1,9 +1,9 @@
 import { type Node, type NodeProps } from "@xyflow/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { Epic, PullRequest, Ticket } from "@cockpit/shared";
 import { useAgentName } from "../../lib/agent";
-import { api } from "../../lib/api";
+import { api, qs } from "../../lib/api";
 import { ago } from "../../lib/format";
 import { useOpenSession } from "../../lib/openSession";
 import { useJobs, usePrs, useTickets, useWorktrees } from "../../lib/queries";
@@ -29,10 +29,22 @@ function Checks({ pr }: { pr: PullRequest }) {
 export type TicketData = { key: string; terms: number; fit?: boolean };
 export type TicketCardNode = Node<TicketData, "ticket">;
 
-const useTicket = (key: string): Ticket | Epic | undefined => {
-  const t = useTickets().data;
-  return [...(t?.tickets ?? []), ...(t?.epics ?? [])].find((x) => x.key === key);
-};
+// One of your tickets, from the list cockpit already has; anyone else's (a teammate's) is looked up on its own.
+// refresh asks the tracker again for both.
+function useTicket(key: string) {
+  const qc = useQueryClient();
+  const list = useTickets();
+  const mine = [...(list.data?.tickets ?? []), ...(list.data?.epics ?? [])].find((x) => x.key === key) as Ticket | Epic | undefined;
+  const other = useQuery({ queryKey: ["ticket-lookup", key], queryFn: () => api.get<Ticket[]>(`/tickets/lookup${qs({ keys: key })}`).then((r) => r[0] ?? null), enabled: !!list.data && !mine, staleTime: 10 * 60_000 });
+  const refresh = useMutation({
+    mutationFn: async () => {
+      const [fresh] = await api.get<Ticket[]>(`/tickets/lookup${qs({ keys: key, fresh: "1" })}`);
+      qc.setQueryData(["ticket-lookup", key], fresh ?? null);
+      await qc.invalidateQueries({ queryKey: ["tickets"] });
+    },
+  });
+  return { t: mine ?? other.data ?? undefined, mine: !!mine, loading: other.isLoading && !mine, refresh };
+}
 
 // A ticket on the canvas: where it stands in the tracker, its worktree and PRs, and the way to start on it. The
 // terminals working on it hang off it by a line.
@@ -41,7 +53,7 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
   const agent = useAgentName();
   const qc = useQueryClient();
   const openSession = useOpenSession();
-  const t = useTicket(data.key);
+  const { t, mine, loading, refresh } = useTicket(data.key);
   const wt = useWorktrees().data?.find((w) => w.ticket === data.key && !w.main);
   const prs = (usePrs().data?.mine ?? []).filter((p) => p.ticket === data.key && p.state !== "CLOSED");
   const jobs = useJobs();
@@ -100,7 +112,10 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
         {t && <StatusTag status={t.status} category={t.statusCategory} />}
         {t?.type && <span className="text-faint truncate">{t.type}</span>}
         {t?.points !== undefined && <span className="text-faint tabular-nums">{t.points} pt</span>}
-        <button type="button" onClick={(e) => a.spawn(id, e.currentTarget.getBoundingClientRect())} className="nodrag ml-auto size-6 grid place-items-center rounded text-faint hover:text-ink hover:bg-ground" title="A new terminal in its worktree, linked to it" aria-label="New linked terminal">
+        <button type="button" onClick={() => refresh.mutate()} disabled={refresh.isPending} className={`nodrag ml-auto size-6 grid place-items-center rounded text-faint hover:text-ink hover:bg-ground ${refresh.isPending ? "animate-spin" : ""}`} title="Fetch its details from the tracker again" aria-label="Refresh ticket">
+          ↻
+        </button>
+        <button type="button" onClick={(e) => a.spawn(id, e.currentTarget.getBoundingClientRect())} className="nodrag size-6 grid place-items-center rounded text-faint hover:text-ink hover:bg-ground" title="A new terminal in its worktree, linked to it" aria-label="New linked terminal">
           +
         </button>
         <button type="button" onClick={() => a.removeCard(id)} className="nodrag size-6 grid place-items-center rounded text-faint hover:text-red hover:bg-ground" title="Take it off the canvas (the ticket stays as it is)" aria-label="Remove ticket card">
@@ -108,7 +123,8 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
         </button>
       </div>
       <div className="flex-auto min-h-0 flex flex-col gap-2 p-2.5 text-[13px]">
-        <div className="line-clamp-2 font-medium">{t?.summary ?? <span className="text-faint font-normal">Not one of your open tickets, so cockpit has no details for it.</span>}</div>
+        <div className="line-clamp-2 font-medium">{t?.summary ?? <span className="text-faint font-normal">{loading || refresh.isPending ? "Fetching its details" : "The tracker has no ticket by that key, or couldn't be reached. ↻ asks it again."}</span>}</div>
+        {t && !mine && t.assignee && <div className="text-[12px] text-muted -mt-1">Assigned to {t.assignee}</div>}
         <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
           {wt ? (
             <Tag title={wt.path}>

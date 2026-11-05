@@ -189,6 +189,25 @@ try {
     await page.locator('[data-ticket="ACME-412"]').waitFor();
   });
 
+  await step("a teammate's ticket card fetches its details, and ↻ asks the tracker again", async () => {
+    // the demo's tracker only knows your tickets, so a teammate's is made up here
+    const asks = [];
+    await page.route(/\/api\/tickets\/lookup\?/, (r) => {
+      const u = new URL(r.request().url());
+      asks.push(u.searchParams.get("fresh") === "1" ? "fresh" : "cached");
+      return r.fulfill({ json: u.searchParams.get("keys")?.includes("ACME-999") ? [{ key: "ACME-999", summary: "Rounding on split payments", status: "In Progress", assignee: "Sam", inSprint: true, type: "Bug" }] : [] });
+    });
+    const main = (await api("GET", "/canvas"))[0];
+    await api("POST", `/canvas/${main.id}/tickets`, { key: "ACME-999", x: -2000, y: -2000 });
+    await page.goto(`${base}/terminals?view=canvas&ticket=ACME-999`);
+    const card = page.locator('[data-ticket="ACME-999"]');
+    await card.getByText("Rounding on split payments").waitFor();
+    await card.getByText("Assigned to Sam").waitFor();
+    await card.getByRole("button", { name: "Refresh ticket" }).click();
+    await until("asked again", async () => asks.includes("fresh"));
+    await page.unroute(/\/api\/tickets\/lookup\?/);
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

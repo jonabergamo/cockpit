@@ -1,8 +1,8 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import type { Session, TermInfo } from "@cockpit/shared";
-import { api } from "../lib/api";
+import type { Session, TermInfo, Ticket } from "@cockpit/shared";
+import { api, qs } from "../lib/api";
 import { focusOnCanvas, focusTicketOnCanvas, savedView, useCanvasSelected, useCanvases, useStripGroup } from "../lib/canvas";
 import { useLiveSessions } from "../lib/live";
 import { ago, shortPath, usd } from "../lib/format";
@@ -78,7 +78,7 @@ export function SessionStrip() {
   const workspaceOf = (term?: string) => (canvases.length > 1 && term ? canvases.find((c) => c.nodes.some((n) => n.kind === "term" && n.ref === term))?.name : undefined);
   // the ticket a terminal works on: its session's, or the worktree it sits in
   const ticketOf = (cwd?: string, node?: string) => (cwd ? worktrees.find((w) => !w.main && w.ticket && (w.node ?? "local") === (node ?? "local") && within(cwd, w.path))?.ticket : undefined);
-  const summaryOf = (key: string) => [...(tickets?.tickets ?? []), ...(tickets?.epics ?? [])].find((t) => t.key === key)?.summary;
+  const mineSummary = (key: string) => [...(tickets?.tickets ?? []), ...(tickets?.epics ?? [])].find((t) => t.key === key)?.summary;
   const shown = (() => {
     if (path !== "/terminals") return undefined;
     if (onCanvas) return selectedOnCanvas;
@@ -149,6 +149,10 @@ export function SessionStrip() {
   for (const g of ordered) g.items.sort((a, b) => b.rank - a.rank || b.at - a.at);
   // a single group needs no heading
   const headed = ordered.length > 1 || !!ordered[0]?.key;
+  // a teammate's ticket isn't in your list: its title comes from the tracker
+  const others = [...new Set(ordered.flatMap((g) => (g.ticket && !mineSummary(g.ticket) ? [g.ticket] : [])))].sort();
+  const looked = useQuery({ queryKey: ["ticket-lookup-many", others], queryFn: () => api.get<Ticket[]>(`/tickets/lookup${qs({ keys: others.join(",") })}`), enabled: !!tickets && others.length > 0, staleTime: 10 * 60_000 });
+  const summaryOf = (key: string) => mineSummary(key) ?? looked.data?.find((t) => t.key === key)?.summary;
 
   const goTicket = (key: string) => {
     navigate({ to: "/terminals", search: { ticket: key, view: "canvas" } });

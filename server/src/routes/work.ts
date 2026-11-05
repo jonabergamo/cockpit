@@ -4,7 +4,7 @@ import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
 import { fixPlan } from "../fix.ts";
-import { activeSprint, createOptions, releasedSet, createTicket, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, worktreeEpics } from "../providers.ts";
+import { activeSprint, createOptions, releasedSet, createTicket, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, statusesOf, worktreeEpics } from "../providers.ts";
 import type { Epic, NewTicket, TrackerTicket } from "@cockpit/shared";
 import { buildPipeline, roadTickets, type PluginRoads } from "../pipeline.ts";
 import { actPluginRoad, placedOn, pluginMachine, pluginTicketRoads } from "../plugins.ts";
@@ -197,6 +197,11 @@ export const work = new Hono()
     return c.json({ ok: true });
   })
   .get("/tickets", async (c) => c.json(await ticketsWithWork(c.req.query("fresh") === "1")))
+  // any tickets by key, yours or not (a teammate's on the canvas), from the tracker; fresh=1 asks it again
+  .get("/tickets/lookup", async (c) => {
+    const keys = (c.req.query("keys") ?? "").split(",").map((k) => k.trim().toUpperCase()).filter((k) => /^[A-Z][A-Z0-9_]*-\d+$/.test(k)).slice(0, 50);
+    return c.json(await statusesOf(keys, c.req.query("fresh") === "1").catch(() => []));
+  })
   // the ticket pipeline: every ticket on its road, with what plugins add
   .get("/pipeline", async (c) => c.json(await pipeline(c.req.query("fresh") === "1")))
   // one of a plugin's pipeline actions, on the machine the plugin runs on
