@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { CanvasInfo, CanvasRelay } from "@cockpit/shared";
+import type { CanvasInfo, CanvasRelay, RelayStatus } from "@cockpit/shared";
 
 // what a card on the canvas can ask the board to do
 export interface Actions {
@@ -41,5 +41,6 @@ export interface LinkData extends Record<string, unknown> {
   // between two terminals: passing turns along, how many so far, and what each end is called
   relay?: CanvasRelay;
   hops?: number;
+  status?: RelayStatus;
   names?: [string, string];
 }

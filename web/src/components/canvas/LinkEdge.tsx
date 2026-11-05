@@ -1,6 +1,7 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, Handle, Position, useInternalNode, type Edge, type EdgeProps, type InternalNode } from "@xyflow/react";
 import { useState } from "react";
-import type { CanvasRelay } from "@cockpit/shared";
+import type { CanvasRelay, RelayStatus } from "@cockpit/shared";
+import { ago } from "../../lib/format";
 import { useActions, type LinkData } from "./context";
 
 // The dots on a card's sides to draw a line from; any dot links to any other card
@@ -50,6 +51,22 @@ function ends(a: InternalNode, b: InternalNode) {
   };
 }
 
+// what the last turn did on its way along the line
+const LOOK: Record<RelayStatus["state"], { pill: string; text: string; mark: string; word: string }> = {
+  sent: { pill: "border-cobalt/50 bg-raised text-cobalt", text: "text-muted", mark: "↻", word: "" },
+  held: { pill: "border-cobalt/50 bg-raised text-cobalt", text: "text-muted", mark: "⏸", word: "held" },
+  failed: { pill: "border-red bg-red-soft text-red", text: "text-red", mark: "⚠", word: "not passed on" },
+};
+
+function StatusLine({ status }: { status: RelayStatus }) {
+  return (
+    <div className={`max-w-72 leading-snug ${LOOK[status.state].text}`} data-relay-status={status.state}>
+      {status.state === "failed" && "⚠ "}
+      {status.text} <span className="text-faint">· {ago(status.at)}</span>
+    </div>
+  );
+}
+
 const ROLES: { value: CanvasRelay["role"]; label: string }[] = [
   { value: "review", label: "review it" },
   { value: "plan", label: "plan from it" },
@@ -59,7 +76,7 @@ const ROLES: { value: CanvasRelay["role"]; label: string }[] = [
 
 // What a line between two terminals passes on: whose finished turns, what the other end does with them, how many
 // hops before it stops for you. Changing any of it starts the count again.
-function RelayControls({ id, relay, hops, names }: { id: string; relay?: CanvasRelay; hops?: number; names: [string, string] }) {
+function RelayControls({ id, relay, hops, status, names }: { id: string; relay?: CanvasRelay; hops?: number; status?: RelayStatus; names: [string, string] }) {
   const a = useActions();
   const [prompt, setPrompt] = useState(relay?.prompt ?? "");
   if (!relay)
@@ -120,6 +137,7 @@ function RelayControls({ id, relay, hops, names }: { id: string; relay?: CanvasR
           Stop relaying
         </button>
       </div>
+      {status && <StatusLine status={status} />}
     </div>
   );
 }
@@ -135,6 +153,7 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
   const kind = data?.kind ?? "talk";
   const relay = data?.relay;
   const stopped = !!relay && (data?.hops ?? 0) >= relay.limit;
+  const status = data?.status;
   const at = { transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`, pointerEvents: "all" as const };
   return (
     <>
@@ -150,12 +169,18 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
                 </button>
               )}
             </div>
-            {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} names={data.names} />}
+            {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} status={data.status} names={data.names} />}
           </div>
         ) : (
           relay && (
-            <div className={`nodrag nopan absolute rounded-full border px-1.5 h-5 grid place-items-center text-[11px] tabular-nums ${stopped ? "border-amber bg-amber-soft text-amber" : "border-cobalt/50 bg-raised text-cobalt"}`} style={at} title={stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}>
-              ↻ {data?.hops ?? 0}/{relay.limit}
+            <div
+              className={`nodrag nopan absolute rounded-full border px-1.5 h-5 flex items-center gap-1 whitespace-nowrap text-[11px] tabular-nums ${status?.state === "failed" ? LOOK.failed.pill : stopped ? "border-amber bg-amber-soft text-amber" : "border-cobalt/50 bg-raised text-cobalt"}`}
+              style={at}
+              data-relay-pill={status?.state ?? (stopped ? "stopped" : "ok")}
+              title={status ? `${status.text} (${ago(status.at)}). Click the line for more.` : stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}
+            >
+              {status ? LOOK[status.state].mark : "↻"} {data?.hops ?? 0}/{relay.limit}
+              {status && LOOK[status.state].word && <span>· {LOOK[status.state].word}</span>}
             </div>
           )
         )}

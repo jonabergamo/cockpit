@@ -366,7 +366,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           type: "link",
           markerEnd: from === "source" || from === "both" ? arrow : undefined,
           markerStart: from === "target" || from === "both" ? arrow : undefined,
-          data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target), relay: e.relay, hops: e.hops, names: a && b ? [a, b] : undefined },
+          data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target), relay: e.relay, hops: e.hops, status: e.status, names: a && b ? [a, b] : undefined },
         };
       });
     const drawn = new Set(out.flatMap((e) => [`${e.source}|${e.target}`, `${e.target}|${e.source}`]));

@@ -60,6 +60,7 @@ describe("relays", () => {
     expect(sent[0].text).toContain("Added the export button");
     expect(sent[0].text).toContain("Review this work");
     expect(line().hops).toBe(1);
+    expect(line().status).toMatchObject({ state: "sent", text: "Passed on to rev title" });
   });
 
   it("only goes the way it's set to", async () => {
@@ -74,6 +75,7 @@ describe("relays", () => {
     broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "busy")] });
     await turn("bld", "builder");
     expect(sent).toEqual([]);
+    expect(line().status).toMatchObject({ state: "held", text: expect.stringContaining("busy") });
     // the reviewer finishing its own turn gets the held message, and its turn goes back the other way
     broadcast({ type: "sessions", sessions: [session("bld", "builder", "idle"), session("rev", "reviewer", "idle")] });
     await settle();
@@ -113,6 +115,13 @@ describe("relays", () => {
     const hops = (id: string) => canvas.listCanvases()[0].edges.find((e) => e.id === id)?.hops;
     expect(hops(toNew.id)).toBe(1);
     expect(hops(toShell.id)).toBe(0);
+    // the line to the shell says why nothing went along it
+    const status = (id: string) => canvas.listCanvases()[0].edges.find((e) => e.id === id)?.status;
+    expect(status(toShell.id)).toMatchObject({ state: "failed", text: expect.stringContaining("isn't running an agent") });
+    expect(status(toNew.id)).toMatchObject({ state: "sent" });
+    // set up again, it starts clean
+    canvas.setRelay(toShell.id, { from: "source", role: "plan", limit: 3 });
+    expect(status(toShell.id)).toBeUndefined();
   });
 
   it("says where it came from and how far along it is", () => {

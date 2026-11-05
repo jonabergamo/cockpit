@@ -156,6 +156,15 @@ export interface CanvasEdge {
   relay?: CanvasRelay;
   // how many turns it has passed on since you last typed into either end
   hops?: number;
+  // what happened to the last turn it had to pass on, so one that went nowhere doesn't go unnoticed
+  status?: RelayStatus;
+}
+
+// sent: it reached the other end; held: waiting for the other end to be free; failed: it couldn't go, and why
+export interface RelayStatus {
+  state: "sent" | "held" | "failed";
+  text: string;
+  at: number;
 }
 
 // from: whose finished turns go along the line (its source's, its target's, or both ways). role: what the one

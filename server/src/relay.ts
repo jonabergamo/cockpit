@@ -27,7 +27,7 @@ export function relayMessage(from: string, text: string, relay: CanvasRelay, hop
 // what each live session was last seen doing, from the sessions the app is told about
 const seen = new Map<string, Session>();
 // a message held for a session until it's idle, by the line it came along
-const held = new Map<string, { to: string; text: string }>();
+const held = new Map<string, { to: string; name: string; text: string }>();
 
 const sessionIn = (term: string) => [...seen.values()].find((s) => s.term === term && s.status !== "ended");
 // a terminal running an agent, by its command; a plain shell at the other end isn't typed into
@@ -40,6 +40,11 @@ async function typeIn(term: string, text: string) {
   typeInto(term, "\r");
 }
 const titleOf = (s: Session) => s.title || s.name || listTerms().find((t) => t.id === s.term)?.title || "the other terminal";
+const nameOf = (term: string) => {
+  const s = sessionIn(term);
+  return s ? titleOf(s) : listTerms().find((t) => t.id === term)?.title || "the other terminal";
+};
+const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function lastText(s: Session) {
   if (!s.node) return (await lastWords(s.id, MAX_TEXT)).text;
@@ -49,25 +54,44 @@ async function lastText(s: Session) {
 
 const send = (session: string, text: string) => onNode(session, (n) => n.request<boolean>("session.send", { id: session, text }), () => sendText(session, text));
 
+// what happened to a turn on its way along a line, shown on the line
+function deliver(edge: string, name: string, go: () => Promise<boolean | void>) {
+  return go().then(
+    (ok) => canvas.setRelayStatus(edge, ok === false ? { state: "failed", text: `Couldn't reach ${name}'s terminal to type it in` } : { state: "sent", text: `Passed on to ${name}` }),
+    (e) => {
+      console.error("relay", e);
+      canvas.setRelayStatus(edge, { state: "failed", text: `Couldn't pass it on to ${name}: ${why(e)}` });
+    },
+  );
+}
+
 // the canvas shows the count on the line
 const changed = () => broadcast({ type: "canvas" });
 
 async function finished(s: Session) {
-  const relays = canvas.relaysFrom(s.term!);
+  const relays = canvas.relaysFrom(s.term!).filter(({ edge }) => (edge.hops ?? 0) < edge.relay!.limit);
   if (!relays.length) return;
   const text = await lastText(s).catch(() => undefined);
-  if (!text?.trim()) return;
+  if (!text?.trim()) {
+    for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
+    return changed();
+  }
   for (const { edge, to } of relays) {
-    const hops = edge.hops ?? 0;
-    if (hops >= edge.relay!.limit) continue;
     const target = sessionIn(to);
+    const name = nameOf(to);
     // no agent at the other end to read it
-    if (!target && !freshAgent(to)) continue;
-    const message = relayMessage(titleOf(s), text.trim(), edge.relay!, hops + 1);
+    if (!target && !freshAgent(to)) {
+      canvas.setRelayStatus(edge.id, { state: "failed", text: `${name} isn't running an agent, so there was no one to pass ${titleOf(s)}'s turn to` });
+      continue;
+    }
+    const message = relayMessage(titleOf(s), text.trim(), edge.relay!, (edge.hops ?? 0) + 1);
     canvas.countHop(edge.id);
-    if (!target) await typeIn(to, message).catch((e) => console.error("relay", e));
-    else if (target.status === "idle") await send(target.id, message).catch((e) => console.error("relay", e));
-    else held.set(edge.id, { to: target.id, text: message });
+    if (!target) await deliver(edge.id, name, () => typeIn(to, message));
+    else if (target.status === "idle") await deliver(edge.id, name, () => send(target.id, message));
+    else {
+      held.set(edge.id, { to: target.id, name, text: message });
+      canvas.setRelayStatus(edge.id, { state: "held", text: `Held for ${name}, which is ${target.status === "waiting" ? "waiting on you" : "busy"}: it goes once it's free` });
+    }
   }
   changed();
 }
@@ -79,7 +103,7 @@ function update(s: Session) {
   for (const [edge, m] of held)
     if (m.to === s.id) {
       held.delete(edge);
-      void send(s.id, m.text).catch((e) => console.error("relay", e));
+      void deliver(edge, m.name, () => send(s.id, m.text)).then(changed);
     }
   if (was === "busy" && s.term) void finished(s).catch((e) => console.error("relay", e));
 }

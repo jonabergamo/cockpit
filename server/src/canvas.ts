@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, TermInfo } from "@cockpit/shared";
+import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, RelayStatus, TermInfo } from "@cockpit/shared";
 import { paths } from "./config.ts";
 import { db } from "./db.ts";
 
@@ -73,7 +73,13 @@ const nodeRow = (id: string) => db.prepare<[string], NodeRow>(`select ${COLS} fr
 const refRow = (kind: CanvasNode["kind"], ref: string) => db.prepare<[string, string], NodeRow>(`select ${COLS} from canvas_nodes where kind = ? and ref = ?`).get(kind, ref);
 const canvasRow = (id: string) => db.prepare<[string], { id: string; name: string }>("select id, name from canvases where id = ?").get(id);
 type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number };
-const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops } : {}) });
+// what each relay last did, kept while cockpit runs: it's about the last turn, not something to keep
+const statuses = new Map<string, RelayStatus>();
+export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) => statuses.set(edge, { ...status, at: Date.now() });
+const toEdge = (e: EdgeRow): CanvasEdge => {
+  const status = statuses.get(e.id);
+  return { id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops, ...(status ? { status } : {}) } : {}) };
+};
 const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
 // every card but a terminal fits its content until you size it yourself
 const strip = ({ canvas: _, fit, ...n }: NodeRow): CanvasNode => (n.kind === "term" ? n : { ...n, fit: fit !== 0 });
@@ -251,6 +257,8 @@ export function setRelay(id: string, relay: CanvasRelay | null) {
     relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}) };
   }
   db.prepare("update canvas_edges set relay = ?, hops = 0 where id = ?").run(relay ? JSON.stringify(relay) : null, id);
+  // set up again, it starts with nothing to report
+  statuses.delete(id);
   return true;
 }
 

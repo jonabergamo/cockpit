@@ -87,7 +87,24 @@ try {
     await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
     await page.getByText("↻ 0/5").waitFor();
     await page.locator(".react-flow__edge marker, svg marker").first().waitFor({ state: "attached" });
-    await page.mouse.click(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    // a turn that couldn't go along it says so on the line: these shells run no agent, so it's made up here
+    const why = "two isn't running an agent, so there was no one to pass one's turn to";
+    await page.route(/\/api\/canvas$/, async (r) => {
+      const res = await r.fetch();
+      const cs = await res.json();
+      for (const c of cs) for (const e of c.edges) if (e.relay) e.status = { state: "failed", text: why, at: Date.now() };
+      return r.fulfill({ response: res, json: cs });
+    });
+    await page.reload();
+    const pill = page.locator('[data-relay-pill="failed"]');
+    await pill.waitFor();
+    expect((await pill.textContent()).includes("not passed on"), `the line says "${await pill.textContent()}"`);
+    expect((await pill.getAttribute("title")).includes(why), "the reason isn't on the line");
+    await page.waitForTimeout(400);
+    const again = await page.locator(".react-flow__edge-interaction").first().boundingBox();
+    await page.mouse.click(again.x + again.width / 2, again.y + again.height / 2);
+    await page.locator('[data-relay-status="failed"]', { hasText: why }).waitFor();
+    await page.unroute(/\/api\/canvas$/);
     await page.getByRole("button", { name: "Stop relaying" }).click();
     await until("a plain line again", async () => !(await relayOf()));
     await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
