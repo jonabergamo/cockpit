@@ -13,7 +13,7 @@ import { markSeen } from "../lib/badges";
 import { useLive } from "../lib/live";
 import { ago, duration, shortPath } from "../lib/format";
 import { useJobs, usePrs, useRun, useRuns, useTickets, useWorktrees, type RunsFilter } from "../lib/queries";
-import { GROUP_BYS, groupRuns, prOf, rowPr, rowStatus, type GroupBy, type RunGroup, type RunRow } from "../lib/runGroups";
+import { GROUP_BYS, groupRuns, prOf, rowPr, rowStatus, settledFail, type GroupBy, type RunGroup, type RunRow } from "../lib/runGroups";
 
 const KINDS: { value: RunKind; label: string }[] = [
   { value: "unit", label: "Tests" },
@@ -29,7 +29,7 @@ const KINDS: { value: RunKind; label: string }[] = [
 const kindLabel = (k: RunKind) => KINDS.find((x) => x.value === k)?.label ?? k;
 const STATUSES: RunStatus[] = ["running", "pass", "fail", "cancelled"];
 const statusTone = (s: RunStatus) => (s === "running" ? "cobalt" : s === "pass" ? "green" : s === "fail" ? "red" : "faint");
-const statusLabel = (r: Run) => (r.status === "running" ? (r.meta.phase && r.meta.phase !== "running" ? r.meta.phase : "running") : r.status === "pass" ? "passed" : r.status === "fail" ? (r.exitCode ? `failed (${r.exitCode})` : "failed") : "cancelled");
+const statusLabel = (r: Run) => (r.meta.fixedBy && r.status === "fail" ? "failed, fixed later" : r.meta.dismissed && r.status === "fail" ? "failed, dismissed" : r.status === "running" ? (r.meta.phase && r.meta.phase !== "running" ? r.meta.phase : "running") : r.status === "pass" ? "passed" : r.status === "fail" ? (r.exitCode ? `failed (${r.exitCode})` : "failed") : "cancelled");
 const SOURCES: Record<string, string> = { hook: "Claude", wrapper: "cockpit run", terminal: "terminal", manual: "you", verify: "verify", ci: "CI", mcp: "Claude", script: "script", codex: "Codex", gemini: "Gemini" };
 const sourceLabel = (s: string) => SOURCES[s] ?? (s.startsWith("plugin:") ? s.slice(7) : s);
 const took = (r: Run) => duration((r.endedAt ?? Date.now()) - r.startedAt);
@@ -102,7 +102,7 @@ function RunLine({ r, small }: { r: Run; small?: boolean }) {
     <Link to="/runs/$id" params={{ id: r.id }} className={`flex items-center gap-3 px-3 ${small ? "py-1.5 pl-8 text-[13px]" : "py-2.5"} hover:bg-ground ${r.status === "running" ? "relative overflow-hidden sweep" : ""}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
-          <Tag tone={statusTone(r.status)}>{statusLabel(r)}</Tag>
+          <Tag tone={settledFail(r) ? "faint" : statusTone(r.status)}>{statusLabel(r)}</Tag>
           {!small && <Tag tone="faint">{kindLabel(r.kind)}</Tag>}
           <span className={`${small ? "" : "font-medium"} truncate`}>{r.name}</span>
           {r.node && <span className="shrink-0 text-[12px] text-faint">on {r.node}</span>}

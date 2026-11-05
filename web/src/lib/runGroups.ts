@@ -24,9 +24,13 @@ export type RunRow =
   // every check GitHub ran on one commit
   | { type: "ci"; sha: string; pr?: number; checks: Run[]; latest: Run };
 
+// a failure that's behind you: a later run of the same check passed, or you dismissed it
+export const settledFail = (r: Run) => r.status === "fail" && (!!r.meta.fixedBy || !!r.meta.dismissed);
+// how a run counts: a failure behind you no longer counts as failing
+export const statusOf = (r: Run): RunStatus => (settledFail(r) ? "pass" : r.status);
 const worst = (list: Run[]): RunStatus =>
-  list.some((r) => r.status === "fail") ? "fail" : list.some((r) => r.status === "running") ? "running" : list.some((r) => r.status === "cancelled") ? "cancelled" : "pass";
-export const rowStatus = (row: RunRow): RunStatus => (row.type === "ci" ? worst(row.checks) : row.run.status);
+  list.some((r) => statusOf(r) === "fail") ? "fail" : list.some((r) => r.status === "running") ? "running" : list.some((r) => r.status === "cancelled") ? "cancelled" : "pass";
+export const rowStatus = (row: RunRow): RunStatus => (row.type === "ci" ? worst(row.checks) : statusOf(row.run));
 // the PR a run ran against, from the branch it was on
 export const prOf = (r: Run) => (typeof r.meta.pr === "number" ? r.meta.pr : undefined);
 export const rowPr = (row: RunRow) => (row.type === "ci" ? row.pr : prOf(row.run));

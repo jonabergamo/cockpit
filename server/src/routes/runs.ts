@@ -7,7 +7,7 @@ import type { RunDetail, RunEvent, RunFilter, RunKind, RunStatus } from "@cockpi
 import { config, paths } from "../config.ts";
 import { runPanels, runStartExtras, runSteps } from "../plugins.ts";
 import { playwrightSteps } from "../steps.ts";
-import { appendRun, deleteRun, filesDir, originalOf, restoreVideo, trimVideo, getRun, KINDS, listRuns, logFile, outputTail, recordHook, recordRun, rerun, settled, startRun, stepLines, type HookPayload } from "../runs.ts";
+import { appendRun, deleteRun, dismissRun, filesDir, originalOf, restoreVideo, trimVideo, getRun, KINDS, listRuns, logFile, outputTail, recordHook, recordRun, rerun, settled, startRun, stepLines, type HookPayload } from "../runs.ts";
 import { runOptions, startOption } from "../runnable.ts";
 import { livePicture, startRecording, stopRecording } from "../record.ts";
 import { terminalPage } from "../record-page.ts";
@@ -218,6 +218,12 @@ export const runs = new Hono()
     if (!getRun(c.req.param("id"))) return c.json({ error: "no such run" }, 404);
     deleteRun(c.req.param("id"));
     return c.json({ ok: true });
+  })
+  // a failure you don't need to see again, or (undo) brought back
+  .post("/:id/dismiss", async (c) => {
+    const b = ((await c.req.json().catch(() => ({}))) ?? {}) as { undo?: boolean };
+    const r = dismissRun(c.req.param("id"), !b.undo);
+    return r ? c.json(r) : c.json({ error: "no such run" }, 404);
   })
   .post("/:id/rerun", (c) => {
     try {

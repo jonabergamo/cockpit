@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { db } from "../src/db.ts";
-import { appendRun, countsOf, dropFailedVideos, filesDir, finishRun, fromHook, getRun, kindOf, listRuns, outputTail, placeOf, recordHook, recordRun, screenLines, startRun, stepLines, sweep } from "../src/runs.ts";
+import { appendRun, countsOf, dismissRun, dropFailedVideos, failureIsNews, filesDir, finishRun, fromHook, getRun, kindOf, listRuns, outputTail, placeOf, recordHook, recordRun, screenLines, startRun, stepLines, sweep } from "../src/runs.ts";
 
 describe("kindOf", () => {
   it("knows the usual runners", () => {
@@ -133,6 +133,32 @@ describe("a run", () => {
     expect(ids).toEqual(expect.arrayContaining([mine.id, agent.id]));
     expect(ids).not.toContain(other.id);
     expect(listRuns({ terminal: term }).map((r) => r.id)).toEqual([mine.id]);
+  });
+  it("marks the failures a later pass fixed: the same check in the same place, or the same flow", () => {
+    const sess = `sess-${Math.random()}`;
+    const other = `sess-${Math.random()}`;
+    const at = Date.now() - 60_000;
+    const lint = recordRun({ name: "Run full lint", command: "pnpm lint", kind: "lint", status: "fail", startedAt: at, meta: { session: sess } }, "hook");
+    const elsewhere = recordRun({ name: "Lint", command: "pnpm lint", kind: "lint", status: "fail", startedAt: at, meta: { session: other } }, "hook");
+    const flowA = recordRun({ name: "checkout flow", kind: "e2e", status: "fail", startedAt: at, meta: { session: sess } }, "hook");
+    // Claude words it another way and runs it another way: still the lint that failed
+    const pass = recordRun({ name: "Run eslint on the changed files", command: "npx eslint src/a.ts", kind: "lint", status: "pass", meta: { session: sess } }, "hook");
+    const flowB = recordRun({ name: "search flow", kind: "e2e", status: "pass", meta: { session: sess } }, "hook");
+    expect(getRun(lint.id)?.meta.fixedBy).toBe(pass.id);
+    expect(getRun(elsewhere.id)?.meta.fixedBy).toBeUndefined();
+    // another flow passing doesn't fix this one; the same one does
+    expect(getRun(flowA.id)?.meta.fixedBy).toBeUndefined();
+    const flowA2 = recordRun({ name: "checkout flow", kind: "e2e", status: "pass", meta: { session: sess } }, "hook");
+    expect(getRun(flowA.id)?.meta.fixedBy).toBe(flowA2.id);
+    expect(flowB.status).toBe("pass");
+    expect(failureIsNews(getRun(lint.id)!)).toBe(false);
+  });
+  it("dismisses a failure, and brings it back", () => {
+    const r = recordRun({ name: "ci", kind: "ci", status: "fail" }, "plugin:x");
+    expect(failureIsNews(r)).toBe(true);
+    expect(dismissRun(r.id)?.meta.dismissed).toBeTypeOf("number");
+    expect(failureIsNews(getRun(r.id)!)).toBe(false);
+    expect(dismissRun(r.id, false)?.meta.dismissed).toBeUndefined();
   });
   it("tells you about a failure unless it's recorded quietly", () => {
     const told = (id: string) => db.prepare("select count(*) n from events_log where link = ?").get(`/runs/${id}`) as { n: number };

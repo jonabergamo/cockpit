@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { Run, RunDetail, RunStatus } from "@cockpit/shared";
 import { useAgentName } from "../../lib/agent";
+import { settledFail } from "../../lib/runGroups";
 import { api, qs } from "../../lib/api";
 import { ago } from "../../lib/format";
 import { useActions, type CardTone } from "./context";
@@ -16,9 +17,9 @@ export type RunsData = { from?: RunsFrom; fit?: boolean };
 export type RunsCardNode = Node<RunsData, "runs">;
 
 const KIND: Record<string, string> = { unit: "unit", lint: "lint", typecheck: "types", audit: "audit", e2e: "e2e", proof: "proof", verify: "verify", ci: "CI", other: "run" };
-const DOT: Record<RunStatus, string> = { running: "bg-cobalt animate-pulse", pass: "bg-green", fail: "bg-red", cancelled: "bg-line" };
-const WORD: Record<RunStatus, string> = { running: "running", pass: "passed", fail: "failed", cancelled: "stopped" };
-const TEXT: Record<RunStatus, string> = { running: "text-cobalt", pass: "text-green", fail: "text-red", cancelled: "text-faint" };
+const DOT: Record<Shown, string> = { running: "bg-cobalt animate-pulse", pass: "bg-green", fail: "bg-red", cancelled: "bg-line", fixed: "bg-green/40", dismissed: "bg-line" };
+const WORD: Record<Shown, string> = { running: "running", pass: "passed", fail: "failed", cancelled: "stopped", fixed: "fixed", dismissed: "hidden" };
+const TEXT: Record<Shown, string> = { running: "text-cobalt", pass: "text-green", fail: "text-red", cancelled: "text-faint", fixed: "text-faint", dismissed: "text-faint" };
 
 // how long ago, short enough for a narrow column: 40s, 4m, 2h, 3d
 function since(at: number, now = Date.now()) {
@@ -46,9 +47,13 @@ function rowsOf(runs: Run[]): Row[] {
   return [...rows.values()];
 }
 
+// fixed and dismissed failures show as such, and don't count as failing
+type Shown = RunStatus | "fixed" | "dismissed";
+const shown = (r: Run): Shown => (!settledFail(r) ? r.status : r.meta.fixedBy ? "fixed" : "dismissed");
+
 // how the card looks from across the canvas: red while the latest of anything fails, then running, then passing
 function toneOf(rows: Row[]): CardTone | undefined {
-  const s = rows.map((r) => r.latest.status);
+  const s = rows.map((r) => shown(r.latest));
   return s.includes("fail") ? "fail" : s.includes("running") ? "running" : s.includes("pass") ? "pass" : undefined;
 }
 
@@ -72,6 +77,8 @@ function Detail({ r, session, onFail }: { r: Run; session?: string; onFail: (e: 
   const [sent, setSent] = useState(false);
   const rerun = useMutation({ mutationFn: () => api.post(`/runs/${encodeURIComponent(r.id)}/rerun`, {}), onSuccess: () => qc.invalidateQueries({ queryKey: ["runs"] }), onError: onFail });
   const send = useMutation({ mutationFn: () => api.post(`/runs/${encodeURIComponent(r.id)}/send`, { session }), onSuccess: () => setSent(true), onError: onFail });
+  const dismiss = useMutation({ mutationFn: (undo: boolean) => api.post(`/runs/${encodeURIComponent(r.id)}/dismiss`, { undo }), onSuccess: () => qc.invalidateQueries({ queryKey: ["runs"] }), onError: onFail });
+  const settled = settledFail(r);
   const tail = (d.data?.tail ?? []).filter((l) => l.trim());
   const failing = r.summary.failing ?? [];
   const picture = r.artifacts.find((x) => x.type === "image" || x.type === "video");
@@ -95,8 +102,22 @@ function Detail({ r, session, onFail }: { r: Run; session?: string; onFail: (e: 
         <pre className="nowheel max-h-48 overflow-auto rounded bg-panel border border-line font-mono text-[11px] leading-[1.45] p-2 text-muted whitespace-pre-wrap break-all">{tail.slice(-24).join("\n")}</pre>
       )}
       {d.isLoading && <div className="text-faint">Reading its output</div>}
+      {settled && (
+        <div className="text-muted">
+          {r.meta.fixedBy ? (
+            <>
+              A later run of it passed, so it doesn't count as failing.{" "}
+              <button type="button" onClick={() => navigate({ to: "/runs/$id", params: { id: String(r.meta.fixedBy) } })} className="text-cobalt hover:underline">
+                See that run
+              </button>
+            </>
+          ) : (
+            "You hid it, so it doesn't count as failing."
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap gap-1">
-        {r.status === "fail" && (session || r.meta.session) && (
+        {r.status === "fail" && !settled && (session || r.meta.session) && (
           <button type="button" disabled={send.isPending || sent} onClick={() => send.mutate()} className="h-6 px-2 rounded-md bg-cobalt text-on-accent font-medium disabled:opacity-60" title={`Types what failed and the end of its output into ${agent}, asking it to fix it`}>
             {sent ? "Sent" : send.isPending ? "Sending" : `Send to ${agent}`}
           </button>
@@ -109,6 +130,11 @@ function Detail({ r, session, onFail }: { r: Run; session?: string; onFail: (e: 
         <button type="button" onClick={() => navigate({ to: "/runs/$id", params: { id: r.id } })} className="h-6 px-2 rounded-md text-cobalt hover:bg-panel">
           Open the run
         </button>
+        {r.status === "fail" && !r.meta.fixedBy && (
+          <button type="button" disabled={dismiss.isPending} onClick={() => dismiss.mutate(!!r.meta.dismissed)} className="ml-auto h-6 px-2 rounded-md text-muted hover:text-ink hover:bg-panel disabled:opacity-60" title={r.meta.dismissed ? "Count it as failing again" : "You've seen it and don't need it: it stops counting as failing"}>
+            {r.meta.dismissed ? "Show it again" : "Hide"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -116,21 +142,22 @@ function Detail({ r, session, onFail }: { r: Run; session?: string; onFail: (e: 
 
 function RunRow({ row, open, onToggle, session, onFail }: { row: Row; open: boolean; onToggle: () => void; session?: string; onFail: (e: unknown) => void }) {
   const r = row.latest;
+  const s = shown(r);
   return (
-    <div data-run={r.id} data-status={r.status}>
+    <div data-run={r.id} data-status={s}>
       <button type="button" onClick={onToggle} className={`nodrag w-full flex items-center gap-2 px-3 h-7 text-left hover:bg-ground ${r.status === "running" ? "relative overflow-hidden sweep" : ""}`} aria-expanded={open} title={r.command ?? r.name}>
-        <span className={`size-2 rounded-full shrink-0 ${DOT[r.status]}`} />
+        <span className={`size-2 rounded-full shrink-0 ${DOT[s]}`} />
         <span className="w-10 shrink-0 text-faint">{KIND[r.kind] ?? r.kind}</span>
         <span className="truncate flex-1 min-w-0">{r.name}</span>
         <Counts r={r} />
         {row.before.length > 0 && (
           <span className="flex items-center gap-0.5 shrink-0" title={`${row.before.length + 1} runs, newest first`}>
             {row.before.slice(0, 5).map((b) => (
-              <span key={b.id} className={`size-1.5 rounded-full opacity-70 ${DOT[b.status].replace(" animate-pulse", "")}`} />
+              <span key={b.id} className={`size-1.5 rounded-full opacity-70 ${DOT[shown(b)].replace(" animate-pulse", "")}`} />
             ))}
           </span>
         )}
-        <span className={`shrink-0 w-12 text-right whitespace-nowrap ${TEXT[r.status]}`}>{WORD[r.status]}</span>
+        <span className={`shrink-0 w-12 text-right whitespace-nowrap ${TEXT[s]}`}>{WORD[s]}</span>
         <span className="shrink-0 w-8 text-right text-faint tabular-nums whitespace-nowrap" title={ago(r.startedAt)}>
           {since(r.startedAt)}
         </span>
@@ -154,7 +181,7 @@ export function RunsCard({ id, data, selected }: NodeProps<RunsCardNode>) {
   const tone = toneOf(rows);
   const [open, setOpen] = useState<string>();
   // a row opens by itself when its latest run fails, once
-  const failed = rows.find((r) => r.latest.status === "fail")?.latest.id;
+  const failed = rows.find((r) => shown(r.latest) === "fail")?.latest.id;
   const [opened, setOpened] = useState<string>();
   if (failed && failed !== opened) {
     setOpened(failed);
@@ -162,7 +189,7 @@ export function RunsCard({ id, data, selected }: NodeProps<RunsCardNode>) {
   }
   useEffect(() => a.tone(id, tone), [id, tone, a]);
   const fit = useFit({ id, selected, fit: data.fit, max: 560, minWidth: 300, minHeight: 120 });
-  const count = (s: RunStatus) => rows.filter((r) => r.latest.status === s).length;
+  const count = (s: Shown) => rows.filter((r) => shown(r.latest) === s).length;
   const border = selected ? "border-cobalt" : tone === "fail" ? "border-red border-2" : "border-line";
   const session = from && "term" in from ? from.session : undefined;
   return (

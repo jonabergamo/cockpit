@@ -29,7 +29,9 @@ const QUIET_MS = 10 * 60_000;
 // Claude already sees what it ran, and verify notifies by itself
 const QUIET_SOURCES = new Set(["hook", "mcp", "verify"]);
 // a failure worth telling you about: not from a quiet source, and not copied in or caught up on after the fact
-export const failureIsNews = (r: Pick<Run, "status" | "source" | "meta">) => r.status === "fail" && !r.meta.quiet && !QUIET_SOURCES.has(r.source);
+export const failureIsNews = (r: Pick<Run, "status" | "source" | "meta">) => r.status === "fail" && !r.meta.quiet && !QUIET_SOURCES.has(r.source) && !settledFail(r);
+// a failure that's behind you: a later run fixed it, or you dismissed it
+export const settledFail = (r: Pick<Run, "status" | "meta">) => r.status === "fail" && (!!r.meta.fixedBy || !!r.meta.dismissed);
 
 export const runsDir = join(paths.data, "runs");
 mkdirSync(runsDir, { recursive: true });
@@ -452,6 +454,7 @@ export function finishRun(id: string, f: { status?: RunStatus; exitCode?: number
   // a pass makes the earlier failures' videos of the same thing redundant
   if (r.status === "pass") setImmediate(() => dropFailedVideos());
   changed(id, true);
+  for (const fixed of fixEarlier(r)) changed(fixed, true);
   void titleRun(r);
   if (failureIsNews(r)) {
     const what = { unit: "Tests", lint: "Lint", typecheck: "Typecheck", audit: "Audit", e2e: "E2E run", proof: "Proof run", verify: "Checks", ci: "CI check", other: "Run" }[r.kind];
@@ -498,6 +501,42 @@ export function recordRun(input: RecordInput, source: string): Run {
 function settle(r: Run) {
   if (r.status !== "running" || ["terminal", "verify"].includes(r.source) || r.meta.terminal || Date.now() - r.updatedAt < QUIET_MS) return r;
   return finishRun(r.id, { status: "fail", error: STOPPED, endedAt: r.updatedAt }) ?? r;
+}
+
+// The checks that don't care which files they ran on: a later pass of the same kind fixes an earlier failure. An
+// e2e flow or a proof is about one thing, so only the same one passing does. CI goes by its own checks.
+const BY_KIND = new Set<RunKind>(["unit", "lint", "typecheck", "audit", "verify"]);
+const FIX_WINDOW = 3 * 864e5;
+
+// A run that passed fixes the failures before it of the same check, in the same place: the same Claude session,
+// terminal or worktree, in the last three days. Each one is marked with the run that fixed it, so it stops counting
+// as failing anywhere (the canvas, the Runs screen, the sidebar badge) and still shows what happened.
+export function fixEarlier(r: Run): string[] {
+  if (r.status !== "pass" || r.kind === "ci") return [];
+  const scope: [string, string][] = [];
+  if (typeof r.meta.session === "string") scope.push(["json_extract(meta, '$.session') = ?", r.meta.session]);
+  if (typeof r.meta.terminal === "string") scope.push(["json_extract(meta, '$.terminal') = ?", r.meta.terminal]);
+  if (r.worktree) scope.push(["worktree = ?", r.worktree]);
+  if (!scope.length) return [];
+  const where = ["status = 'fail'", "kind = ?", "started_at < ?", "started_at > ?", "id != ?", "json_extract(meta, '$.fixedBy') is null", "json_extract(meta, '$.dismissed') is null", `(${scope.map((s) => s[0]).join(" or ")})`];
+  const args: (string | number)[] = [r.kind, r.startedAt, r.startedAt - FIX_WINDOW, r.id, ...scope.map((s) => s[1])];
+  if (!BY_KIND.has(r.kind)) {
+    where.push("(name = ? or command = ?)");
+    args.push(r.name, r.command ?? "");
+  }
+  const ids = db.prepare<(string | number)[], { id: string }>(`select id from runs where ${where.join(" and ")}`).all(...args).map((x) => x.id);
+  const mark = db.prepare("update runs set meta = json_set(meta, '$.fixedBy', ?) where id = ?");
+  db.transaction(() => ids.forEach((id) => mark.run(r.id, id)))();
+  return ids;
+}
+
+// A failure you've looked at and don't need to see again, or brought back
+export function dismissRun(id: string, on = true) {
+  const r = getRun(id);
+  if (!r) return;
+  db.prepare(on ? "update runs set meta = json_set(meta, '$.dismissed', ?) where id = ?" : "update runs set meta = json_remove(meta, '$.dismissed') where id = ?").run(...(on ? [Date.now(), id] : [id]));
+  changed(id, true);
+  return getRun(id);
 }
 
 export function getRun(id: string) {
@@ -701,6 +740,12 @@ export function startRuns() {
   };
   setTimeout(() => void clean().catch((e) => console.error("runs sweep", e)), 60_000);
   setTimeout(() => dropFailedVideos(), 30_000);
+  // the failures already fixed before cockpit marked them, oldest pass first
+  setTimeout(() => {
+    const passes = db.prepare<[number], Row>("select * from runs where status = 'pass' and started_at > ? order by started_at").all(Date.now() - FIX_WINDOW).map(toRun);
+    const n = passes.reduce((sum, r) => sum + fixEarlier(r).length, 0);
+    if (n) console.log(`runs: marked ${n} failed runs as fixed by a later run`);
+  }, 20_000);
   // once the code host has said which PRs there are
   setTimeout(() => void refileRuns().then((n) => n && console.log(`runs: put ${n} runs under the PR they ran against`), (e) => console.error("runs refile", e)), 90_000);
   setInterval(() => dropFailedVideos(), 3600_000).unref();

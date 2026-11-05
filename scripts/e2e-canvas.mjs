@@ -336,6 +336,25 @@ try {
     await until("green", async () => (await card.getAttribute("data-tone")) === "pass");
     expect((await card.locator("[data-run]").count()) === 1, "the two runs of one command aren't one row");
     expect(!(await card.getByText("lint elsewhere").count()), "it shows another terminal's run");
+    // Claude words and runs the same check another way each time: a later lint passing still fixes the failed one
+    const at = Date.now() - 30_000;
+    await api("POST", "/runs", { finished: true, kind: "lint", command: "pnpm run lint:all", name: "Run full lint to find any errors", status: "fail", exitCode: 1, startedAt: at, meta: { terminal: charlie } });
+    await card.getByText("1 failing").waitFor();
+    await api("POST", "/runs", { finished: true, kind: "lint", command: "npx eslint src/a.ts", name: "Run eslint on the changed files", status: "pass", exitCode: 0, meta: { terminal: charlie } });
+    await card.locator('[data-status="fixed"]').waitFor();
+    await until("nothing failing", async () => !(await card.getByText(/^\d+ failing$/).count()));
+    // and one you don't need can be hidden, and brought back
+    await api("POST", "/runs", { finished: true, kind: "audit", command: "pnpm audit", name: "audit", status: "fail", exitCode: 1, meta: { terminal: charlie } });
+    await card.getByText("1 failing").waitFor();
+    await card.getByRole("button", { name: "Hide" }).click();
+    await card.locator('[data-status="dismissed"]').waitFor();
+    await until("nothing failing", async () => !(await card.getByText(/^\d+ failing$/).count()));
+    await card.getByRole("button", { name: "Show it again" }).click();
+    await card.getByText("1 failing").waitFor();
+    await card.getByRole("button", { name: "Hide" }).click();
+    await until("hidden again", async () => !(await card.getByText(/^\d+ failing$/).count()));
+    // the open row closed again, so the card is back to just its rows
+    await card.locator('[data-status="dismissed"] > button').click();
     await page.locator(".canvas-map .react-flow__minimap-node.map-pass").first().waitFor({ state: "attached" });
     await card.locator(".card-handle").dblclick();
     await page.waitForTimeout(400);
