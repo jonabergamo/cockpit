@@ -389,7 +389,12 @@ export function detachAll(ws: WebSocket) {
   remote?.detachAll(ws);
 }
 
+// what you type into a terminal, as it's typed; the canvas relays start counting again from there
+const typed = new Set<(id: string) => void>();
+export const onTermInput = (fn: (id: string) => void) => (typed.add(fn), () => void typed.delete(fn));
+
 export function input(id: string, data: string) {
+  for (const fn of typed) fn(id);
   if (remote?.owns(id)) return remote.input(id, data);
   const t = terms.get(id);
   if (!t) return;

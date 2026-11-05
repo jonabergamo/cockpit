@@ -150,6 +150,19 @@ export interface CanvasEdge {
   id: string;
   source: string;
   target: string;
+  // between two terminals: each finished turn of one goes on to the other
+  relay?: CanvasRelay;
+  // how many turns it has passed on since you last typed into either end
+  hops?: number;
+}
+
+// from: whose finished turns go along the line (its source's, its target's, or both ways). role: what the one
+// receiving is asked to do with it, or your own words in prompt. limit: how many hops before it stops for you.
+export interface CanvasRelay {
+  from: "source" | "target" | "both";
+  role: "review" | "plan" | "build" | "custom";
+  prompt?: string;
+  limit: number;
 }
 
 export interface CanvasInfo {

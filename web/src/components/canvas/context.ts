@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { CanvasInfo } from "@cockpit/shared";
+import type { CanvasInfo, CanvasRelay } from "@cockpit/shared";
 
 // what a card on the canvas can ask the board to do
 export interface Actions {
@@ -11,6 +11,8 @@ export interface Actions {
   removeNote: (node: string) => void;
   removeCard: (node: string) => void;
   removeEdge: (edge: string) => void;
+  // a line between two terminals relaying turns, or not (null)
+  setRelay: (edge: string, relay: CanvasRelay | null) => void;
   // a terminal was just started from a ticket card: it gets a changes card of its own once it's on the canvas
   started: (ticketNode: string, term: string) => void;
   fail: (e: unknown) => void;
@@ -28,4 +30,8 @@ export interface LinkData extends Record<string, unknown> {
   auto?: boolean;
   // the terminal at one end is working right now
   live?: boolean;
+  // between two terminals: passing turns along, how many so far, and what each end is called
+  relay?: CanvasRelay;
+  hops?: number;
+  names?: [string, string];
 }

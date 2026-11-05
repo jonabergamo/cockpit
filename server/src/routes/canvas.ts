@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { TermInfo, Worktree } from "@cockpit/shared";
+import type { CanvasRelay, TermInfo, Worktree } from "@cockpit/shared";
 import * as canvas from "../canvas.ts";
 import { broadcast } from "../hub.ts";
 import { listTerms, onTermsChanged } from "../pty.ts";
@@ -116,6 +116,17 @@ export const canvasRoutes = new Hono()
     } catch (e) {
       return c.json(fail(e), 400);
     }
+  })
+  // a line between two terminals made a relay, or a plain line again with null
+  .patch("/edges/:edge", async (c) => {
+    const b = await c.req.json<{ relay: CanvasRelay | null; by?: string }>();
+    try {
+      if (!canvas.setRelay(c.req.param("edge"), b.relay ?? null)) return c.json({ error: "No such line" }, 404);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+    changed(b.by);
+    return c.json({ ok: true });
   })
   .delete("/edges/:edge", (c) => {
     if (!canvas.removeEdge(c.req.param("edge"))) return c.json({ error: "No such line" }, 404);

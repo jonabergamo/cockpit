@@ -140,7 +140,7 @@ function findMenu(lines: string[]) {
 }
 
 // The last thing Claude said and a tool call still waiting on its result (usually a permission prompt).
-export async function lastWords(sessionId: string) {
+export async function lastWords(sessionId: string, max = 1500) {
   const file = sessionFile(sessionId);
   if (!file) return {};
   const tail = await readTail(file, 256 * 1024).catch(() => undefined);
@@ -158,7 +158,7 @@ export async function lastWords(sessionId: string) {
     }
     if (e.kind === "user") break;
   }
-  return { text: text && text.length > 1500 ? `${text.slice(0, 1500)}…` : text, pending };
+  return { text: text && text.length > max ? `${text.slice(0, max)}…` : text, pending };
 }
 
 export async function askOf(sessionId: string) {

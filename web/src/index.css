@@ -381,3 +381,13 @@ body {
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 35%, transparent);
   }
 }
+/* a line between two terminals relaying their turns */
+.cockpit-canvas .canvas-link-relay {
+  stroke: var(--cobalt);
+  stroke-width: 2;
+}
+
+/* what a line says (its relay controls, its hop count) sits above the cards, or a card next to it would hide it */
+.cockpit-canvas .react-flow__edgelabel-renderer {
+  z-index: 2000;
+}

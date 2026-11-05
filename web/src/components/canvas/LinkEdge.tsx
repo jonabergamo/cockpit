@@ -1,4 +1,6 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, Handle, Position, useInternalNode, type Edge, type EdgeProps, type InternalNode } from "@xyflow/react";
+import { useState } from "react";
+import type { CanvasRelay } from "@cockpit/shared";
 import { useActions, type LinkData } from "./context";
 
 // The dots on a card's sides to draw a line from; any dot links to any other card
@@ -48,30 +50,116 @@ function ends(a: InternalNode, b: InternalNode) {
   };
 }
 
-// A line between two cards. Selecting one you drew shows its × to take it away; cockpit's own (a terminal in its
-// ticket's worktree) stay while that's true.
-export function LinkEdge({ id, source, target, selected, data }: EdgeProps<Edge<LinkData>>) {
+const ROLES: { value: CanvasRelay["role"]; label: string }[] = [
+  { value: "review", label: "review it" },
+  { value: "plan", label: "plan from it" },
+  { value: "build", label: "carry on with it" },
+  { value: "custom", label: "your own words" },
+];
+
+// What a line between two terminals passes on: whose finished turns, what the other end does with them, how many
+// hops before it stops for you. Changing any of it starts the count again.
+function RelayControls({ id, relay, hops, names }: { id: string; relay?: CanvasRelay; hops?: number; names: [string, string] }) {
+  const a = useActions();
+  const [prompt, setPrompt] = useState(relay?.prompt ?? "");
+  if (!relay)
+    return (
+      <button type="button" onClick={() => a.setRelay(id, { from: "source", role: "review", limit: 3 })} className="h-6 px-2 rounded-full bg-cobalt text-on-accent" title="Each turn one finishes goes on to the other">
+        Relay turns
+      </button>
+    );
+  const set = (patch: Partial<CanvasRelay>) => a.setRelay(id, { ...relay, ...patch });
+  const select = "h-6 rounded bg-ground border border-line px-1 text-[11px] text-ink";
+  return (
+    <div className="flex flex-col gap-1.5 p-1" data-relay={id}>
+      <div className="flex items-center gap-1.5">
+        <select value={relay.from} onChange={(e) => set({ from: e.target.value as CanvasRelay["from"] })} className={select} aria-label="Which way it relays">
+          <option value="source">
+            {names[0]} → {names[1]}
+          </option>
+          <option value="target">
+            {names[1]} → {names[0]}
+          </option>
+          <option value="both">both ways</option>
+        </select>
+        <span className="text-faint">to</span>
+        <select value={relay.role} onChange={(e) => set({ role: e.target.value as CanvasRelay["role"], ...(e.target.value === "custom" ? { prompt: prompt || "Answer it." } : {}) })} className={select} aria-label="What the other end does with it">
+          {ROLES.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {relay.role === "custom" && (
+        <input
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onBlur={() => prompt.trim() && prompt !== relay.prompt && set({ prompt })}
+          onKeyDown={(e) => e.key === "Enter" && prompt.trim() && set({ prompt })}
+          placeholder="What the other end should do with it"
+          className="h-6 rounded bg-ground border border-line px-1.5 text-[11px] text-ink"
+          aria-label="Relay instruction"
+        />
+      )}
+      <div className="flex items-center gap-1.5">
+        <span className={(hops ?? 0) >= relay.limit ? "text-amber font-medium" : "text-muted"}>
+          {(hops ?? 0) >= relay.limit ? `Stopped at ${relay.limit}: type into either to carry on` : `${hops ?? 0} of`}
+        </span>
+        {(hops ?? 0) < relay.limit && (
+          <select value={relay.limit} onChange={(e) => set({ limit: Number(e.target.value) })} className={select} aria-label="Hop limit">
+            {[1, 2, 3, 5, 8, 12, 20].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        )}
+        {(hops ?? 0) < relay.limit && <span className="text-muted">hops</span>}
+        <button type="button" onClick={() => a.setRelay(id, null)} className="ml-auto h-6 px-1.5 rounded text-muted hover:text-red hover:bg-red-soft">
+          Stop relaying
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// A line between two cards. Selecting one you drew shows what it is and its × to take it away; cockpit's own (a
+// terminal in its ticket's worktree) stay while that's true. A line between two terminals can relay their turns.
+export function LinkEdge({ id, source, target, selected, data, markerEnd, markerStart }: EdgeProps<Edge<LinkData>>) {
   const a = useActions();
   const s = useInternalNode(source);
   const t = useInternalNode(target);
   if (!s || !t) return null;
   const [path, x, y] = getBezierPath(ends(s, t));
   const kind = data?.kind ?? "talk";
+  const relay = data?.relay;
+  const stopped = !!relay && (data?.hops ?? 0) >= relay.limit;
+  const at = { transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`, pointerEvents: "all" as const };
   return (
     <>
-      <BaseEdge id={id} path={path} interactionWidth={18} className={`canvas-link canvas-link-${kind} ${data?.live ? "canvas-link-live" : ""} ${selected ? "canvas-link-selected" : ""}`} />
-      {selected && (
-        <EdgeLabelRenderer>
-          <div className="nodrag nopan absolute flex items-center gap-1 rounded-full border border-line bg-raised shadow px-2 h-6 text-[11px] text-muted" style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`, pointerEvents: "all" }}>
-            <span>{data?.auto ? "runs in its worktree" : what[kind]}</span>
-            {!data?.auto && (
-              <button type="button" onClick={() => a.removeEdge(id)} className="size-4 grid place-items-center rounded-full hover:bg-red-soft hover:text-red" aria-label="Remove this link">
-                ×
-              </button>
-            )}
+      <BaseEdge id={id} path={path} interactionWidth={18} markerEnd={markerEnd} markerStart={markerStart} className={`canvas-link canvas-link-${kind} ${relay ? "canvas-link-relay" : ""} ${data?.live && !stopped ? "canvas-link-live" : ""} ${selected ? "canvas-link-selected" : ""}`} />
+      <EdgeLabelRenderer>
+        {selected ? (
+          <div className="nodrag nopan absolute rounded-2xl border border-line bg-raised shadow px-2 py-1 text-[11px] text-muted" style={at}>
+            <div className="flex items-center gap-1 h-5">
+              <span>{data?.auto ? "runs in its worktree" : relay ? "relays turns" : what[kind]}</span>
+              {!data?.auto && (
+                <button type="button" onClick={() => a.removeEdge(id)} className="ml-auto size-4 grid place-items-center rounded-full hover:bg-red-soft hover:text-red" aria-label="Remove this link">
+                  ×
+                </button>
+              )}
+            </div>
+            {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} names={data.names} />}
           </div>
-        </EdgeLabelRenderer>
-      )}
+        ) : (
+          relay && (
+            <div className={`nodrag nopan absolute rounded-full border px-1.5 h-5 grid place-items-center text-[11px] tabular-nums ${stopped ? "border-amber bg-amber-soft text-amber" : "border-cobalt/50 bg-raised text-cobalt"}`} style={at} title={stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}>
+              ↻ {data?.hops ?? 0}/{relay.limit}
+            </div>
+          )
+        )}
+      </EdgeLabelRenderer>
     </>
   );
 }

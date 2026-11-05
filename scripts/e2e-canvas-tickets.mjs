@@ -72,6 +72,27 @@ try {
     await page.locator(".canvas-link-talk").first().waitFor({ state: "attached" });
   });
 
+  await step("a line between two terminals relays their turns, set from the line itself", async () => {
+    const relayOf = async () => (await edges())[0]?.relay;
+    const hit = await page.locator(".react-flow__edge-interaction").first().boundingBox();
+    await page.mouse.click(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    await page.getByRole("button", { name: "Relay turns" }).click();
+    await until("relaying", async () => (await relayOf())?.role === "review");
+    await page.getByLabel("What the other end does with it").selectOption("plan");
+    await until("planning", async () => (await relayOf())?.role === "plan");
+    await page.getByLabel("Which way it relays").selectOption("both");
+    await page.getByLabel("Hop limit").selectOption("5");
+    await until("both ways, 5 hops", async () => (await relayOf())?.from === "both" && (await relayOf())?.limit === 5);
+    // off the line, it shows its count; arrows both ends
+    await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
+    await page.getByText("↻ 0/5").waitFor();
+    await page.locator(".react-flow__edge marker, svg marker").first().waitFor({ state: "attached" });
+    await page.mouse.click(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    await page.getByRole("button", { name: "Stop relaying" }).click();
+    await until("a plain line again", async () => !(await relayOf()));
+    await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
+  });
+
   await step("Canvas on the Tickets page puts that ticket on the canvas", async () => {
     await page.goto(`${base}/tickets`);
     await page.locator("#ticket-ACME-418").getByRole("button", { name: "Canvas" }).click();

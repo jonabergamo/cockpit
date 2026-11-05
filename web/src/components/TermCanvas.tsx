@@ -3,6 +3,7 @@
 import {
   Background,
   ConnectionMode,
+  MarkerType,
   Controls,
   MiniMap,
   NodeResizer,
@@ -304,7 +305,29 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       const t = n?.kind === "term" ? byId.get(n.ref) : undefined;
       return !!t && sessionOf(t)?.status === "busy";
     };
-    const out: LinkEdgeT[] = ws.edges.filter((e) => shown(e.source) && shown(e.target)).map((e) => ({ id: e.id, source: e.source, target: e.target, type: "link", data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target) } }));
+    const nameOf = (id: string) => {
+      const n = cards.get(id);
+      const t = n?.kind === "term" ? byId.get(n.ref) : undefined;
+      return t && titleOf(t);
+    };
+    // a relaying line points the way turns go
+    const arrow = { type: MarkerType.ArrowClosed, color: "var(--cobalt)", width: 16, height: 16 };
+    const out: LinkEdgeT[] = ws.edges
+      .filter((e) => shown(e.source) && shown(e.target))
+      .map((e) => {
+        const a = nameOf(e.source);
+        const b = nameOf(e.target);
+        const from = e.relay?.from;
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          type: "link",
+          markerEnd: from === "source" || from === "both" ? arrow : undefined,
+          markerStart: from === "target" || from === "both" ? arrow : undefined,
+          data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target), relay: e.relay, hops: e.hops, names: a && b ? [a, b] : undefined },
+        };
+      });
     const drawn = new Set(out.flatMap((e) => [`${e.source}|${e.target}`, `${e.target}|${e.source}`]));
     for (const tk of ws.nodes.filter((n) => n.kind === "ticket")) {
       const wt = worktrees.data?.find((w) => w.ticket === tk.ref && !w.main);
@@ -661,6 +684,10 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     removeCard: (node) => {
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, nodes: c.nodes.filter((n) => n.id !== node), edges: c.edges.filter((e) => e.source !== node && e.target !== node) })));
       guard(api.del(`/canvas/nodes/${node}?by=${tabId}`));
+    },
+    setRelay: (edge, relay) => {
+      qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.map((e) => (e.id === edge ? { ...e, relay: relay ?? undefined, hops: 0 } : e)) })));
+      guard(api.patch(`/canvas/edges/${edge}`, { relay, by: tabId }).catch((e) => (refresh(), Promise.reject(e))));
     },
     removeEdge: (edge) => {
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.filter((e) => e.id !== edge) })));

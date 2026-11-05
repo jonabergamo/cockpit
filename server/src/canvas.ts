@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CanvasEdge, CanvasInfo, CanvasNode, TermInfo } from "@cockpit/shared";
+import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, TermInfo } from "@cockpit/shared";
 import { paths } from "./config.ts";
 import { db } from "./db.ts";
 
@@ -40,6 +40,12 @@ db.exec(`
   );
   create index if not exists canvas_edges_canvas on canvas_edges (canvas);
 `);
+// lines between terminals can relay turns: how, and how many hops so far
+for (const [col, type] of [
+  ["relay", "text"],
+  ["hops", "integer not null default 0"],
+] as const)
+  if (!db.prepare<[], { name: string }>("pragma table_info(canvas_edges)").all().some((c) => c.name === col)) db.exec(`alter table canvas_edges add column ${col} ${type}`);
 
 export const TERM_W = 720;
 export const TERM_H = 440;
@@ -62,7 +68,9 @@ const rowsOf = (canvas: string) => db.prepare<[string], NodeRow>(`select ${COLS}
 const nodeRow = (id: string) => db.prepare<[string], NodeRow>(`select ${COLS} from canvas_nodes where id = ?`).get(id);
 const refRow = (kind: CanvasNode["kind"], ref: string) => db.prepare<[string, string], NodeRow>(`select ${COLS} from canvas_nodes where kind = ? and ref = ?`).get(kind, ref);
 const canvasRow = (id: string) => db.prepare<[string], { id: string; name: string }>("select id, name from canvases where id = ?").get(id);
-const edgesOf = (canvas: string) => db.prepare<[string], CanvasEdge>("select id, source, target from canvas_edges where canvas = ? order by created_at").all(canvas);
+type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number };
+const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops } : {}) });
+const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
 const strip = ({ canvas: _, ...n }: NodeRow): CanvasNode => n;
 
 // there's always a first workspace, for the terminals opened elsewhere to land on
@@ -219,6 +227,48 @@ export function addEdge(canvas: string, source: string, target: string): CanvasE
 }
 
 export const removeEdge = (id: string) => db.prepare("delete from canvas_edges where id = ?").run(id).changes > 0;
+
+const ROLES = new Set(["review", "plan", "build", "custom"]);
+const FROM = new Set(["source", "target", "both"]);
+
+// Turns a line between two terminals into a relay, or back into a plain line (null). Changing it starts the count again.
+export function setRelay(id: string, relay: CanvasRelay | null) {
+  const e = db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where id = ?").get(id);
+  if (!e) return false;
+  if (relay) {
+    if (nodeRow(e.source)?.kind !== "term" || nodeRow(e.target)?.kind !== "term") throw new Error("Only a line between two terminals can relay");
+    if (!FROM.has(relay.from) || !ROLES.has(relay.role)) throw new Error("That isn't a way to relay");
+    if (relay.role === "custom" && !relay.prompt?.trim()) throw new Error("Say what the other end should do with it");
+    const limit = Math.min(Math.max(Math.round(Number(relay.limit) || 3), 1), 20);
+    relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}) };
+  }
+  db.prepare("update canvas_edges set relay = ?, hops = 0 where id = ?").run(relay ? JSON.stringify(relay) : null, id);
+  return true;
+}
+
+// The relays a finished turn in this terminal goes along: the terminal at the other end, and how
+export function relaysFrom(term: string) {
+  const card = refRow("term", term);
+  if (!card) return [];
+  return db
+    .prepare<[string, string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where relay is not null and (source = ? or target = ?)")
+    .all(card.id, card.id)
+    .map(toEdge)
+    .filter((e) => e.relay!.from === "both" || (e.relay!.from === "source" ? e.source === card.id : e.target === card.id))
+    .flatMap((e) => {
+      const other = nodeRow(e.source === card.id ? e.target : e.source);
+      return other?.kind === "term" ? [{ edge: e, to: other.ref }] : [];
+    });
+}
+
+export const countHop = (edge: string) => db.prepare("update canvas_edges set hops = hops + 1 where id = ?").run(edge);
+
+// you typed into this terminal: its relays start counting again. True when one had counted anything.
+export function resetHops(term: string) {
+  const card = refRow("term", term);
+  if (!card) return false;
+  return db.prepare("update canvas_edges set hops = 0 where relay is not null and hops > 0 and (source = ? or target = ?)").run(card.id, card.id).changes > 0;
+}
 
 // where cards were dragged or resized to; ids from another workspace are left alone
 export function saveLayout(canvas: string, nodes: Pick<CanvasNode, "id" | "x" | "y" | "w" | "h">[]) {
