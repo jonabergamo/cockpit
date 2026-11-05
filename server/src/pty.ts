@@ -395,6 +395,11 @@ export const onTermInput = (fn: (id: string) => void) => (typed.add(fn), () => v
 
 export function input(id: string, data: string) {
   for (const fn of typed) fn(id);
+  typeInto(id, data);
+}
+
+// cockpit typing into a terminal itself (a canvas relay), which isn't you stepping in
+export function typeInto(id: string, data: string) {
   if (remote?.owns(id)) return remote.input(id, data);
   const t = terms.get(id);
   if (!t) return;

@@ -123,13 +123,16 @@ describe("a run", () => {
     expect(listRuns({ kind: "unit", status: "fail" }).some((x) => x.id === r.id)).toBe(true);
   });
   it("lists what a terminal ran: the runs it started, or that its session ran", () => {
-    const mine = recordRun({ name: "t", status: "pass", meta: { terminal: "term-x" } }, "terminal");
-    const agent = recordRun({ command: "pnpm test", status: "fail", meta: { session: "sess-x" } }, "hook");
-    const other = recordRun({ command: "pnpm test", status: "pass", meta: { session: "sess-y" } }, "hook");
-    const ids = listRuns({ terminal: "term-x", session: "sess-x" }).map((r) => r.id);
+    // the test database keeps its runs from one go to the next
+    const term = `term-${Math.random()}`;
+    const sess = `sess-${Math.random()}`;
+    const mine = recordRun({ name: "t", status: "pass", meta: { terminal: term } }, "terminal");
+    const agent = recordRun({ command: "pnpm test", status: "fail", meta: { session: sess } }, "hook");
+    const other = recordRun({ command: "pnpm test", status: "pass", meta: { session: `${sess}-other` } }, "hook");
+    const ids = listRuns({ terminal: term, session: sess }).map((r) => r.id);
     expect(ids).toEqual(expect.arrayContaining([mine.id, agent.id]));
     expect(ids).not.toContain(other.id);
-    expect(listRuns({ terminal: "term-x" }).map((r) => r.id)).toEqual([mine.id]);
+    expect(listRuns({ terminal: term }).map((r) => r.id)).toEqual([mine.id]);
   });
   it("tells you about a failure unless it's recorded quietly", () => {
     const told = (id: string) => db.prepare("select count(*) n from events_log where link = ?").get(`/runs/${id}`) as { n: number };

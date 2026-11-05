@@ -7,6 +7,10 @@ vi.mock("../src/agents.ts", () => ({
   sendText: async (id: string, text: string) => (sent.push({ id, text }), true),
 }));
 vi.mock("../src/remote/sessions.ts", () => ({ onNode: (_id: string, _remote: unknown, local: () => unknown) => Promise.resolve(local()) }));
+// the terminals open, and what's typed straight into them
+const open: TermInfo[] = [];
+const typed: { id: string; data: string }[] = [];
+vi.mock("../src/pty.ts", async (orig) => ({ ...(await orig<typeof import("../src/pty.ts")>()), listTerms: () => open, typeInto: (id: string, data: string) => void typed.push({ id, data }) }));
 
 const { db } = await import("../src/db.ts");
 const canvas = await import("../src/canvas.ts");
@@ -89,6 +93,26 @@ describe("relays", () => {
     expect(line().hops).toBe(0);
     await turn("bld", "builder");
     expect(sent).toHaveLength(3);
+  });
+
+  it("types into an agent just opened, which has no session yet, but never into a shell", async () => {
+    canvas.syncTerms([term("lead"), term("newbie"), { ...term("plain"), command: "bash" }]);
+    open.push(term("newbie"), { ...term("plain"), command: "bash" });
+    const main = canvas.listCanvases()[0];
+    const card = (ref: string) => main.nodes.find((n) => n.ref === ref)?.id ?? canvas.listCanvases()[0].nodes.find((n) => n.ref === ref)!.id;
+    const toNew = canvas.addEdge(main.id, card("lead"), card("newbie"));
+    const toShell = canvas.addEdge(main.id, card("lead"), card("plain"));
+    canvas.setRelay(toNew.id, { from: "source", role: "review", limit: 3 });
+    canvas.setRelay(toShell.id, { from: "source", role: "review", limit: 3 });
+    await turn("ld", "lead");
+    await new Promise((r) => setTimeout(r, 350));
+    expect(sent).toEqual([]);
+    expect(typed.map((t) => t.id)).toEqual(["newbie", "newbie"]);
+    expect(typed[0].data).toMatch(/^\x1b\[200~From ld title[\s\S]*Review this work[\s\S]*\x1b\[201~$/);
+    expect(typed[1].data).toBe("\r");
+    const hops = (id: string) => canvas.listCanvases()[0].edges.find((e) => e.id === id)?.hops;
+    expect(hops(toNew.id)).toBe(1);
+    expect(hops(toShell.id)).toBe(0);
   });
 
   it("says where it came from and how far along it is", () => {

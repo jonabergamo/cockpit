@@ -2,12 +2,13 @@
 // with what it should do with it (review it, plan from it, carry on with it, or your own words). A turn finishes
 // when its session goes from busy to idle. A message for an agent that's busy or waiting on you waits for it to be
 // idle. Each hop counts, and at the line's limit it stops passing things on until you type into either terminal,
-// so two agents never talk to each other for ever.
+// so two agents never talk to each other for ever. An agent just opened and not asked anything yet has no session
+// to send to: it's sitting at its prompt, so the message is typed into its terminal.
 import type { CanvasRelay, Session } from "@cockpit/shared";
 import { lastWords, sendText } from "./agents.ts";
 import * as canvas from "./canvas.ts";
 import { broadcast, tap } from "./hub.ts";
-import { listTerms, onTermInput } from "./pty.ts";
+import { listTerms, onTermInput, typeInto } from "./pty.ts";
 import { onNode } from "./remote/sessions.ts";
 
 const ASK: Record<Exclude<CanvasRelay["role"], "custom">, string> = {
@@ -29,6 +30,15 @@ const seen = new Map<string, Session>();
 const held = new Map<string, { to: string; text: string }>();
 
 const sessionIn = (term: string) => [...seen.values()].find((s) => s.term === term && s.status !== "ended");
+// a terminal running an agent, by its command; a plain shell at the other end isn't typed into
+const AGENT = /^(?:\S*\/)?(?:claude|codex|gemini)(?:\s|$)/;
+const freshAgent = (term: string) => listTerms().some((t) => t.id === term && t.exited === undefined && t.state !== "exited" && AGENT.test(t.command));
+// pasted the way a terminal pastes, so the agent takes it as one message, then sent
+async function typeIn(term: string, text: string) {
+  typeInto(term, `\x1b[200~${text}\x1b[201~`);
+  await new Promise((r) => setTimeout(r, 300));
+  typeInto(term, "\r");
+}
 const titleOf = (s: Session) => s.title || s.name || listTerms().find((t) => t.id === s.term)?.title || "the other terminal";
 
 async function lastText(s: Session) {
@@ -52,10 +62,11 @@ async function finished(s: Session) {
     if (hops >= edge.relay!.limit) continue;
     const target = sessionIn(to);
     // no agent at the other end to read it
-    if (!target) continue;
+    if (!target && !freshAgent(to)) continue;
     const message = relayMessage(titleOf(s), text.trim(), edge.relay!, hops + 1);
     canvas.countHop(edge.id);
-    if (target.status === "idle") await send(target.id, message).catch((e) => console.error("relay", e));
+    if (!target) await typeIn(to, message).catch((e) => console.error("relay", e));
+    else if (target.status === "idle") await send(target.id, message).catch((e) => console.error("relay", e));
     else held.set(edge.id, { to: target.id, text: message });
   }
   changed();
