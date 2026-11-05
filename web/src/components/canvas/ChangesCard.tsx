@@ -106,7 +106,7 @@ export function ChangesCard({ id, data, selected }: NodeProps<ChangesCardNode>) 
     <div className={`w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden text-[12px] ${selected ? "border-cobalt" : "border-line"}`} style={fit.style} data-changes={id}>
       {fit.resizer}
       <Ports />
-      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
+      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to bring it up">
         <span className="font-medium">Changes</span>
         {d ? (
           <span className="truncate text-muted" title={d.root}>

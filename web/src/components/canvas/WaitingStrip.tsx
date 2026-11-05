@@ -45,7 +45,7 @@ export function WaitingStrip({ session, onBringUp, onFail }: { session: string; 
           Esc
         </button>
       ) : (
-        <button type="button" onClick={onBringUp} className="h-7 px-2 rounded-md bg-raised border border-line hover:border-faint" title="See it at 100% and type the answer in the terminal">
+        <button type="button" onClick={onBringUp} className="h-7 px-2 rounded-md bg-raised border border-line hover:border-faint" title="Bring it up and type the answer in the terminal">
           Answer
         </button>
       )}

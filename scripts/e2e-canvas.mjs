@@ -477,6 +477,17 @@ try {
     }
     // the strip marks the terminal selected on the canvas
     await until("marked at the top", async () => /ring-cobalt/.test((await top.getAttribute("class")) ?? ""), 5000);
+    // on a small window it's fitted with room around it, not filling the screen at 100%
+    await page.setViewportSize({ width: 1100, height: 720 });
+    await page.waitForTimeout(300);
+    await away();
+    await top.click();
+    await page.waitForTimeout(500);
+    const pane = await page.locator(".react-flow__pane").boundingBox();
+    const box = await page.locator(`[data-card="${charlie}"]`).boundingBox();
+    const room = Math.min(box.x - pane.x, pane.x + pane.width - (box.x + box.width), box.y - pane.y, pane.y + pane.height - (box.y + box.height));
+    expect(room >= 30, `only ${Math.round(room)}px of room around it`);
+    await page.setViewportSize({ width: 1600, height: 1000 });
     // tabs, from Settings, on this device
     await page.goto(`${base}/settings`);
     await page.getByRole("heading", { name: "Terminals" }).waitFor();

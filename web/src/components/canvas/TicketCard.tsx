@@ -101,7 +101,7 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
     <div className={`w-full flex flex-col rounded-lg border-2 bg-panel shadow-lg overflow-hidden ${edge}`} style={fit.style} data-ticket={data.key} data-ci={failing ? "fail" : open.some((p) => p.checks === "pending") ? "pending" : open.length ? "pass" : undefined}>
       {fit.resizer}
       <Ports />
-      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-cobalt-soft border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
+      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-cobalt-soft border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to bring it up">
         {t?.url ? (
           <a href={t.url} target="_blank" rel="noreferrer" className="nodrag font-semibold text-cobalt hover:underline" title="Open it in the tracker">
             {data.key}

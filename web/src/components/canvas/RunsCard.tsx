@@ -228,7 +228,7 @@ export function RunsCard({ id, data, selected }: NodeProps<RunsCardNode>) {
     <div className={`w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden text-[12px] ${border}`} style={fit.style} data-runs={id} data-tone={tone}>
       {fit.resizer}
       <Ports />
-      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
+      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to bring it up">
         <span className="font-medium">Runs</span>
         {from && <span className="truncate text-faint">{from.label}</span>}
         <span className="ml-auto flex items-center gap-2 shrink-0">

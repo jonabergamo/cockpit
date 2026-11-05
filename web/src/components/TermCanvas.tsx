@@ -142,7 +142,7 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
     <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden ${waiting ? "border-amber border-2 canvas-waiting" : selected ? "border-cobalt" : "border-line"}`} data-card={t.id} data-status={data.status}>
       <NodeResizer isVisible={selected} minWidth={360} minHeight={220} color="var(--cobalt)" />
       <Ports />
-      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to see it at 100%">
+      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line text-[12px] shrink-0" onDoubleClick={() => a.bringUp(id)} title="Drag to move, double-click to bring it up">
         <span className={`size-2 rounded-full shrink-0 ${dot}`} />
         {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted shrink-0">{t.node}</span>}
         <span className="truncate font-medium">{data.title}</span>
@@ -391,22 +391,33 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       })
       .map((n) => ({ canvas: c.id, node: n })),
   );
+  // A card brought up on its own: in the middle, as big as fits with room around it (about an eighth of the view
+  // on each side), and never past 100%, so what's beside it still shows
+  const frame = (b: { x: number; y: number; w: number; h: number }) => {
+    const r = wrap.current?.getBoundingClientRect();
+    const room = 0.75;
+    const zoom = r ? Math.min(1, (r.width * room) / b.w, (r.height * room) / b.h) : 1;
+    flow.setCenter(b.x + b.w / 2, b.y + b.h / 2, { zoom: Math.max(zoom, 0.2), duration: 250 });
+  };
+  const boxOf = (n: CardNode) => ({ x: n.position.x, y: n.position.y, w: n.width ?? n.measured?.width ?? TERM_W, h: n.height ?? n.measured?.height ?? TERM_H });
   const nextWaiting = useRef(0);
   const goWaiting = () => {
     if (!waiting.length) return;
     const w = waiting[nextWaiting.current++ % waiting.length];
-    const go = () => flow.setCenter(w.node.x + w.node.w / 2, w.node.y + w.node.h / 2, { zoom: 1, duration: 250 });
+    const go = () => frame(w.node);
     if (w.canvas !== ws?.id) {
       shownWs.current = w.canvas;
       pick(w.canvas);
       setTimeout(go, 80);
     } else go();
   };
-  // Going to a card: its workspace, the card selected and brought into view. Enter in the finder takes you there.
-  const goTo = (canvas: string, node: CanvasNode, zoom?: number) => {
+  // Going to a card: its workspace, the card selected and brought into view. framed: fitted with room around it (a
+  // card at the top, the recap); otherwise at the zoom you're at, a little closer if you're far out (the finder, keys)
+  const goTo = (canvas: string, node: CanvasNode, framed = false) => {
     const go = () => {
       setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === node.id })));
-      flow.setCenter(node.x + node.w / 2, node.y + node.h / 2, { zoom: zoom ?? Math.max(flow.getZoom(), 0.6), duration: 250 });
+      if (framed) frame(node);
+      else flow.setCenter(node.x + node.w / 2, node.y + node.h / 2, { zoom: Math.max(flow.getZoom(), 0.6), duration: 250 });
     };
     if (canvas !== ws?.id) {
       shownWs.current = canvas;
@@ -467,7 +478,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   );
 
   // The keys, while you aren't typing in a terminal or a box: arrows move to the nearest card that way, Enter
-  // brings it to 100% and types into its terminal, / finds a card, w the next one waiting, f fits, 1-9 workspaces.
+  // brings it up and types into its terminal, / finds a card, w the next one waiting, f fits, 1-9 workspaces.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -597,7 +608,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     setTimeout(() => (saved && (seen || !ws.nodes.length) ? flow.setViewport(saved) : flow.fitView({ maxZoom: 1, padding: 0.1 })), 30);
   }, [ws, focus, flow]);
 
-  // a link to one terminal (a session card, a notification) opens its workspace and brings it to 100%
+  // a link to one terminal (a session card, a notification) opens its workspace and brings it up, framed
   const focused = useRef<string>(undefined);
   useEffect(() => {
     if (!focus || focused.current === focus || !list.length) return;
@@ -608,11 +619,11 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     if (!n) return;
     focused.current = focus;
     shownWs.current = home.id;
-    setTimeout(() => flow.setCenter(n.position.x + (n.width ?? TERM_W) / 2, n.position.y + (n.height ?? TERM_H) / 2, { zoom: 1, duration: 250 }), 30);
+    setTimeout(() => frame(boxOf(n)), 30);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, list, ws, nodes, flow]);
 
-  // A card at the top clicked: that terminal's card, on whichever workspace, selected and at 100%, every time
+  // A card at the top clicked: that terminal's card, on whichever workspace, selected and framed, every time
   const goToRef = useRef(goTo);
   goToRef.current = goTo;
   const listRef = useRef(list);
@@ -622,7 +633,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
       onFocusRequest(({ kind, ref }) => {
         const home = listRef.current.find((c) => c.nodes.some((n) => n.kind === kind && n.ref === ref));
         const node = home?.nodes.find((n) => n.kind === kind && n.ref === ref);
-        if (home && node) goToRef.current(home.id, node, kind === "term" ? 1 : undefined);
+        if (home && node) goToRef.current(home.id, node, true);
       }),
     [],
   );
@@ -953,7 +964,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     others: list.filter((c) => c.id !== ws?.id),
     bringUp: (id) => {
       const n = flow.getNode(id);
-      if (n) flow.setCenter(n.position.x + (n.width ?? TERM_W) / 2, n.position.y + (n.height ?? TERM_H) / 2, { zoom: 1, duration: 250 });
+      if (n) frame(boxOf(n));
     },
     move: (term, to) => guard(api.post(`/canvas/${to}/terms`, { term, by: tabId }).then(refresh)),
     close: (term) => guard(api.del(`/code/terms/${term}`).then(() => qc.invalidateQueries({ queryKey: ["terms"] }))),
@@ -1161,7 +1172,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
             onClose={() => setRecap(undefined)}
             onGo={(term) => {
               const n = ws.nodes.find((x) => x.kind === "term" && x.ref === term);
-              if (n) goTo(ws.id, n, 1);
+              if (n) goTo(ws.id, n, true);
             }}
           />
         )}
@@ -1186,7 +1197,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
               {[
                 ["← ↑ → ↓", "the nearest card that way"],
-                ["Enter", "it at 100%, typing into its terminal"],
+                ["Enter", "bring it up and type into its terminal"],
                 ["/", "find any card"],
                 ["w", "the next terminal waiting on you"],
                 ["f", "fit every card on screen"],
