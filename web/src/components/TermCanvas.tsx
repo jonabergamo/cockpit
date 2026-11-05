@@ -858,7 +858,8 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     const made = await open(cwd).catch((e) => (t && cwd !== t.cwd ? open(t.cwd) : Promise.reject(e)));
     const card = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: made.id, ...(at ?? { x: from.x + from.w + 40, y: from.y }), by: tabId });
     const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: fromId, target: card.id, by: tabId });
-    if (kind === "review") await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "source", role: "review", limit: 3 }, by: tabId });
+    // both ways: its turns go to the reviewer, and the review comes back to it to act on
+    if (kind === "review") await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "both", role: "review", limit: 4 }, by: tabId });
     await qc.invalidateQueries({ queryKey: ["terms"] });
     await refresh();
     show(card);
@@ -884,7 +885,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     const revCard = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: rev.id, x: card.x + card.w + 40, y: card.y, by: tabId });
     made.push(revCard.id);
     const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: card.id, target: revCard.id, by: tabId });
-    await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "source", role: "review", limit: 3, when: "passing" }, by: tabId });
+    await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "both", role: "review", limit: 4, when: "passing" }, by: tabId });
     await qc.invalidateQueries({ queryKey: ["terms"] });
     await refresh();
     setTimeout(() => flow.fitView({ nodes: made.map((id) => ({ id })), padding: 0.08, maxZoom: 1, duration: 300 }), 150);

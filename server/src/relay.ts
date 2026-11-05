@@ -21,9 +21,16 @@ const ASK: Record<Exclude<CanvasRelay["role"], "custom">, string> = {
 
 const MAX_TEXT = 8000;
 
-export function relayMessage(from: string, text: string, relay: CanvasRelay, hop: number) {
-  const ask = relay.role === "custom" ? relay.prompt! : ASK[relay.role];
-  return `From ${from}, which just finished a turn:\n\n${text}\n\n${ask}\n\n(Passed on by cockpit's canvas, ${hop} of ${relay.limit}.)`;
+// a review coming back to the one whose work it was
+const ANSWER = "That's a review of your last turn. Fix what it's right about, and say briefly what you're leaving and why.";
+
+// On a review line the reviewer is the end turns go to first (the target, when they go both ways); what comes back
+// from it is a review to act on, not more work to review
+export const reviewerEnd = (relay: CanvasRelay): "source" | "target" => (relay.from === "target" ? "source" : "target");
+
+export function relayMessage(from: string, text: string, relay: CanvasRelay, hop: number, back = false) {
+  const ask = relay.role === "custom" ? relay.prompt! : back ? ANSWER : ASK[relay.role];
+  return `From ${from}, which just ${back ? "reviewed your last turn" : "finished a turn"}:\n\n${text}\n\n${ask}\n\n(Passed on by cockpit's canvas, ${hop} of ${relay.limit}.)`;
 }
 
 // what each live session was last seen doing, from the sessions the app is told about
@@ -93,7 +100,7 @@ async function finished(s: Session) {
     for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
     return changed();
   }
-  for (const { edge, to } of relays) {
+  for (const { edge, to, toEnd } of relays) {
     const target = sessionIn(to);
     const name = nameOf(to);
     if (edge.relay!.when === "passing" && failing.length) {
@@ -106,7 +113,8 @@ async function finished(s: Session) {
       canvas.setRelayStatus(edge.id, { state: "failed", text: `${name} isn't running an agent, so there was no one to pass ${titleOf(s)}'s turn to` });
       continue;
     }
-    const message = relayMessage(titleOf(s), text.trim(), edge.relay!, (edge.hops ?? 0) + 1);
+    const back = edge.relay!.role === "review" && toEnd !== reviewerEnd(edge.relay!);
+    const message = relayMessage(titleOf(s), text.trim(), edge.relay!, (edge.hops ?? 0) + 1, back);
     canvas.countHop(edge.id);
     if (!target) await deliver(edge.id, name, () => typeIn(to, message));
     else if (target.status === "idle") await deliver(edge.id, name, () => send(target.id, message));

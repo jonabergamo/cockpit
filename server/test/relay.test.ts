@@ -142,6 +142,18 @@ describe("relays", () => {
     failingRuns.length = 0;
   });
 
+  it("sends a review back as a review to act on, not more work to review", async () => {
+    canvas.setRelay(line().id, { from: "both", role: "review", limit: 4 });
+    broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "idle"), session("bld", "builder", "idle")] });
+    await turn("bld", "builder");
+    await turn("rev", "reviewer");
+    expect(sent.map((m) => m.id)).toEqual(["rev", "bld"]);
+    expect(sent[0].text).toContain("Review this work");
+    expect(sent[1].text).toContain("which just reviewed your last turn");
+    expect(sent[1].text).toContain("Fix what it's right about");
+    expect(sent[1].text).not.toContain("Review this work");
+  });
+
   it("says where it came from and how far along it is", () => {
     expect(relayMessage("Builder", "Done.", { from: "both", role: "plan", limit: 4 }, 2)).toBe("From Builder, which just finished a turn:\n\nDone.\n\nTurn this into the next concrete steps, in order.\n\n(Passed on by cockpit's canvas, 2 of 4.)");
   });

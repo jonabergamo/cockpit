@@ -278,7 +278,8 @@ export function relaysFrom(term: string) {
     .filter((e) => e.relay!.from === "both" || (e.relay!.from === "source" ? e.source === card.id : e.target === card.id))
     .flatMap((e) => {
       const other = nodeRow(e.source === card.id ? e.target : e.source);
-      return other?.kind === "term" ? [{ edge: e, to: other.ref }] : [];
+      // toEnd: which end of the line the turn goes to
+      return other?.kind === "term" ? [{ edge: e, to: other.ref, toEnd: (e.source === card.id ? "target" : "source") as "source" | "target" }] : [];
     });
 }
 

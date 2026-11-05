@@ -81,7 +81,7 @@ function RelayControls({ id, relay, hops, status, names }: { id: string; relay?:
   const [prompt, setPrompt] = useState(relay?.prompt ?? "");
   if (!relay)
     return (
-      <button type="button" onClick={() => a.setRelay(id, { from: "source", role: "review", limit: 3 })} className="h-6 px-2 rounded-full bg-cobalt text-on-accent" title="Each turn one finishes goes on to the other">
+      <button type="button" onClick={() => a.setRelay(id, { from: "both", role: "review", limit: 4 })} className="h-6 px-2 rounded-full bg-cobalt text-on-accent" title="Each turn one finishes goes on to the other">
         Relay turns
       </button>
     );
