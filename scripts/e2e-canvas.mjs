@@ -140,7 +140,8 @@ try {
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     // the fit animates; the note goes in the middle of where it ends up
     await page.waitForTimeout(400);
-    await page.getByRole("button", { name: "+ Note" }).first().click();
+    await page.getByRole("button", { name: "+ Add" }).click();
+    await page.getByRole("menuitem", { name: /^Note/ }).click();
     const area = page.getByLabel("Note text");
     await area.waitFor();
     await area.fill("# Plan\n- **ship it**");
@@ -207,7 +208,8 @@ try {
     await page.waitForSelector(`[data-card="${t.id}"] .xterm-rows`);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     await page.waitForTimeout(400);
-    await page.getByRole("button", { name: "+ Changes" }).click();
+    await page.getByRole("button", { name: "+ Add" }).click();
+    await page.getByRole("menuitem", { name: /^Changes/ }).click();
     const changes = page.locator("[data-changes]");
     await changes.getByText(/Draw a line from this card/).waitFor();
     // both on screen, then linked by a line from the changes card to the terminal
@@ -675,7 +677,8 @@ try {
     // a note added there shows up here
     const notesOf = async () => (await canvasOf(charlie)).nodes.filter((n) => n.kind === "note").map((n) => n.id);
     const before = await notesOf();
-    await other.getByRole("button", { name: "+ Note" }).first().click();
+    await other.getByRole("button", { name: "+ Add" }).click();
+    await other.getByRole("menuitem", { name: /^Note/ }).click();
     let note;
     await until("the note is added", async () => !!(note = (await notesOf()).find((id) => !before.includes(id))), 8000);
     note = { id: note };

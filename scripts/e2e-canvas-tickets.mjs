@@ -36,7 +36,8 @@ try {
   await step("a ticket picked from your tickets shows as a card with its worktree", async () => {
     await page.goto(`${base}/terminals?view=canvas`);
     await page.waitForSelector(`[data-card="${one.id}"] .xterm-rows`);
-    await page.getByRole("button", { name: "+ Ticket" }).click();
+    await page.getByRole("button", { name: "+ Add" }).click();
+    await page.getByRole("menuitem", { name: /^Ticket/ }).click();
     await page.getByLabel("Find a ticket").fill("saved cards");
     await page.getByRole("option", { name: /ACME-412/ }).click();
     const card = page.locator(`[data-ticket="ACME-412"]`);

@@ -40,6 +40,7 @@ import { useAppConfig, useRuns, useTickets, useWorktrees } from "../lib/queries"
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
 import { AwayPanel } from "./canvas/AwayPanel";
+import { AddMenu } from "./canvas/AddMenu";
 import { CardFinder, type FoundCard } from "./canvas/CardFinder";
 import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
 import { ActionsCtx, useActions, type Actions, type CardTone, type LinkData, type LinkKind } from "./canvas/context";
@@ -1263,23 +1264,15 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
               {waiting.length} waiting
             </button>
           )}
-          {tracker && (
-            <Button size="sm" variant="ghost" onClick={() => setPicking(true)} title="One of your tickets on this workspace, to start work on and link terminals to">
-              + Ticket
-            </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={newTerminal} title="A new terminal on this workspace">
-            + Terminal
-          </Button>
-          <Button size="sm" variant="ghost" onClick={newNote} title="A markdown note on this workspace">
-            + Note
-          </Button>
-          <Button size="sm" variant="ghost" onClick={newChanges} title="A card with the code changes on a branch: link it to a terminal or a ticket (or select one first)">
-            + Changes
-          </Button>
-          <Button size="sm" variant="ghost" onClick={newRuns} title="A card with the tests, lint, e2e and CI runs of a terminal or a ticket: link it to one (or select one first)">
-            + Runs
-          </Button>
+          <AddMenu
+            options={[
+              { label: "Terminal", hint: "A new terminal, from the launcher", onPick: newTerminal },
+              ...(tracker ? [{ label: "Ticket", hint: "One of your tickets, to start work on and link terminals to", onPick: () => setPicking(true) }] : []),
+              { label: "Note", hint: "A markdown note", onPick: newNote },
+              { label: "Changes", hint: "The code changes on a branch: link it to a terminal or a ticket (or select one first)", onPick: newChanges },
+              { label: "Runs", hint: "The tests, lint, e2e and CI runs of a terminal or a ticket: link it to one (or select one first)", onPick: newRuns },
+            ]}
+          />
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
             Fit
           </Button>
