@@ -596,7 +596,7 @@ try {
     await page.unroute(/\/api\/e2e-sim\/frame/);
   });
 
-  await step("the canvas carries on in a window on another screen, moving with this one, and a card can go there", async () => {
+  await step("another screen is a canvas of its own, and a terminal goes there with all that's linked to it", async () => {
     const charlie = globalThis.charlie;
     await page.goto(`${base}/terminals?view=canvas&id=${charlie}`);
     await page.waitForSelector(`[data-card="${charlie}"] .xterm-rows`);
@@ -604,59 +604,48 @@ try {
     await page.waitForTimeout(400);
     const group = await page.evaluate(() => sessionStorage.getItem("cockpit.screenGroup"));
     expect(!!group, "this window has no group");
-    // the other screen, 1200px to the right of this one on the desk
+    const second = await api("POST", "/canvas", { name: "Second" });
     const other = await page.context().newPage();
-    await other.addInitScript(() => {
-      const x = window.screenX + 1200;
-      Object.defineProperty(window, "screenX", { get: () => x });
-    });
     await other.setViewportSize({ width: 700, height: 1000 });
     await other.goto(`${base}/embed/canvas?group=${group}`);
     await other.locator(".react-flow__viewport").waitFor();
-    const vp = (p) =>
-      p.evaluate(() => {
-        const m = new DOMMatrix(getComputedStyle(document.querySelector(".react-flow__viewport")).transform);
-        const r = document.querySelector('[data-testid="canvas"]').getBoundingClientRect();
-        return { x: m.e, y: m.f, zoom: m.a, left: r.left + window.screenX, top: r.top };
-      });
-    // the same canvas, shifted by where each window is
-    const lined = async () => {
-      const [a, b] = [await vp(page), await vp(other)];
-      return Math.abs(a.zoom - b.zoom) < 0.001 && Math.abs(a.x + a.left - (b.x + b.left)) < 2 && Math.abs(a.y + a.top - (b.y + b.top)) < 2;
-    };
-    await until("the other screen lined up with this one", lined, 10_000);
-    await page.getByRole("button", { name: "2 screens" }).waitFor({ timeout: 5000 });
-    // panning here moves it there
+    await page.getByRole("button", { name: "2 screens" }).waitFor({ timeout: 8000 });
+    // its own workspace
+    await other.getByRole("tab", { name: /Second/ }).click();
+    await other.getByText("Nothing on Second yet.").waitFor();
+    expect((await page.getByRole("tab", { name: /Main/ }).getAttribute("aria-selected")) === "true", "the main screen switched workspace too");
+    // and its own place: panning here leaves it where it is
+    const view = (p) => p.evaluate(() => getComputedStyle(document.querySelector(".react-flow__viewport")).transform);
+    const before = await view(other);
     const pane = await page.locator(".react-flow__pane").boundingBox();
     await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 20);
     await page.mouse.down();
     await page.mouse.move(pane.x + pane.width / 2 - 200, pane.y + pane.height - 80, { steps: 6 });
     await page.mouse.up();
-    await until("it followed the pan", lined, 5000);
-    // and panning there moves it here
-    const pane2 = await other.locator(".react-flow__pane").boundingBox();
-    await other.mouse.move(pane2.x + 40, pane2.y + pane2.height - 20);
-    await other.mouse.down();
-    await other.mouse.move(pane2.x + 140, pane2.y + pane2.height - 60, { steps: 6 });
-    await other.mouse.up();
-    await until("this one followed back", lined, 5000);
-    // charlie goes to the middle of what the other screen shows
-    await page.locator(`[data-card="${charlie}"]`).getByLabel("Move to workspace").selectOption({ label: "The other screen" });
+    await page.waitForTimeout(400);
+    expect((await view(other)) === before, "the other screen moved with this one");
+    // charlie, with the runs card linked to it, to the middle of what the other screen shows
+    const runsOf = async () => (await api("GET", "/canvas")).find((c) => c.nodes.some((n) => n.id === runsCard.id));
+    const mainLines = (await runsOf()).edges.filter((e) => e.source === runsCard.id || e.target === runsCard.id).length;
+    expect(mainLines > 0, "the runs card isn't linked to charlie");
+    await until("the other screen says what it shows", async () => (await page.locator(`[data-card="${charlie}"]`).getByLabel("Move to workspace").locator("option", { hasText: "The other screen (Second)" }).count()) > 0, 8000);
+    await page.locator(`[data-card="${charlie}"]`).getByLabel("Move to workspace").selectOption({ label: "The other screen (Second)" });
+    await until("both on Second", async () => (await canvasOf(charlie))?.id === second.id && (await runsOf())?.id === second.id, 8000);
+    expect((await runsOf()).edges.some((e) => e.source === runsCard.id || e.target === runsCard.id), "the line to the runs card didn't go with them");
+    const card = other.locator(`.react-flow__node:has([data-card="${charlie}"])`);
+    await card.waitFor({ timeout: 10_000 });
+    await other.locator(`[data-runs="${runsCard.id}"]`).waitFor();
+    // the two of them are around the middle of the other screen
+    const box = await card.boundingBox();
     const size = other.viewportSize();
-    let mid;
-    await until(
-      "charlie in the middle of the other screen",
-      async () => {
-        const box = await other.locator(`.react-flow__node:has([data-card="${charlie}"])`).boundingBox();
-        mid = box && box.x + box.width / 2;
-        return box && Math.abs(mid - size.width / 2) < 30;
-      },
-      10_000,
-    ).catch(() => expect(false, `charlie's middle is at ${mid}, not the other screen's (${size.width / 2})`));
+    expect(box.x < size.width && box.x + box.width > 0 && box.y < size.height && box.y + box.height > 0, "charlie isn't on the other screen");
+    // back to Main, still together
+    await other.locator(`[data-card="${charlie}"]`).getByLabel("Move to workspace").selectOption({ label: "Main" });
+    await until("both back on Main", async () => (await canvasOf(charlie))?.name === "Main" && (await runsOf())?.name === "Main", 8000);
     await other.close();
-    await until("back to one screen", async () => (await page.getByRole("button", { name: "Extend" }).count()) > 0, 10_000);
+    await until("back to one screen", async () => (await page.getByRole("button", { name: "Another screen" }).count()) > 0, 12_000);
+    await api("DELETE", `/canvas/${second.id}`);
   });
-
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

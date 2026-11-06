@@ -4,7 +4,7 @@
 // ticket's worktree, beside the terminal it was split from, on the Reviews workspace when it reviews a pull request,
 // or else on the first workspace. So nothing running is ever off the canvas.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, RelayStatus, TermInfo } from "@cockpit/shared";
 import { paths } from "./config.ts";
@@ -182,6 +182,49 @@ function placeOne(canvas: string, kind: "term" | "ticket", ref: string, w: numbe
     db.prepare("delete from canvas_edges where source = ? or target = ?").run(old.id, old.id);
   }
   return place(canvas, kind, ref, old?.w ?? w, old?.h ?? h, at);
+}
+
+// Cards that go together (a terminal and all that's linked to it, say) onto a workspace in one go: laid out as they
+// were, their middle at `at` (the middle of what another screen shows), or else clear of what's there. The lines
+// between them go with them; lines to cards left behind don't. A note's file moves with it.
+export function moveGroup(canvas: string, ids: string[], at?: At) {
+  if (!canvasRow(canvas)) throw new Error("No such workspace");
+  const rows = [...new Set(ids)].map(nodeRow).filter((n): n is NodeRow => !!n);
+  if (!rows.length) throw new Error("None of those cards is on the canvas");
+  const from = rows[0].canvas;
+  if (rows.some((n) => n.canvas !== from)) throw new Error("Those cards aren't on one workspace");
+  const left = Math.min(...rows.map((n) => n.x));
+  const top = Math.min(...rows.map((n) => n.y));
+  const w = Math.max(...rows.map((n) => n.x + n.w)) - left;
+  const h = Math.max(...rows.map((n) => n.y + n.h)) - top;
+  const moving = new Set(rows.map((n) => n.id));
+  const spot = at
+    ? { x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2) }
+    : freeSpot(
+        rowsOf(canvas).filter((n) => !moving.has(n.id)),
+        w,
+        h,
+      );
+  const move = db.prepare("update canvas_nodes set canvas = ?, x = ?, y = ? where id = ?");
+  db.transaction(() => {
+    for (const n of rows) move.run(canvas, n.x - left + spot.x, n.y - top + spot.y, n.id);
+    if (canvas !== from) {
+      const list = [...moving];
+      const marks = list.map(() => "?").join(",");
+      db.prepare(`update canvas_edges set canvas = ? where canvas = ? and source in (${marks}) and target in (${marks})`).run(canvas, from, ...list, ...list);
+    }
+  })();
+  if (canvas !== from)
+    for (const n of rows.filter((r) => r.kind === "note")) {
+      mkdirSync(notesDir(canvas), { recursive: true });
+      try {
+        renameSync(notePath(from, n.ref), notePath(canvas, n.ref));
+      } catch {}
+    }
+  tidyEdges();
+  return rowsOf(canvas)
+    .filter((n) => moving.has(n.id))
+    .map(strip);
 }
 
 export const placeTerm = (canvas: string, term: string, at?: At) => placeOne(canvas, "term", term, TERM_W, TERM_H, at);

@@ -5,9 +5,11 @@ import type { CanvasInfo, CanvasRelay, RelayStatus } from "@cockpit/shared";
 export interface Actions {
   others: CanvasInfo[];
   bringUp: (node: string) => void;
+  // a terminal and all that's linked to it, to another workspace
   move: (term: string, to: string) => void;
-  // the canvas is shown on another screen too: a card can go to the middle of what that one shows
-  otherScreen: boolean;
+  // the canvas is open on another screen too (the workspace it shows): a card and all that's linked to it can go to
+  // the middle of what that one shows
+  otherScreen?: string;
   toScreen: (node: string) => void;
   close: (term: string) => void;
   openTab: (term: string) => void;

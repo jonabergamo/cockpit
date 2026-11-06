@@ -35,6 +35,7 @@ import { launcher } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
 import { liveSrc, recording } from "../lib/liveRun";
 import { middleOf, openScreen, screenGroup, useScreens } from "../lib/screens";
+import { linkedTo } from "./canvas/group";
 import { useAppConfig, useRuns, useTickets, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
@@ -175,7 +176,7 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
               aria-label="Move to workspace"
             >
               <option value="">Move</option>
-              {a.otherScreen && <option value={SCREEN}>The other screen</option>}
+              {a.otherScreen && <option value={SCREEN}>The other screen{a.otherScreen !== "here" ? ` (${a.otherScreen})` : ""}</option>}
               {a.others.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -308,13 +309,23 @@ const readViewport = (ws: string): Viewport | undefined => {
     return undefined;
   }
 };
+// another screen keeps its own place on each workspace, and its own workspace
+const SCREEN_WS = "cockpit.canvasScreenWorkspace";
+const screenKey = (ws: string, screen?: string) => (screen ? `${ws}.screen` : ws);
+const savedScreenWs = () => {
+  try {
+    return localStorage.getItem(SCREEN_WS) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
 const writeViewport = (ws: string, v: Viewport) => {
   try {
     localStorage.setItem(VIEWPORT(ws), JSON.stringify(v));
   } catch {}
 };
 
-// screen: this window shows the canvas on another screen, beside the window it names (see lib/screens.ts)
+// screen: this window is the canvas on another screen, opened from the window it names (see lib/screens.ts)
 function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: string; switcher: ReactNode; screen?: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -327,7 +338,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
   const copyOnSelect = useCopyOnSelect();
   const [picking, setPicking] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
-  const [picked, setPicked] = useState(savedWorkspace);
+  const [picked, setPicked] = useState(() => (screen ? (savedScreenWs() ?? savedWorkspace()) : savedWorkspace()));
   const list = canvases.data ?? [];
   const ws = list.find((c) => c.id === picked) ?? list[0];
   const wsRef = useRef(ws);
@@ -343,28 +354,13 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
 
   const pick = (id: string) => {
     setPicked(id);
-    // the workspace this browser opens on is the main screen's
-    if (!screen) saveWorkspace(id);
+    if (!screen) return saveWorkspace(id);
+    try {
+      localStorage.setItem(SCREEN_WS, id);
+    } catch {}
   };
-  // Shown on more than one screen: a view put here from another window doesn't count as you moving it, and a
-  // workspace another window switched to opens on its view, not where it was left here
-  const applying = useRef(false);
-  const fromPeer = useRef<{ ws: string; vp: Viewport } | undefined>(undefined);
-  const put = (vp: Viewport) => {
-    applying.current = true;
-    flow.setViewport(vp);
-    requestAnimationFrame(() => (applying.current = false));
-  };
-  const multi = useScreens({
-    group: screen ?? screenGroup(),
-    wrap,
-    current: () => ({ ws: wsRef.current?.id, vp: flow.getViewport() }),
-    show: (id, vp) => {
-      if (id === wsRef.current?.id) return put(vp);
-      fromPeer.current = { ws: id, vp };
-      setPicked(id);
-    },
-  });
+  // the other screens open from this window (or the one this was opened from), and what each shows
+  const multi = useScreens({ group: screen ?? screenGroup(), wrap, current: () => ({ ws: wsRef.current?.id, vp: flow.getViewport() }) });
   const byId = useMemo(() => new Map((terms.data ?? []).map((t) => [t.id, t])), [terms.data]);
   const sessionOf = (t: TermInfo) => live.find((x) => x.id === t.session || x.term === t.id || (!!t.pid && x.pid === t.pid && (t.node ?? "local") === (x.node ?? "local")));
   const titleOf = (t: TermInfo) => {
@@ -675,14 +671,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     // a link to one terminal brings that one up instead, the first time only; after that its workspace opens where you left it
     if (!ws || shownWs.current === ws.id || (focus && focused.current !== focus && ws.nodes.some((n) => n.ref === focus))) return;
     shownWs.current = ws.id;
-    const peer = fromPeer.current;
-    if (peer?.ws === ws.id) {
-      fromPeer.current = undefined;
-      return void setTimeout(() => put(peer.vp), 30);
-    }
-    // on another screen: the window it carries on from says where to look; only if that one is gone, a view of its own
-    if (screen) return void setTimeout(() => !multi.anchored() && flow.fitView({ maxZoom: 1, padding: 0.1 }), 1500);
-    const saved = readViewport(ws.id);
+    const saved = readViewport(screenKey(ws.id, screen));
     // where you left it, unless none of its cards would be on screen there (it was empty then, or they moved away)
     const r = wrap.current?.getBoundingClientRect();
     const seen =
@@ -693,7 +682,11 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         const top = -saved.y / saved.zoom;
         return n.x < left + r.width / saved.zoom && n.x + n.w > left && n.y < top + r.height / saved.zoom && n.y + n.h > top;
       });
-    setTimeout(() => (saved && (seen || !ws.nodes.length) ? flow.setViewport(saved) : flow.fitView({ maxZoom: 1, padding: 0.1 })), 30);
+    setTimeout(() => {
+      if (saved && (seen || !ws.nodes.length)) flow.setViewport(saved);
+      else flow.fitView({ maxZoom: 1, padding: 0.1 });
+      multi.announce();
+    }, 30);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the workspace or the link changes
   }, [ws, focus, flow]);
   // A workspace shown while it had nothing on it (or before this page heard what was moved there) fits its cards once
@@ -1063,23 +1056,26 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
 
   const actions: Actions = {
     others: list.filter((c) => c.id !== ws?.id),
-    otherScreen: multi.peers.some((p) => p.ws === ws?.id && p.w > 0),
+    otherScreen: (() => {
+      const p = multi.peers.find((x) => x.w > 0);
+      if (!p) return undefined;
+      return p.ws === ws?.id ? "here" : (list.find((c) => c.id === p.ws)?.name ?? "another workspace");
+    })(),
     toScreen: (node) => {
-      const peer = [...multi.peers].reverse().find((p) => p.ws === wsRef.current?.id && p.w > 0);
-      const n = nodesRef.current.find((x) => x.id === node);
-      if (!peer || !n) return;
-      const mid = middleOf(multi.viewOf(peer));
-      const w = n.width ?? n.measured?.width ?? TERM_W;
-      const h = n.height ?? n.measured?.height ?? TERM_H;
-      const position = { x: Math.round(mid.x - w / 2), y: Math.round(mid.y - h / 2) };
-      setNodes((ns) => ns.map((x) => (x.id === node ? { ...x, position } : x)));
-      commit([node]);
+      const peer = multi.peers.find((p) => p.w > 0);
+      if (!peer || !ws) return;
+      const mid = middleOf(peer);
+      guard(api.post(`/canvas/${peer.ws}/group`, { nodes: linkedTo(node, ws.nodes, links), x: mid.x, y: mid.y, by: tabId }).then(refresh));
     },
     bringUp: (id) => {
       const n = flow.getNode(id);
       if (n) frame(boxOf(n));
     },
-    move: (term, to) => guard(api.post(`/canvas/${to}/terms`, { term, by: tabId }).then(refresh)),
+    move: (term, to) => {
+      const card = ws?.nodes.find((n) => n.kind === "term" && n.ref === term);
+      if (!ws || !card) return;
+      guard(api.post(`/canvas/${to}/group`, { nodes: linkedTo(card.id, ws.nodes, links), by: tabId }).then(refresh));
+    },
     close: (term) => guard(api.del(`/code/terms/${term}`).then(() => qc.invalidateQueries({ queryKey: ["terms"] }))),
     // just this once: the view set in Settings stays the canvas
     openTab: (term) => navigate({ to: "/terminals", search: { id: term, view: "tabs" } }),
@@ -1211,11 +1207,11 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
               size="sm"
               variant={multi.linked ? "default" : "ghost"}
               onClick={() => void openScreen(screenGroup()).then((w) => !w && setErr(new Error("The browser didn't open the window: let this page open pop-ups")))}
-              title="The canvas carried on in a window on another screen: what runs off this one's edge shows there, and moving either moves both"
+              title="A canvas of its own in a window for another screen: send a terminal there, with all that's linked to it, from its Move menu"
               className="hidden md:inline-flex"
               data-screens={multi.peers.length + 1}
             >
-              {multi.linked ? `${multi.peers.length + 1} screens` : "Extend"}
+              {multi.linked ? `${multi.peers.length + 1} screens` : "Another screen"}
             </Button>
           )}
         </div>
@@ -1240,8 +1236,11 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
             deleteKeyCode={null}
             zoomOnDoubleClick={false}
             panOnScroll
-            onMove={(_, v) => !applying.current && ws && multi.moved(ws.id, v)}
-            onMoveEnd={(_, v) => ws && !screen && writeViewport(ws.id, v)}
+            onMoveEnd={(_, v) => {
+              if (!ws) return;
+              writeViewport(screenKey(ws.id, screen), v);
+              multi.announce();
+            }}
             proOptions={{ hideAttribution: true }}
             className="cockpit-canvas"
           >

@@ -86,6 +86,18 @@ export const canvasRoutes = new Hono()
       return c.json(fail(e), 404);
     }
   })
+  // cards that go together, onto this workspace, their middle where it says (or clear of what's there)
+  .post("/:id/group", async (c) => {
+    const b = await c.req.json<At & { nodes: string[] }>();
+    if (!Array.isArray(b.nodes) || !b.nodes.every((n) => typeof n === "string")) return c.json({ error: "nodes is a list of card ids" }, 400);
+    try {
+      const moved = canvas.moveGroup(c.req.param("id"), b.nodes, at(b));
+      changed(b.by);
+      return c.json({ nodes: moved });
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
   .post("/:id/tickets", async (c) => {
     const b = await c.req.json<At & { key: string }>();
     if (!/^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(b.key?.trim() ?? "")) return c.json({ error: "That isn't a ticket key" }, 400);

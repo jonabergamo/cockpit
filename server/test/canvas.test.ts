@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TermInfo } from "@cockpit/shared";
 import { paths } from "../src/config.ts";
 import { db } from "../src/db.ts";
-import { addChanges, addEdge, addNote, addRuns, createCanvas, deleteCanvas, freeSpot, listCanvases, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
+import { addChanges, addEdge, addNote, addRuns, createCanvas, deleteCanvas, freeSpot, listCanvases, moveGroup, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
 import { ticketOfTerm } from "../src/routes/canvas.ts";
 
 const term = (id: string, more: Partial<TermInfo> = {}): TermInfo => ({ id, title: id, cwd: "/tmp", command: "bash", createdAt: 0, node: "local", ...more });
@@ -221,6 +221,37 @@ describe("cards that fit their content", () => {
     expect(onCanvas("Main").nodes.find((n) => n.id === node.id)).toMatchObject({ fit: false, x: 2100, h: 500 });
     saveLayout(main.id, [{ id: node.id, x: 2100, y: 0, w: 440, h: 96, fit: true }]);
     expect(onCanvas("Main").nodes.find((n) => n.id === node.id)).toMatchObject({ fit: true, h: 96 });
+  });
+});
+
+describe("moving cards together", () => {
+  it("takes a terminal and what's linked to it onto another workspace, laid out as they were, with their lines", () => {
+    syncTerms([term("agent"), term("loner")]);
+    const main = onCanvas("Main");
+    const agent = main.nodes.find((n) => n.ref === "agent")!;
+    const loner = main.nodes.find((n) => n.ref === "loner")!;
+    const { node: runs } = addRuns(main.id, undefined, agent.id);
+    const note = addNote(main.id, { x: agent.x, y: agent.y - 300 }, "# plan");
+    addEdge(main.id, note.id, agent.id);
+    addEdge(main.id, loner.id, agent.id);
+    const side = createCanvas("Side");
+    // its middle where the other screen looks
+    moveGroup(side.id, [agent.id, runs.id, note.id], { x: 5000, y: 3000 });
+    const there = onCanvas("Side");
+    const at = (id: string) => there.nodes.find((n) => n.id === id)!;
+    expect(there.nodes.map((n) => n.id).sort()).toEqual([agent.id, runs.id, note.id].sort());
+    // as they were to each other
+    expect(at(runs.id).y - at(agent.id).y).toBe(runs.y - agent.y);
+    expect(at(note.id).y - at(agent.id).y).toBe(note.y - agent.y);
+    const left = Math.min(...there.nodes.map((n) => n.x));
+    const right = Math.max(...there.nodes.map((n) => n.x + n.w));
+    expect((left + right) / 2).toBeCloseTo(5000, -1);
+    // the lines among them went with them, the one to the terminal left behind didn't
+    expect(there.edges).toHaveLength(2);
+    expect(onCanvas("Main").edges).toEqual([]);
+    expect(onCanvas("Main").nodes.map((n) => n.id)).toEqual([loner.id]);
+    // and the note still reads
+    expect(readNote(note.id)).toBe("# plan");
   });
 });
 
