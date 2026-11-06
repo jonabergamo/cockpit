@@ -1330,7 +1330,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
             proOptions={{ hideAttribution: true }}
             className="cockpit-canvas"
           >
-            <Background gap={24} color="var(--line)" />
+            {/* from the text colour, which every theme keeps readable on its background; the line colour can all but vanish */}
+            <Background gap={24} size={1.5} color="color-mix(in srgb, var(--ink) 24%, transparent)" />
             <Controls showInteractive={false} />
             {mapShown && (
               <MiniMap
