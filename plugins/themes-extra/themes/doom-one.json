@@ -1,0 +1,36 @@
+{
+  "id": "doom-one",
+  "name": "Doom One",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#21242b",
+    "panel": "#282c34",
+    "raised": "#2f343f",
+    "ink": "#bbc2cf",
+    "muted": "#9ca0a4",
+    "faint": "#6f757a",
+    "line": "#3f444a",
+    "accent": "#51afef",
+    "amber": "#ecbe7b",
+    "green": "#98be65",
+    "red": "#ff6c6b"
+  },
+  "ansi": [
+    "#1c1f24",
+    "#ff6c6b",
+    "#98be65",
+    "#ecbe7b",
+    "#51afef",
+    "#c678dd",
+    "#46d9ff",
+    "#dfdfdf",
+    "#5b6268",
+    "#da8548",
+    "#4db5bd",
+    "#ecbe7b",
+    "#3071db",
+    "#a9a1e1",
+    "#46d9ff",
+    "#bbc2cf"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "alabaster",
+  "name": "Alabaster",
+  "scheme": "light",
+  "ui": {
+    "ground": "#ebebeb",
+    "panel": "#f7f7f7",
+    "raised": "#ffffff",
+    "ink": "#000000",
+    "muted": "#434343",
+    "faint": "#777777",
+    "line": "#dddddd",
+    "accent": "#325cc0",
+    "amber": "#bb8400",
+    "green": "#448c27",
+    "red": "#aa3731"
+  },
+  "ansi": [
+    "#000000",
+    "#aa3731",
+    "#448c27",
+    "#cb9000",
+    "#325cc0",
+    "#7a3e9d",
+    "#0083b2",
+    "#bbbbbb",
+    "#777777",
+    "#f05050",
+    "#60cb00",
+    "#ffbc5d",
+    "#007acc",
+    "#e64ce6",
+    "#00aacb",
+    "#ffffff"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "papercolor-light",
+  "name": "PaperColor Light",
+  "scheme": "light",
+  "ui": {
+    "ground": "#e4e4e4",
+    "panel": "#eeeeee",
+    "raised": "#fafafa",
+    "ink": "#444444",
+    "muted": "#5f6368",
+    "faint": "#878787",
+    "line": "#d0d0d0",
+    "accent": "#0080a6",
+    "amber": "#d75f00",
+    "green": "#718c00",
+    "red": "#af0000"
+  },
+  "ansi": [
+    "#444444",
+    "#af0000",
+    "#008700",
+    "#5f8700",
+    "#0087af",
+    "#878787",
+    "#005f87",
+    "#eeeeee",
+    "#bcbcbc",
+    "#d70000",
+    "#d70087",
+    "#8700af",
+    "#d75f00",
+    "#d75f00",
+    "#005faf",
+    "#005f87"
+  ]
+}

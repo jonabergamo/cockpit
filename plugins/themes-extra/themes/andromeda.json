@@ -1,0 +1,36 @@
+{
+  "id": "andromeda",
+  "name": "Andromeda",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#1e2025",
+    "panel": "#23262e",
+    "raised": "#2b2f38",
+    "ink": "#d5ced9",
+    "muted": "#a0a1a7",
+    "faint": "#746f77",
+    "line": "#373941",
+    "accent": "#00e8c6",
+    "amber": "#ffe66d",
+    "green": "#96e072",
+    "red": "#ee5d43"
+  },
+  "ansi": [
+    "#23262e",
+    "#ee5d43",
+    "#96e072",
+    "#ffe66d",
+    "#7cb7ff",
+    "#ff00aa",
+    "#00e8c6",
+    "#d5ced9",
+    "#746f77",
+    "#f39c8b",
+    "#b5ec9f",
+    "#fff09b",
+    "#a9d0ff",
+    "#ff66cc",
+    "#66f2df",
+    "#ffffff"
+  ]
+}

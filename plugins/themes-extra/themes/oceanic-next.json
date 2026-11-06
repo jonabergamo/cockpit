@@ -1,0 +1,36 @@
+{
+  "id": "oceanic-next",
+  "name": "Oceanic Next",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#16232a",
+    "panel": "#1b2b34",
+    "raised": "#343d46",
+    "ink": "#d8dee9",
+    "muted": "#a7adba",
+    "faint": "#67747f",
+    "line": "#2b3a44",
+    "accent": "#6699cc",
+    "amber": "#fac863",
+    "green": "#99c794",
+    "red": "#ec5f67"
+  },
+  "ansi": [
+    "#1b2b34",
+    "#ec5f67",
+    "#99c794",
+    "#fac863",
+    "#6699cc",
+    "#c594c5",
+    "#5fb3b3",
+    "#c0c5ce",
+    "#65737e",
+    "#ec5f67",
+    "#99c794",
+    "#fac863",
+    "#6699cc",
+    "#c594c5",
+    "#5fb3b3",
+    "#d8dee9"
+  ]
+}

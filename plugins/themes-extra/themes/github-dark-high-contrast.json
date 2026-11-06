@@ -1,0 +1,36 @@
+{
+  "id": "github-dark-high-contrast",
+  "name": "GitHub Dark High Contrast",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#010409",
+    "panel": "#0a0c10",
+    "raised": "#272b33",
+    "ink": "#f0f3f6",
+    "muted": "#9ea7b3",
+    "faint": "#7a828e",
+    "line": "#525964",
+    "accent": "#71b7ff",
+    "amber": "#f0b72f",
+    "green": "#26cd4d",
+    "red": "#ff9492"
+  },
+  "ansi": [
+    "#7a828e",
+    "#ff9492",
+    "#26cd4d",
+    "#f0b72f",
+    "#71b7ff",
+    "#cb9eff",
+    "#39c5cf",
+    "#d9dee3",
+    "#9ea7b3",
+    "#ffb1af",
+    "#4ae168",
+    "#f7c843",
+    "#91cbff",
+    "#dbb7ff",
+    "#56d4dd",
+    "#ffffff"
+  ]
+}

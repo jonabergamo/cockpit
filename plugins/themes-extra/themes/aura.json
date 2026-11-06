@@ -1,0 +1,36 @@
+{
+  "id": "aura",
+  "name": "Aura",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#110f18",
+    "panel": "#15141b",
+    "raised": "#1f1d28",
+    "ink": "#edecee",
+    "muted": "#adacae",
+    "faint": "#6d6d6d",
+    "line": "#29263c",
+    "accent": "#a277ff",
+    "amber": "#ffca85",
+    "green": "#61ffca",
+    "red": "#ff6767"
+  },
+  "ansi": [
+    "#110f18",
+    "#ff6767",
+    "#61ffca",
+    "#ffca85",
+    "#a277ff",
+    "#f694ff",
+    "#61ffca",
+    "#edecee",
+    "#4d4d4d",
+    "#ff6767",
+    "#61ffca",
+    "#ffca85",
+    "#82e2ff",
+    "#f694ff",
+    "#61ffca",
+    "#edecee"
+  ]
+}

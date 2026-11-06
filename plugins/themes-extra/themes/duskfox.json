@@ -1,0 +1,36 @@
+{
+  "id": "duskfox",
+  "name": "Duskfox",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#191726",
+    "panel": "#232136",
+    "raised": "#2d2a45",
+    "ink": "#e0def4",
+    "muted": "#cdcbe0",
+    "faint": "#6e6a86",
+    "line": "#433c59",
+    "accent": "#569fba",
+    "amber": "#f6c177",
+    "green": "#a3be8c",
+    "red": "#eb6f92"
+  },
+  "ansi": [
+    "#393552",
+    "#eb6f92",
+    "#a3be8c",
+    "#f6c177",
+    "#569fba",
+    "#c4a7e7",
+    "#9ccfd8",
+    "#e0def4",
+    "#47407d",
+    "#f083a2",
+    "#b1d196",
+    "#f9cb8c",
+    "#65b1cd",
+    "#ccb1ed",
+    "#a6dae3",
+    "#e2e0f7"
+  ]
+}

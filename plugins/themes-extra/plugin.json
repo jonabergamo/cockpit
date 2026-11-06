@@ -1,8 +1,8 @@
 {
   "id": "themes-extra",
   "name": "Extra themes",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "api": 1,
-  "description": "34 more themes from well-known editor palettes: Catppuccin Frappé, Rosé Pine Moon, the foxes, Material, Synthwave '84, Cobalt2, Modus, Iceberg, Tomorrow, Kanagawa Lotus, Flexoki and more. Colours that read poorly on their panel are nudged a little. A theme plugin is just JSON files, no code.",
+  "description": "55 more themes from well-known editor palettes: Catppuccin Frappé, Rosé Pine Moon, Tokyo Night Moon, all the foxes, Material, Synthwave '84, Cobalt2, Modus, Vitesse, Selenized, Monokai Pro, Doom One, Kanagawa Dragon and Lotus, GitHub High Contrast, Flexoki and more. Colours that read poorly on their panel are nudged a little. A theme plugin is just JSON files, no code.",
   "author": "cockpit"
 }

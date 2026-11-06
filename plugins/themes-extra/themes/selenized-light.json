@@ -1,0 +1,36 @@
+{
+  "id": "selenized-light",
+  "name": "Selenized Light",
+  "scheme": "light",
+  "ui": {
+    "ground": "#ece3cc",
+    "panel": "#fbf3db",
+    "raised": "#fffaea",
+    "ink": "#3a4d53",
+    "muted": "#53676d",
+    "faint": "#868e8b",
+    "line": "#d5cdb6",
+    "accent": "#0072d4",
+    "amber": "#ab8800",
+    "green": "#489100",
+    "red": "#d2212d"
+  },
+  "ansi": [
+    "#3a4d53",
+    "#d2212d",
+    "#489100",
+    "#ad8900",
+    "#0072d4",
+    "#ca4898",
+    "#009c8f",
+    "#909995",
+    "#53676d",
+    "#cc1729",
+    "#428b00",
+    "#a78300",
+    "#006dce",
+    "#c44392",
+    "#00978a",
+    "#ece3cc"
+  ]
+}

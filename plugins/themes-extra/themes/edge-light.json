@@ -1,0 +1,36 @@
+{
+  "id": "edge-light",
+  "name": "Edge Light",
+  "scheme": "light",
+  "ui": {
+    "ground": "#eef1f4",
+    "panel": "#fafafa",
+    "raised": "#ffffff",
+    "ink": "#4b505b",
+    "muted": "#6c7380",
+    "faint": "#8790a0",
+    "line": "#dde2e7",
+    "accent": "#4e75b8",
+    "amber": "#be7e05",
+    "green": "#608e32",
+    "red": "#d05858"
+  },
+  "ansi": [
+    "#4b505b",
+    "#d05858",
+    "#608e32",
+    "#be7e05",
+    "#5079be",
+    "#b05ccc",
+    "#3a8b84",
+    "#dde2e7",
+    "#8790a0",
+    "#d05858",
+    "#608e32",
+    "#be7e05",
+    "#5079be",
+    "#b05ccc",
+    "#3a8b84",
+    "#fafafa"
+  ]
+}

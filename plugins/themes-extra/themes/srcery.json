@@ -1,0 +1,36 @@
+{
+  "id": "srcery",
+  "name": "Srcery",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#121211",
+    "panel": "#1c1b19",
+    "raised": "#2d2c29",
+    "ink": "#fce8c3",
+    "muted": "#baa67f",
+    "faint": "#918175",
+    "line": "#3a3835",
+    "accent": "#68a8e4",
+    "amber": "#fbb829",
+    "green": "#519f50",
+    "red": "#ef2f27"
+  },
+  "ansi": [
+    "#1c1b19",
+    "#ef2f27",
+    "#519f50",
+    "#fbb829",
+    "#2c78bf",
+    "#e02c6d",
+    "#0aaeb3",
+    "#baa67f",
+    "#918175",
+    "#f75341",
+    "#98bc37",
+    "#fed06e",
+    "#68a8e4",
+    "#ff5c8f",
+    "#2be4d0",
+    "#fce8c3"
+  ]
+}

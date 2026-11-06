@@ -1,0 +1,36 @@
+{
+  "id": "vitesse-light",
+  "name": "Vitesse Light",
+  "scheme": "light",
+  "ui": {
+    "ground": "#f1f1f1",
+    "panel": "#ffffff",
+    "raised": "#ffffff",
+    "ink": "#393a34",
+    "muted": "#6a737d",
+    "faint": "#8b978b",
+    "line": "#e2e2e2",
+    "accent": "#1c6b48",
+    "amber": "#aa9432",
+    "green": "#1e754f",
+    "red": "#ab5959"
+  },
+  "ansi": [
+    "#121212",
+    "#ab5959",
+    "#1e754f",
+    "#bda437",
+    "#296aa3",
+    "#a13865",
+    "#2993a3",
+    "#dbd7ca",
+    "#aaaaaa",
+    "#ab5959",
+    "#1e754f",
+    "#bda437",
+    "#296aa3",
+    "#a13865",
+    "#2993a3",
+    "#dddddd"
+  ]
+}

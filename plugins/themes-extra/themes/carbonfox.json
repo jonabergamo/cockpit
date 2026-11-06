@@ -1,0 +1,36 @@
+{
+  "id": "carbonfox",
+  "name": "Carbonfox",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#0c0c0c",
+    "panel": "#161616",
+    "raised": "#252525",
+    "ink": "#f2f4f8",
+    "muted": "#b6b8bb",
+    "faint": "#7b7c7e",
+    "line": "#353535",
+    "accent": "#78a9ff",
+    "amber": "#f1c21b",
+    "green": "#25be6a",
+    "red": "#ee5396"
+  },
+  "ansi": [
+    "#282828",
+    "#ee5396",
+    "#25be6a",
+    "#08bdba",
+    "#78a9ff",
+    "#be95ff",
+    "#33b1ff",
+    "#dfdfe0",
+    "#484848",
+    "#f16da6",
+    "#46c880",
+    "#2dc7c4",
+    "#8cb6ff",
+    "#c8a5ff",
+    "#52bdff",
+    "#e4e4e5"
+  ]
+}

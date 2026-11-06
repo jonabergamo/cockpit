@@ -1,0 +1,36 @@
+{
+  "id": "vitesse-dark",
+  "name": "Vitesse Dark",
+  "scheme": "dark",
+  "ui": {
+    "ground": "#121212",
+    "panel": "#181818",
+    "raised": "#222222",
+    "ink": "#dbd7ca",
+    "muted": "#bfbaaa",
+    "faint": "#758575",
+    "line": "#2a2a2a",
+    "accent": "#6394bf",
+    "amber": "#e6cc77",
+    "green": "#4d9375",
+    "red": "#cb7676"
+  },
+  "ansi": [
+    "#393a34",
+    "#cb7676",
+    "#4d9375",
+    "#e6cc77",
+    "#6394bf",
+    "#d9739f",
+    "#5eaab5",
+    "#dbd7ca",
+    "#777777",
+    "#cb7676",
+    "#4d9375",
+    "#e6cc77",
+    "#6394bf",
+    "#d9739f",
+    "#5eaab5",
+    "#ffffff"
+  ]
+}
