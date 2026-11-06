@@ -86,6 +86,18 @@ export const canvasRoutes = new Hono()
       return c.json(fail(e), 404);
     }
   })
+  // a terminal put away without closing it, with the cards linked to it folded in; or taken back out
+  .post("/nodes/:id/archive", async (c) => {
+    const b = await c.req.json<{ archived?: boolean; nodes?: string[]; by?: string }>();
+    try {
+      if (b.archived === false) canvas.unarchive(c.req.param("id"));
+      else canvas.archive(c.req.param("id"), Array.isArray(b.nodes) ? b.nodes.filter((n) => typeof n === "string") : []);
+      changed(b.by);
+      return c.json({ ok: true });
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
   // cards that go together, onto this workspace, their middle where it says (or clear of what's there)
   .post("/:id/group", async (c) => {
     const b = await c.req.json<At & { nodes: string[] }>();

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TermInfo } from "@cockpit/shared";
 import { paths } from "../src/config.ts";
 import { db } from "../src/db.ts";
-import { addChanges, addEdge, addNote, addRuns, createCanvas, deleteCanvas, freeSpot, listCanvases, moveGroup, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
+import { addChanges, addEdge, addNote, addRuns, archive, ARCHIVED_H, ARCHIVED_W, unarchive, createCanvas, deleteCanvas, freeSpot, listCanvases, moveGroup, placeTerm, placeTicket, readNote, rekeyTerms, removeEdge, removeNode, renameCanvas, saveLayout, syncTerms, TERM_H, TERM_W, ticketCard, writeNote } from "../src/canvas.ts";
 import { ticketOfTerm } from "../src/routes/canvas.ts";
 
 const term = (id: string, more: Partial<TermInfo> = {}): TermInfo => ({ id, title: id, cwd: "/tmp", command: "bash", createdAt: 0, node: "local", ...more });
@@ -252,6 +252,37 @@ describe("moving cards together", () => {
     expect(onCanvas("Main").nodes.map((n) => n.id)).toEqual([loner.id]);
     // and the note still reads
     expect(readNote(note.id)).toBe("# plan");
+  });
+});
+
+describe("archiving", () => {
+  it("folds a terminal and what's linked to it into one small card, which they come back out of where they were", () => {
+    syncTerms([term("agent")]);
+    const main = onCanvas("Main");
+    const agent = main.nodes[0];
+    const { node: runs } = addRuns(main.id, undefined, agent.id);
+    archive(agent.id, [runs.id]);
+    const now = onCanvas("Main");
+    const at = (id: string) => now.nodes.find((n) => n.id === id)!;
+    expect(at(agent.id)).toMatchObject({ w: ARCHIVED_W, h: ARCHIVED_H, archived: { head: agent.id } });
+    expect(at(runs.id).archived).toMatchObject({ head: agent.id });
+    // dragged somewhere else, what's folded in goes along
+    saveLayout(main.id, [{ id: agent.id, x: agent.x + 500, y: agent.y + 100, w: ARCHIVED_W, h: ARCHIVED_H }]);
+    expect(onCanvas("Main").nodes.find((n) => n.id === runs.id)).toMatchObject({ x: runs.x + 500, y: runs.y + 100 });
+    unarchive(agent.id);
+    const back = onCanvas("Main");
+    expect(back.nodes.find((n) => n.id === agent.id)).toMatchObject({ w: agent.w, h: agent.h, x: agent.x + 500 });
+    expect(back.nodes.every((n) => !n.archived)).toBe(true);
+  });
+
+  it("lets what was folded into a terminal out once it closes", () => {
+    syncTerms([term("agent")]);
+    const main = onCanvas("Main");
+    const note = addNote(main.id);
+    addEdge(main.id, main.nodes[0].id, note.id);
+    archive(main.nodes[0].id, [note.id]);
+    syncTerms([]);
+    expect(onCanvas("Main").nodes.map((n) => [n.id, n.archived])).toEqual([[note.id, undefined]]);
   });
 });
 

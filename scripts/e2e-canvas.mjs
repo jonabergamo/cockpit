@@ -646,6 +646,37 @@ try {
     await until("back to one screen", async () => (await page.getByRole("button", { name: "Another screen" }).count()) > 0, 12_000);
     await api("DELETE", `/canvas/${second.id}`);
   });
+  await step("a terminal archived keeps running, folded into a small card with what's linked to it, and comes back out", async () => {
+    const charlie = globalThis.charlie;
+    await page.goto(`${base}/terminals?view=canvas&id=${charlie}`);
+    await page.waitForSelector(`[data-card="${charlie}"] .xterm-rows`);
+    await page.locator(`[data-runs="${runsCard.id}"]`).waitFor();
+    const big = await page.locator(`.react-flow__node:has([data-card="${charlie}"])`).boundingBox();
+    const sizeWas = (await canvasOf(charlie)).nodes.find((n) => n.ref === charlie);
+    await page.locator(`[data-card="${charlie}"]`).getByRole("button", { name: "Archive" }).click();
+    const archived = page.locator(`[data-card="${charlie}"][data-archived]`);
+    await archived.waitFor();
+    // small, with what's folded into it, and what it was linked to out of sight
+    const small = await page.locator(`.react-flow__node:has([data-card="${charlie}"])`).boundingBox();
+    expect(small.width < big.width / 1.5 && small.height < big.height / 1.5, `it isn't smaller (${small.width}x${small.height} from ${big.width}x${big.height})`);
+    await archived.getByLabel("Folded into it").getByText("Runs").waitFor();
+    await archived.getByText(/^Archived /).waitFor();
+    await page.locator(`[data-runs="${runsCard.id}"]`).waitFor({ state: "detached" });
+    expect(!(await page.locator(`[data-card="${charlie}"] .xterm-rows`).count()), "the terminal still shows");
+    // still running
+    expect((await api("GET", "/code/terms")).some((t) => t.id === charlie && t.exited === undefined), "archiving closed it");
+    // and after a reload
+    await page.reload();
+    await archived.waitFor();
+    if (process.env.E2E_PROOFS) await archived.screenshot({ path: join(process.env.E2E_PROOFS, "archived terminal.png") });
+    await archived.getByRole("button", { name: "Unarchive" }).click();
+    await page.waitForSelector(`[data-card="${charlie}"] .xterm-rows`);
+    await page.locator(`[data-runs="${runsCard.id}"]`).waitFor();
+    // at the size it had (the page's zoom changed with the reload, so by what's saved)
+    const back = (await canvasOf(charlie)).nodes.find((n) => n.ref === charlie);
+    expect(back.w === sizeWas.w && back.h === sizeWas.h && !back.archived, `it came back at ${back.w}x${back.h}, not ${sizeWas.w}x${sizeWas.h}`);
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

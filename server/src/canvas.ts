@@ -50,6 +50,8 @@ for (const [col, type] of [
   if (!db.prepare<[], { name: string }>("pragma table_info(canvas_edges)").all().some((c) => c.name === col)) db.exec(`alter table canvas_edges add column ${col} ${type}`);
 // a card that sizes its height to what it shows (0 once you size it yourself); unset is the card's own default
 if (!db.prepare<[], { name: string }>("pragma table_info(canvas_nodes)").all().some((c) => c.name === "fit")) db.exec("alter table canvas_nodes add column fit integer");
+// archived: { at, head, and for the head its size before it was folded: w, h }
+if (!db.prepare<[], { name: string }>("pragma table_info(canvas_nodes)").all().some((c) => c.name === "archived")) db.exec("alter table canvas_nodes add column archived text");
 
 export const TERM_W = 720;
 export const TERM_H = 440;
@@ -63,13 +65,16 @@ export const RUNS_W = 440;
 export const RUNS_H = 320;
 const GAP = 40;
 
-type NodeRow = Omit<CanvasNode, "fit"> & { canvas: string; fit: number | null };
+type NodeRow = Omit<CanvasNode, "fit" | "archived"> & { canvas: string; fit: number | null; archived?: string | null };
+type Archived = { at: number; head: string; w?: number; h?: number };
+export const ARCHIVED_W = 340;
+export const ARCHIVED_H = 190;
 type At = { x: number; y: number };
 
 const notesDir = (canvas: string) => join(paths.data, "canvas", canvas);
 const notePath = (canvas: string, file: string) => join(notesDir(canvas), file);
 
-const COLS = "id, canvas, kind, ref, x, y, w, h, fit";
+const COLS = "id, canvas, kind, ref, x, y, w, h, fit, archived";
 const rowsOf = (canvas: string) => db.prepare<[string], NodeRow>(`select ${COLS} from canvas_nodes where canvas = ? order by created_at`).all(canvas);
 const nodeRow = (id: string) => db.prepare<[string], NodeRow>(`select ${COLS} from canvas_nodes where id = ?`).get(id);
 const refRow = (kind: CanvasNode["kind"], ref: string) => db.prepare<[string, string], NodeRow>(`select ${COLS} from canvas_nodes where kind = ? and ref = ?`).get(kind, ref);
@@ -80,7 +85,11 @@ export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) =>
 const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops, ...(e.status ? { status: JSON.parse(e.status) as RelayStatus } : {}) } : {}) });
 const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, status from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
 // every card but a terminal fits its content until you size it yourself
-const strip = ({ canvas: _, fit, ...n }: NodeRow): CanvasNode => (n.kind === "term" ? n : { ...n, fit: fit !== 0 });
+const strip = ({ canvas: _, fit, archived, ...n }: NodeRow): CanvasNode => {
+  const a = archived ? (JSON.parse(archived) as Archived) : undefined;
+  const out: CanvasNode = n.kind === "term" ? n : { ...n, fit: fit !== 0 };
+  return a ? { ...out, archived: { at: a.at, head: a.head } } : out;
+};
 
 // there's always a first workspace, for the terminals opened elsewhere to land on
 function first() {
@@ -101,6 +110,8 @@ const tidyEdges = () => db.exec("delete from canvas_edges where source not in (s
 export function listCanvases(): CanvasInfo[] {
   first();
   tidyEdges();
+  // cards folded into a terminal that has since closed come back out
+  for (const r of db.prepare<[], { head: string }>("select distinct json_extract(archived, '$.head') as head from canvas_nodes where archived is not null and json_extract(archived, '$.head') not in (select id from canvas_nodes)").all()) unarchive(r.head);
   return db
     .prepare<[], { id: string; name: string }>("select id, name from canvases order by position, created_at")
     .all()
@@ -182,6 +193,33 @@ function placeOne(canvas: string, kind: "term" | "ticket", ref: string, w: numbe
     db.prepare("delete from canvas_edges where source = ? or target = ?").run(old.id, old.id);
   }
   return place(canvas, kind, ref, old?.w ?? w, old?.h ?? h, at);
+}
+
+// A terminal put away without closing it: it keeps running, folded into a small card that says what it is, with the
+// cards linked to it (its runs, changes, ticket, notes, a reviewer) folded into it too. They stay where they were,
+// out of sight, and move with the archived card; unarchiving puts them all back.
+export function archive(head: string, ids: string[]) {
+  const h = nodeRow(head);
+  if (h?.kind !== "term") throw new Error("Only a terminal can be archived");
+  if (h.archived) throw new Error("It's archived already");
+  const rows = [...new Set([head, ...ids])].map(nodeRow).filter((n): n is NodeRow => !!n && n.canvas === h.canvas && !n.archived);
+  const at = Date.now();
+  const set = db.prepare("update canvas_nodes set archived = ? where id = ?");
+  db.transaction(() => {
+    for (const n of rows) set.run(JSON.stringify(n.id === head ? { at, head, w: n.w, h: n.h } : { at, head }), n.id);
+    db.prepare("update canvas_nodes set w = ?, h = ? where id = ?").run(ARCHIVED_W, ARCHIVED_H, head);
+  })();
+  return rows.map((n) => n.id);
+}
+
+export function unarchive(head: string) {
+  const h = nodeRow(head);
+  const a = h?.archived ? (JSON.parse(h.archived) as Archived) : undefined;
+  db.transaction(() => {
+    if (h && a?.head === head) db.prepare("update canvas_nodes set w = ?, h = ? where id = ?").run(a.w ?? TERM_W, a.h ?? TERM_H, head);
+    db.prepare("update canvas_nodes set archived = null where json_extract(archived, '$.head') = ?").run(head);
+  })();
+  return !!h;
 }
 
 // Cards that go together (a terminal and all that's linked to it, say) onto a workspace in one go: laid out as they
@@ -346,8 +384,15 @@ export function resetHops(term: string) {
 // left alone. A card that fits its content sends its height as it grows, so new cards aren't placed over it.
 export function saveLayout(canvas: string, nodes: (Pick<CanvasNode, "id" | "x" | "y" | "w" | "h"> & { fit?: boolean })[]) {
   const update = db.prepare("update canvas_nodes set x = ?, y = ?, w = ?, h = ?, fit = coalesce(?, fit) where id = ? and canvas = ?");
+  // an archived card that moves takes the cards folded into it along, so they come back out around it
+  const along = db.prepare("update canvas_nodes set x = x + ?, y = y + ? where json_extract(archived, '$.head') = ? and id != ?");
   db.transaction(() => {
-    for (const n of nodes) if ([n.x, n.y, n.w, n.h].every(Number.isFinite)) update.run(n.x, n.y, Math.max(160, n.w), Math.max(80, n.h), typeof n.fit === "boolean" ? Number(n.fit) : null, n.id, canvas);
+    for (const n of nodes) {
+      if (![n.x, n.y, n.w, n.h].every(Number.isFinite)) continue;
+      const was = nodeRow(n.id);
+      if (was?.archived && (JSON.parse(was.archived) as Archived).head === n.id && (was.x !== n.x || was.y !== n.y)) along.run(n.x - was.x, n.y - was.y, n.id, n.id);
+      update.run(n.x, n.y, Math.max(160, n.w), Math.max(80, n.h), typeof n.fit === "boolean" ? Number(n.fit) : null, n.id, canvas);
+    }
   })();
 }
 
@@ -403,7 +448,7 @@ export function syncTerms(terms: TermInfo[], ticketOf: (t: TermInfo) => string |
     const canvas = beside?.canvas ?? (isReview(t) ? reviewsCanvas() : to);
     const n = place(canvas, "term", t.id, TERM_W, TERM_H, beside && { x: beside.x + beside.w + GAP, y: beside.y });
     setNode.run(t.node ?? "local", n.id);
-    placed.set(t.id, { ...n, canvas, fit: null, node: t.node ?? "local" });
+    placed.set(t.id, { ...n, canvas, fit: null, archived: null, node: t.node ?? "local" });
     changed = true;
   }
   if (changed) tidyEdges();

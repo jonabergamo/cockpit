@@ -30,12 +30,12 @@ import type { CanvasInfo, CanvasNode, Run, SessionStatus, TermInfo } from "@cock
 import { useAgentName } from "../lib/agent";
 import { api } from "../lib/api";
 import { onFocusRequest, saveWorkspace, savedWorkspace, setCanvasSelected, tabId, useCanvases } from "../lib/canvas";
-import { shortPath } from "../lib/format";
+import { ago, shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
 import { liveSrc, recording } from "../lib/liveRun";
 import { middleOf, openScreen, screenGroup, useScreens } from "../lib/screens";
-import { linkedTo } from "./canvas/group";
+import { folded, linkedTo, withFolded } from "./canvas/group";
 import { useAppConfig, useRuns, useTickets, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
@@ -66,7 +66,8 @@ const RUNS_W = 440;
 const RUNS_H = 320;
 
 // status: what its agent is doing, when an agent runs in it (busy, waiting on you, idle)
-type TermData = { term: TermInfo; title: string; status?: SessionStatus; session?: string };
+// archived: since when it's been put away, and what's folded into it
+type TermData = { term: TermInfo; title: string; status?: SessionStatus; session?: string; archived?: number; folded?: string[] };
 type NoteData = { fresh: boolean; fit?: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
@@ -144,7 +145,66 @@ const iconBtn = "size-6 grid place-items-center rounded text-faint hover:text-in
 // the Move menu's choice of the other screen, next to the workspaces
 const SCREEN = "__screen";
 
-function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
+function TermCard(props: NodeProps<TermCardNode>) {
+  return props.data.archived ? <ArchivedCard {...props} /> : <OpenTermCard {...props} />;
+}
+
+const STATUS: Record<string, string> = { waiting: "Waiting for you", busy: "Working", idle: "Idle" };
+
+// A terminal put away: it keeps running, but shows as a small card saying what it is, how it's doing, the last thing
+// its agent said and what's folded into it, until it's brought back
+function ArchivedCard({ id, data, selected }: NodeProps<TermCardNode>) {
+  const a = useActions();
+  const t = data.term;
+  const waiting = data.status === "waiting" && !!data.session;
+  const last = useQuery({ queryKey: ["archived-last", data.session, data.status], queryFn: () => api.get<{ last?: string }>(`/sessions/${data.session}/ask`), enabled: !!data.session, staleTime: 60_000 }).data?.last;
+  const exited = t.exited !== undefined;
+  const dot = exited ? "bg-line" : t.state === "disconnected" ? "bg-amber animate-pulse" : data.status === "busy" ? "bg-cobalt animate-pulse" : data.status === "waiting" ? "bg-amber" : "bg-green";
+  return (
+    <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden text-[12px] ${waiting ? "border-amber border-2 canvas-waiting" : selected ? "border-cobalt" : "border-line border-dashed"}`} data-card={t.id} data-archived={data.archived} data-status={data.status}>
+      <Ports />
+      <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 bg-raised border-b border-line shrink-0" onDoubleClick={() => a.archive(id, false)} title="Drag to move, double-click to bring it back">
+        <span className={`size-2 rounded-full shrink-0 ${dot}`} />
+        {t.node && t.node !== "local" && <span className="text-[11px] px-1 rounded bg-ground text-muted shrink-0">{t.node}</span>}
+        <span className="truncate font-medium">{data.title}</span>
+        <div className="ml-auto flex items-center gap-0.5 nodrag shrink-0">
+          <button type="button" onClick={() => a.archive(id, false)} className="h-6 px-1.5 rounded text-cobalt hover:bg-ground" title="Bring it back, with what's folded into it, where they were">
+            Unarchive
+          </button>
+          <button type="button" onClick={() => a.close(t.id)} className={`${iconBtn} hover:!text-red`} title="Close this terminal" aria-label="Close terminal">
+            ×
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 px-2.5 py-2 flex flex-col gap-1.5">
+        <div className="flex items-center gap-1.5 text-muted min-w-0">
+          <span className={`shrink-0 ${waiting ? "text-amber font-medium" : ""}`}>{exited ? "Exited" : (STATUS[data.status ?? ""] ?? "Running")}</span>
+          <span className="text-faint">·</span>
+          <span className="truncate" title={t.cwd}>
+            {shortPath(t.cwd)}
+          </span>
+        </div>
+        {last && (
+          <p className="text-ink/80 line-clamp-2 leading-snug" title={last} data-archived-last>
+            {last}
+          </p>
+        )}
+        {!!data.folded?.length && (
+          <div className="flex flex-wrap gap-1" aria-label="Folded into it">
+            {data.folded.map((f, i) => (
+              <span key={i} className="px-1.5 rounded bg-ground text-muted text-[11px] max-w-[140px] truncate" title={f}>
+                {f}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="mt-auto text-faint text-[11px]">Archived {ago(data.archived)}</div>
+      </div>
+    </div>
+  );
+}
+
+function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
   const a = useActions();
   const box = useRef<HTMLDivElement>(null);
   useZoomFix(box);
@@ -184,6 +244,9 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
               ))}
             </select>
           )}
+          <button type="button" onClick={() => a.archive(id, true)} className={iconBtn} title="Archive it: it keeps running, folded into a small card with what's linked to it" aria-label="Archive">
+            ↧
+          </button>
           <button type="button" onClick={() => a.openTab(t.id)} className={iconBtn} title="Open it in its own tab" aria-label="Open in a tab">
             ↗
           </button>
@@ -367,6 +430,17 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     const s = sessionOf(t);
     return s?.title || s?.name || t.title;
   };
+  // what's folded into an archived terminal, by name
+  const foldedInto = (head: string) =>
+    (ws?.nodes ?? [])
+      .filter((x) => x.archived?.head === head && x.id !== head)
+      .map((x) => {
+        if (x.kind === "term") {
+          const t = byId.get(x.ref);
+          return t ? titleOf(t) : "a terminal";
+        }
+        return x.kind === "ticket" ? x.ref : { note: "Note", changes: "Changes", runs: "Runs" }[x.kind];
+      });
 
   // The lines: the ones you drew, and cockpit's own from each ticket to the terminals running in its worktree.
   // A line to a terminal that's working right now moves.
@@ -375,7 +449,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     const cards = new Map(ws.nodes.map((n) => [n.id, n]));
     const shown = (id: string) => {
       const n = cards.get(id);
-      return !!n && (n.kind !== "term" || byId.has(n.ref));
+      return !!n && !folded(n) && (n.kind !== "term" || byId.has(n.ref));
     };
     const busy = (id: string) => {
       const n = cards.get(id);
@@ -449,7 +523,9 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
   };
   // Going to a card: its workspace, the card selected and brought into view. framed: fitted with room around it (a
   // card at the top, the recap); otherwise at the zoom you're at, a little closer if you're far out (the finder, keys)
-  const goTo = (canvas: string, node: CanvasNode, framed = false) => {
+  const goTo = (canvas: string, card: CanvasNode, framed = false) => {
+    // a card folded into an archived terminal is found at that terminal's card
+    const node = (folded(card) && list.find((c) => c.id === canvas)?.nodes.find((n) => n.id === card.archived!.head)) || card;
     const go = () => {
       setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === node.id })));
       if (framed) frame(node);
@@ -503,9 +579,11 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
   const found: FoundCard[] = list.flatMap((c) =>
     c.nodes.flatMap((n): FoundCard[] => {
       const base = { id: n.id, canvas: c.id, workspace: c.name, kind: n.kind };
+      // what's folded into an archived terminal is found by that terminal's card
+      if (folded(n)) return [];
       if (n.kind === "term") {
         const t = byId.get(n.ref);
-        return t ? [{ ...base, label: titleOf(t), detail: shortPath(t.cwd) }] : [];
+        return t ? [{ ...base, label: titleOf(t), detail: n.archived ? `archived · ${shortPath(t.cwd)}` : shortPath(t.cwd) }] : [];
       }
       if (n.kind === "ticket") return [{ ...base, label: n.ref, detail: [...(ticketsQ.data?.tickets ?? []), ...(ticketsQ.data?.epics ?? [])].find((t) => t.key === n.ref)?.summary }];
       if (n.kind === "note") return [{ ...base, label: qc.getQueryData<{ text: string }>(["note", n.id])?.text.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") || "Note" }];
@@ -572,7 +650,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     if (!ws) return [];
     const cards = new Map(ws.nodes.map((n) => [n.id, n]));
     const out: { card: CanvasNode; runId: string; name: string; src: string; recording: boolean }[] = [];
-    for (const rc of ws.nodes.filter((n) => n.kind === "runs")) {
+    for (const rc of ws.nodes.filter((n) => n.kind === "runs" && !n.archived)) {
       const ends = links.filter((e) => e.source === rc.id || e.target === rc.id).map((e) => cards.get(e.source === rc.id ? e.target : e.source));
       const t = ends.map((n) => (n?.kind === "term" ? byId.get(n.ref) : undefined)).find(Boolean);
       const session = t ? sessionOf(t)?.id : undefined;
@@ -625,6 +703,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       const old = new Map(prev.map((n) => [n.id, n]));
       const out: CardNode[] = [];
       for (const n of ws.nodes) {
+        // folded into an archived terminal: out of sight until it's brought back
+        if (folded(n)) continue;
         const was = old.get(n.id);
         const keep = moving.current.has(n.id) ? was : undefined;
         // a card that fits its content is left without a height, so it takes what it shows
@@ -648,7 +728,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         // its terminal has closed, or its machine hasn't listed it yet
         const t = byId.get(n.ref);
         const s = t && sessionOf(t);
-        if (t) out.push({ ...base, type: "term", data: { term: t, title: titleOf(t), status: s?.status, session: s?.id } });
+        const archived = n.archived?.head === n.id ? { archived: n.archived.at, folded: foldedInto(n.id) } : {};
+        if (t) out.push({ ...base, ...(n.archived ? { height: n.h } : {}), type: "term", data: { term: t, title: titleOf(t), status: s?.status, session: s?.id, ...archived } });
       }
       // each recording's screen to the right of its runs card, or to its left when something's there
       const clash = (b: { x: number; y: number; w: number; h: number }) => ws.nodes.some((n) => n.x < b.x + b.w && b.x < n.x + n.w && n.y < b.y + b.h && b.y < n.y + n.h);
@@ -1065,7 +1146,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       const peer = multi.peers.find((p) => p.w > 0);
       if (!peer || !ws) return;
       const mid = middleOf(peer);
-      guard(api.post(`/canvas/${peer.ws}/group`, { nodes: linkedTo(node, ws.nodes, links), x: mid.x, y: mid.y, by: tabId }).then(refresh));
+      guard(api.post(`/canvas/${peer.ws}/group`, { nodes: withFolded(linkedTo(node, ws.nodes, links), ws.nodes), x: mid.x, y: mid.y, by: tabId }).then(refresh));
     },
     bringUp: (id) => {
       const n = flow.getNode(id);
@@ -1074,9 +1155,13 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     move: (term, to) => {
       const card = ws?.nodes.find((n) => n.kind === "term" && n.ref === term);
       if (!ws || !card) return;
-      guard(api.post(`/canvas/${to}/group`, { nodes: linkedTo(card.id, ws.nodes, links), by: tabId }).then(refresh));
+      guard(api.post(`/canvas/${to}/group`, { nodes: withFolded(linkedTo(card.id, ws.nodes, links), ws.nodes), by: tabId }).then(refresh));
     },
     close: (term) => guard(api.del(`/code/terms/${term}`).then(() => qc.invalidateQueries({ queryKey: ["terms"] }))),
+    archive: (node, on) => {
+      if (!ws) return;
+      guard(api.post(`/canvas/nodes/${node}/archive`, on ? { nodes: linkedTo(node, ws.nodes, links), by: tabId } : { archived: false, by: tabId }).then(refresh));
+    },
     // just this once: the view set in Settings stays the canvas
     openTab: (term) => navigate({ to: "/terminals", search: { id: term, view: "tabs" } }),
     removeNote: (node) => {

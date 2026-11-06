@@ -12,6 +12,8 @@ export interface Actions {
   otherScreen?: string;
   toScreen: (node: string) => void;
   close: (term: string) => void;
+  // put a terminal away without closing it, folding the cards linked to it into it; or take it back out
+  archive: (node: string, on: boolean) => void;
   openTab: (term: string) => void;
   removeNote: (node: string) => void;
   removeCard: (node: string) => void;

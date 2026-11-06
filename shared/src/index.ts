@@ -147,6 +147,8 @@ export interface CanvasNode {
   h: number;
   // every card but a terminal: its height follows what it shows, until you size it yourself
   fit?: boolean;
+  // put away, still running: folded into the archived card of the terminal `head` (itself, for that one), since `at`
+  archived?: { at: number; head: string };
 }
 
 // a line you drew between two cards of a workspace
