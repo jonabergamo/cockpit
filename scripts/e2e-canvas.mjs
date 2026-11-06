@@ -646,6 +646,47 @@ try {
     await until("back to one screen", async () => (await page.getByRole("button", { name: "Another screen" }).count()) > 0, 12_000);
     await api("DELETE", `/canvas/${second.id}`);
   });
+  await step("two screens on one workspace show the same cards, each at its own place and zoom, and a change in one shows in the other", async () => {
+    const charlie = globalThis.charlie;
+    await page.goto(`${base}/terminals?view=canvas&id=${charlie}`);
+    await page.waitForSelector(`[data-card="${charlie}"] .xterm-rows`);
+    // opened from its button, as a window the page opened (and so one that can close itself)
+    const [other] = await Promise.all([page.waitForEvent("popup"), page.getByRole("button", { name: "Another screen" }).click()]);
+    await other.setViewportSize({ width: 700, height: 1000 });
+    await other.getByRole("tab", { name: /Main/ }).click();
+    const there = other.locator(`.react-flow__node:has([data-card="${charlie}"])`);
+    await there.waitFor({ timeout: 10_000 });
+    // a different zoom there
+    await other.locator(".react-flow__pane").hover();
+    await other.mouse.wheel(0, 400);
+    await other.waitForTimeout(300);
+    const zoom = (p) => p.evaluate(() => getComputedStyle(document.querySelector(".react-flow__viewport")).transform);
+    expect((await zoom(other)) !== (await zoom(page)), "both screens are at the same place and zoom");
+    // the card dragged here moves there
+    const pos = (p) => p.locator(`.react-flow__node:has([data-card="${charlie}"])`).evaluate((el) => el.style.transform);
+    const was = await pos(other);
+    const handle = await page.locator(`[data-card="${charlie}"] .card-handle`).boundingBox();
+    await page.mouse.move(handle.x + 60, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + 220, handle.y + handle.height / 2 + 90, { steps: 8 });
+    await page.mouse.up();
+    await until("the other screen shows it moved", async () => (await pos(other)) !== was, 8000);
+    expect((await pos(other)) === (await pos(page)), "the card is somewhere else on the other screen");
+    // a note added there shows up here
+    const notesOf = async () => (await canvasOf(charlie)).nodes.filter((n) => n.kind === "note").map((n) => n.id);
+    const before = await notesOf();
+    await other.getByRole("button", { name: "+ Note" }).first().click();
+    let note;
+    await until("the note is added", async () => !!(note = (await notesOf()).find((id) => !before.includes(id))), 8000);
+    note = { id: note };
+    // it goes in the middle of that screen, which may be off this one: fit this one to every card to see it
+    await page.getByRole("button", { name: "Fit", exact: true }).click();
+    await page.locator(`[data-note="${note.id}"]`).waitFor({ timeout: 8000 });
+    await api("DELETE", `/canvas/nodes/${note.id}`);
+    // the screen's own window closes from its toolbar
+    await other.getByRole("button", { name: "Close window" }).click();
+    await until("the window closed", async () => other.isClosed(), 5000);
+  });
   await step("a terminal archived keeps running, folded into a small card with what's linked to it, and comes back out", async () => {
     const charlie = globalThis.charlie;
     await page.goto(`${base}/terminals?view=canvas&id=${charlie}`);

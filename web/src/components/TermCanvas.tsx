@@ -1207,8 +1207,20 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center h-11 border-b border-line bg-panel shrink-0">
+      {/* a screen's window has no app around it: its toolbar is the title bar, clear of the window buttons */}
+      <div className={`flex items-center h-11 border-b border-line bg-panel shrink-0 ${screen ? "drag traffic overlay-gap" : ""}`}>
         {switcher && <div className="flex items-center gap-1 px-2 h-full border-r border-line shrink-0">{switcher}</div>}
+        {/* first on a screen's window, so a narrow (vertical) screen doesn't push them out of sight */}
+        {screen && (
+          <div className="flex items-center gap-0.5 px-2 h-full border-r border-line shrink-0">
+            <Button size="sm" variant="ghost" onClick={() => window.close()} title="Close this screen's window; its cards stay where they are" className="hover:!text-red">
+              Close window
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void document.documentElement.requestFullscreen?.().catch(() => {})} title="This screen's canvas without the browser around it">
+              Full screen
+            </Button>
+          </div>
+        )}
         <div className="flex items-center gap-0.5 px-2 h-full min-w-0 flex-1 overflow-x-auto" role="tablist" aria-label="Workspaces">
           {list.map((c) =>
             renaming === c.id ? (
@@ -1283,11 +1295,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
           <Button size="sm" variant={copyOnSelect ? "default" : "ghost"} onClick={() => termPrefs.setCopyOnSelect(!copyOnSelect)} title="Copy text as soon as you select it" className="hidden lg:inline-flex">
             Copy on select
           </Button>
-          {screen ? (
-            <Button size="sm" variant="ghost" onClick={() => void document.documentElement.requestFullscreen?.().catch(() => {})} title="This screen's canvas without the browser around it" className="hidden md:inline-flex">
-              Full screen
-            </Button>
-          ) : (
+          {screen ? null : (
             <Button
               size="sm"
               variant={multi.linked ? "default" : "ghost"}
