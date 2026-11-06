@@ -74,6 +74,8 @@ export function stream(command: string, onChunk: (s: string) => void, cwd?: stri
     };
     child.stdout.on("data", push);
     child.stderr.on("data", push);
+    // a shell that can't start (a folder that isn't on this machine) ends the job instead of the server
+    child.on("error", (e) => push(Buffer.from(`${e.message}\n`)));
     child.on("close", (code) => resolve({ code: code ?? 1, out }));
   });
 }

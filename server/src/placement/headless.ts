@@ -1,6 +1,6 @@
 // claude -p, on whichever machine Settings → Machines puts it: this one by default, or a node. The prompt goes
 // through a file, since it's often too long to be an argument, and the job's output is Claude's answer.
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSettings } from "../settings.ts";
@@ -31,6 +31,8 @@ export function headlessHere(h: Headless, onDone?: (job: Job) => void) {
   const file = join(paths.data, `claude-${Date.now()}-${Math.floor(Math.random() * 1e6)}.txt`);
   writeFileSync(file, h.prompt, { mode: 0o600 });
   const q = JSON.stringify(file);
+  // a folder from another machine, like a hub's plugin data asked for on a node, falls back to this one's default
+  if (h.cwd && !existsSync(h.cwd)) h = { ...h, cwd: undefined };
   // the main agent answers; a model named here is Claude's, so another agent uses its own default
   const main = mainAgent();
   if (h.local) {
