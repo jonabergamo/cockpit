@@ -23,7 +23,7 @@ import { onJobStart } from "../jobs.ts";
 import { templateFor } from "../templates.ts";
 import { cleanChecked, createWorktree, deleteChecked, listWorktrees, repoState } from "../worktrees.ts";
 import { slugify } from "../util.ts";
-import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
+import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, reopened, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
@@ -131,7 +131,7 @@ export const wsWire = (ws: WebSocket): Wire => ({
 // what a node answers once a hub is in: about itself, and its terminals, which the hub shows as its own
 export function serve(c: Channel) {
   c.handle("info", () => nodeInfo());
-  c.handle("term.list", () => localTerms());
+  c.handle("term.list", async () => (await reopened(), localTerms()));
   c.handle("term.spawn", (o: SpawnOpts) => spawnTerm(o));
   c.handle("term.kill", ({ id }: { id: string }) => kill(id));
   c.handle("term.resize", ({ id, cols, rows }: { id: string; cols: number; rows: number }) => resize(id, cols, rows));
@@ -217,7 +217,7 @@ export function serve(c: Channel) {
     if (ev.type === "board" || ev.type === "run") c.emit("relay", ev);
     if (ev.type === "plugins") c.emit("plugins.changed");
   });
-  const offTerms = onTermsChanged(() => c.emit("terms", localTerms()));
+  const offTerms = onTermsChanged(() => void reopened().then(() => c.emit("terms", localTerms())));
   const offExit = onTermExit((id, code) => c.emit("pty.exit", { id, code }));
   c.onClose(() => {
     for (const off of subs.values()) off();

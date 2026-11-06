@@ -24,7 +24,7 @@ import { startUpdates, useBusyCheck, useNodeUpdates } from "./update.ts";
 import { listJobs, type Job } from "./jobs.ts";
 import { existsSync } from "node:fs";
 import { scanCodexTerminals } from "./claude/codexTerminal.ts";
-import { hasTmux, lostTerms, restoreTerms, spawnTerm } from "./pty.ts";
+import { hasTmux, holdTerms, lostTerms, restoreTerms, spawnTerm } from "./pty.ts";
 import { resumeLaunch } from "./workers/index.ts";
 
 // what belongs to the machine itself: its Claude sessions, their usage and search index, runs and terminals
@@ -39,10 +39,12 @@ export function startHostServices() {
   const restored = restoreTerms();
   if (restored) console.log(`reattached ${restored} terminals`);
   // the new id of each terminal reopened after a reboot, by its old one, so the canvas can keep its card in place
-  return reopenLost().catch((e) => {
+  const ids = reopenLost().catch((e) => {
     console.error("reopen terminals", e);
     return new Map<string, string>();
   });
+  holdTerms(ids);
+  return ids;
 }
 
 // After a reboot: the sessions that were open come back resumed in their folders, and the plain shells open again.
@@ -60,7 +62,7 @@ async function reopenLost() {
     if (!launch) continue;
     const parent = t.parent ? ids.get(t.parent) : undefined;
     if (t.parent && !parent) continue;
-    ids.set(t.id, spawnTerm({ cwd: t.cwd, title: t.title, ...launch, session: t.session, parent }).id);
+    ids.set(t.id, spawnTerm({ cwd: t.cwd, title: t.title, ...launch, session: t.session, parent, was: t.id }).id);
   }
   if (ids.size) console.log(`reopened ${ids.size} terminals from before the reboot`);
   return ids;

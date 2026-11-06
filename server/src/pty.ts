@@ -37,6 +37,8 @@ interface Meta {
   parent?: string;
   // the run its command is recorded as
   run?: string;
+  // the terminal it reopens after a reboot
+  was?: string;
 }
 
 interface Term extends Meta {
@@ -238,7 +240,7 @@ export function claudeTermFor(cwd: string) {
     .sort((a, b) => b.cwd.length - a.cwd.length || b.createdAt - a.createdAt)[0]?.id;
 }
 
-export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string; run?: string; beside?: boolean }) {
+export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string; run?: string; beside?: boolean; was?: string }) {
   // a Claude session is one of its own, never a split of another
   const own = !!opts.session || /^claude\b/.test(opts.command ?? "");
   if (opts.beside && !opts.parent && !own) opts = { ...opts, parent: claudeTermFor(opts.cwd) };
@@ -253,7 +255,7 @@ export function spawnTerm(opts: { cwd: string; title?: string; command?: string;
   // kept with the tmux session (same 16KB limit) and only shown as a tooltip, so a long prompt is cut short
   const full = [shell, ...(opts.args ?? [])].join(" ");
   const command = full.length > 500 ? `${full.slice(0, 500)}…` : full;
-  const meta: Meta = { id: randomUUID(), title: opts.title ?? command, cwd: opts.cwd, command, createdAt: Date.now(), session: opts.session, parent: opts.parent, run: opts.run };
+  const meta: Meta = { id: randomUUID(), title: opts.title ?? command, cwd: opts.cwd, command, createdAt: Date.now(), session: opts.session, parent: opts.parent, run: opts.run, was: opts.was };
 
   if (!hasTmux) {
     const proc = pty.spawn(file, argv, ptyOpts(opts.cwd));
@@ -333,7 +335,13 @@ export function restoreTerms() {
   return n;
 }
 
-const info = (t: Term): TermInfo => ({ id: t.id, title: t.title, cwd: t.cwd, command: t.command, createdAt: t.createdAt, exited: t.exited, pid: t.pid, session: t.session, parent: t.parent, node: "local", state: t.exited === undefined ? "running" : "exited" });
+const info = (t: Term): TermInfo => ({ id: t.id, title: t.title, cwd: t.cwd, command: t.command, createdAt: t.createdAt, exited: t.exited, pid: t.pid, session: t.session, parent: t.parent, node: "local", state: t.exited === undefined ? "running" : "exited", ...(t.was ? { was: t.was } : {}) });
+
+// While the terminals from before a reboot are being opened again, a hub is only told about them once they all
+// are: a list with some of them would read as the others having been closed, and their cards would go
+let reopening: Promise<unknown> = Promise.resolve();
+export const holdTerms = (p: Promise<unknown>) => void (reopening = p.catch(() => {}));
+export const reopened = () => reopening;
 
 // Where the terminal is now, so a `cd` in a shell moves the changes panel with it.
 export function currentCwd(id: string) {

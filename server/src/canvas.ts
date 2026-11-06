@@ -324,10 +324,20 @@ export function rekeyTerms(ids: Map<string, string>) {
 export function syncTerms(terms: TermInfo[], ticketOf: (t: TermInfo) => string | undefined = () => undefined, isReview: (t: TermInfo) => boolean = () => false) {
   type Placed = NodeRow & { node: string | null };
   const placed = new Map(db.prepare<[], Placed>(`select ${COLS}, node from canvas_nodes where kind = 'term'`).all().map((n) => [n.ref, n]));
+  let changed = false;
+  // a terminal reopened after a reboot (a node's, which the hub only hears of as a new one) takes the card it had
+  const rekey = db.prepare("update canvas_nodes set ref = ? where kind = 'term' and ref = ?");
+  for (const t of terms) {
+    const old = t.was ? placed.get(t.was) : undefined;
+    if (!old || placed.has(t.id)) continue;
+    rekey.run(t.id, t.was);
+    placed.delete(t.was!);
+    placed.set(t.id, { ...old, ref: t.id });
+    changed = true;
+  }
   const byId = new Map(terms.map((t) => [t.id, t]));
   const listing = new Set(terms.map((t) => t.node ?? "local"));
   const setNode = db.prepare("update canvas_nodes set node = ? where id = ?");
-  let changed = false;
   for (const [ref, n] of placed) {
     const t = byId.get(ref);
     if (t) {

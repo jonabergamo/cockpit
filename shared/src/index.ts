@@ -127,6 +127,8 @@ export interface TermInfo {
   // link dropped is still running there, only out of reach until the link comes back
   node?: string;
   state?: TermState;
+  // reopened after a reboot: the id it had before, so whatever pointed at that one (its canvas card) follows it
+  was?: string;
 }
 
 export type TermState = "running" | "disconnected" | "exited";

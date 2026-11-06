@@ -234,6 +234,22 @@ describe("after a reboot", () => {
     expect(syncTerms([term("new"), term("shell")])).toBe(false);
     expect(onCanvas("Main").nodes.find((n) => n.id === card.id)).toMatchObject({ ref: "new", x: 1234, y: 567, w: 800, h: 500 });
   });
+
+  it("keeps a node's terminal reopened after its reboot on its workspace, with its lines", () => {
+    const linux = (id: string, more: Partial<TermInfo> = {}) => term(id, { node: "linux", ...more });
+    syncTerms([term("hub"), linux("agent"), linux("reviewer")]);
+    const side = createCanvas("Side");
+    placeTerm(side.id, "agent");
+    placeTerm(side.id, "reviewer");
+    const [a, b] = onCanvas("Side").nodes;
+    const line = addEdge(side.id, a.id, b.id);
+    // the node comes back with both reopened under new ids, each saying which it was
+    expect(syncTerms([term("hub"), linux("agent2", { was: "agent" }), linux("reviewer2", { was: "reviewer" })])).toBe(true);
+    const now = onCanvas("Side");
+    expect(now.nodes.map((n) => [n.id, n.ref])).toEqual([[a.id, "agent2"], [b.id, "reviewer2"]]);
+    expect(now.edges.map((e) => e.id)).toEqual([line.id]);
+    expect(onCanvas("Main").nodes.map((n) => n.ref)).toEqual(["hub"]);
+  });
 });
 
 describe("notes and layout", () => {
