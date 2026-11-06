@@ -6,6 +6,9 @@ export interface Actions {
   others: CanvasInfo[];
   bringUp: (node: string) => void;
   move: (term: string, to: string) => void;
+  // the canvas is shown on another screen too: a card can go to the middle of what that one shows
+  otherScreen: boolean;
+  toScreen: (node: string) => void;
   close: (term: string) => void;
   openTab: (term: string) => void;
   removeNote: (node: string) => void;

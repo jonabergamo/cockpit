@@ -53,6 +53,8 @@ const routes = [
   createRoute({ getParentRoute: () => root, path: "/runs/$id", component: lazyRouteComponent(() => import("./pages/Runs"), "RunPage") }),
   createRoute({ getParentRoute: () => root, path: "/p/$plugin/$screen", component: PluginFrame }),
   createRoute({ getParentRoute: () => root, path: "/embed/terminal/$id", component: EmbedTerminal }),
+  // the canvas carried on in a window on another screen
+  createRoute({ getParentRoute: () => root, path: "/embed/canvas", component: lazyRouteComponent(() => import("./components/EmbedCanvas"), "EmbedCanvas"), validateSearch: (s): { group?: string } => ({ group: str(s.group) }) }),
   createRoute({ getParentRoute: () => root, path: "/reviews", component: lazyRouteComponent(() => import("./pages/Reviews"), "ReviewsPage"), validateSearch: (s): { id?: number; pr?: string } => ({ id: s.id ? Number(s.id) : undefined, pr: str(s.pr) }) }),
   createRoute({ getParentRoute: () => root, path: "/report", component: lazyRouteComponent(() => import("./pages/Hubs"), "ReportScreen"), validateSearch: (s): { sprint?: number; scope?: "me" } => ({ sprint: s.sprint ? Number(s.sprint) : undefined, scope: s.scope === "me" ? "me" : undefined }) }),
 ];

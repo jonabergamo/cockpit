@@ -34,6 +34,7 @@ import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
 import { liveSrc, recording } from "../lib/liveRun";
+import { middleOf, openScreen, screenGroup, useScreens } from "../lib/screens";
 import { useAppConfig, useRuns, useTickets, useWorktrees } from "../lib/queries";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
@@ -139,6 +140,8 @@ function useZoomFix(box: React.RefObject<HTMLDivElement | null>) {
 }
 
 const iconBtn = "size-6 grid place-items-center rounded text-faint hover:text-ink hover:bg-ground";
+// the Move menu's choice of the other screen, next to the workspaces
+const SCREEN = "__screen";
 
 function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
   const a = useActions();
@@ -163,9 +166,16 @@ function TermCard({ id, data, selected }: NodeProps<TermCardNode>) {
           <button type="button" onClick={(e) => a.spawn(id, e.currentTarget.getBoundingClientRect())} className={iconBtn} title="A new terminal beside this one, in its folder, linked to it" aria-label="New linked terminal">
             +
           </button>
-          {a.others.length > 0 && (
-            <select value="" onChange={(e) => e.target.value && a.move(t.id, e.target.value)} className="h-6 rounded bg-transparent text-faint hover:text-ink text-[12px] px-1 cursor-pointer" title="Move it to another workspace" aria-label="Move to workspace">
+          {(a.others.length > 0 || a.otherScreen) && (
+            <select
+              value=""
+              onChange={(e) => (e.target.value === SCREEN ? a.toScreen(id) : e.target.value && a.move(t.id, e.target.value))}
+              className="h-6 rounded bg-transparent text-faint hover:text-ink text-[12px] px-1 cursor-pointer"
+              title="Move it to another workspace, or the other screen"
+              aria-label="Move to workspace"
+            >
               <option value="">Move</option>
+              {a.otherScreen && <option value={SCREEN}>The other screen</option>}
               {a.others.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -304,7 +314,8 @@ const writeViewport = (ws: string, v: Viewport) => {
   } catch {}
 };
 
-function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; switcher: ReactNode }) {
+// screen: this window shows the canvas on another screen, beside the window it names (see lib/screens.ts)
+function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: string; switcher: ReactNode; screen?: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const flow = useReactFlow<CardNode, LinkEdgeT>();
@@ -332,8 +343,28 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
 
   const pick = (id: string) => {
     setPicked(id);
-    saveWorkspace(id);
+    // the workspace this browser opens on is the main screen's
+    if (!screen) saveWorkspace(id);
   };
+  // Shown on more than one screen: a view put here from another window doesn't count as you moving it, and a
+  // workspace another window switched to opens on its view, not where it was left here
+  const applying = useRef(false);
+  const fromPeer = useRef<{ ws: string; vp: Viewport } | undefined>(undefined);
+  const put = (vp: Viewport) => {
+    applying.current = true;
+    flow.setViewport(vp);
+    requestAnimationFrame(() => (applying.current = false));
+  };
+  const multi = useScreens({
+    group: screen ?? screenGroup(),
+    wrap,
+    current: () => ({ ws: wsRef.current?.id, vp: flow.getViewport() }),
+    show: (id, vp) => {
+      if (id === wsRef.current?.id) return put(vp);
+      fromPeer.current = { ws: id, vp };
+      setPicked(id);
+    },
+  });
   const byId = useMemo(() => new Map((terms.data ?? []).map((t) => [t.id, t])), [terms.data]);
   const sessionOf = (t: TermInfo) => live.find((x) => x.id === t.session || x.term === t.id || (!!t.pid && x.pid === t.pid && (t.node ?? "local") === (x.node ?? "local")));
   const titleOf = (t: TermInfo) => {
@@ -644,6 +675,13 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
     // a link to one terminal brings that one up instead, the first time only; after that its workspace opens where you left it
     if (!ws || shownWs.current === ws.id || (focus && focused.current !== focus && ws.nodes.some((n) => n.ref === focus))) return;
     shownWs.current = ws.id;
+    const peer = fromPeer.current;
+    if (peer?.ws === ws.id) {
+      fromPeer.current = undefined;
+      return void setTimeout(() => put(peer.vp), 30);
+    }
+    // on another screen: the window it carries on from says where to look; only if that one is gone, a view of its own
+    if (screen) return void setTimeout(() => !multi.anchored() && flow.fitView({ maxZoom: 1, padding: 0.1 }), 1500);
     const saved = readViewport(ws.id);
     // where you left it, unless none of its cards would be on screen there (it was empty then, or they moved away)
     const r = wrap.current?.getBoundingClientRect();
@@ -656,6 +694,7 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
         return n.x < left + r.width / saved.zoom && n.x + n.w > left && n.y < top + r.height / saved.zoom && n.y + n.h > top;
       });
     setTimeout(() => (saved && (seen || !ws.nodes.length) ? flow.setViewport(saved) : flow.fitView({ maxZoom: 1, padding: 0.1 })), 30);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the workspace or the link changes
   }, [ws, focus, flow]);
   // A workspace shown while it had nothing on it (or before this page heard what was moved there) fits its cards once
   // they arrive, so the first card doesn't land somewhere off screen
@@ -1024,6 +1063,18 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
 
   const actions: Actions = {
     others: list.filter((c) => c.id !== ws?.id),
+    otherScreen: multi.peers.some((p) => p.ws === ws?.id && p.w > 0),
+    toScreen: (node) => {
+      const peer = [...multi.peers].reverse().find((p) => p.ws === wsRef.current?.id && p.w > 0);
+      const n = nodesRef.current.find((x) => x.id === node);
+      if (!peer || !n) return;
+      const mid = middleOf(multi.viewOf(peer));
+      const w = n.width ?? n.measured?.width ?? TERM_W;
+      const h = n.height ?? n.measured?.height ?? TERM_H;
+      const position = { x: Math.round(mid.x - w / 2), y: Math.round(mid.y - h / 2) };
+      setNodes((ns) => ns.map((x) => (x.id === node ? { ...x, position } : x)));
+      commit([node]);
+    },
     bringUp: (id) => {
       const n = flow.getNode(id);
       if (n) frame(boxOf(n));
@@ -1151,6 +1202,22 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
           <Button size="sm" variant={copyOnSelect ? "default" : "ghost"} onClick={() => termPrefs.setCopyOnSelect(!copyOnSelect)} title="Copy text as soon as you select it" className="hidden lg:inline-flex">
             Copy on select
           </Button>
+          {screen ? (
+            <Button size="sm" variant="ghost" onClick={() => void document.documentElement.requestFullscreen?.().catch(() => {})} title="This screen's canvas without the browser around it" className="hidden md:inline-flex">
+              Full screen
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant={multi.linked ? "default" : "ghost"}
+              onClick={() => void openScreen(screenGroup()).then((w) => !w && setErr(new Error("The browser didn't open the window: let this page open pop-ups")))}
+              title="The canvas carried on in a window on another screen: what runs off this one's edge shows there, and moving either moves both"
+              className="hidden md:inline-flex"
+              data-screens={multi.peers.length + 1}
+            >
+              {multi.linked ? `${multi.peers.length + 1} screens` : "Extend"}
+            </Button>
+          )}
         </div>
       </div>
       <ErrorNote error={err ?? canvases.error} />
@@ -1173,7 +1240,8 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
             deleteKeyCode={null}
             zoomOnDoubleClick={false}
             panOnScroll
-            onMoveEnd={(_, v) => ws && writeViewport(ws.id, v)}
+            onMove={(_, v) => !applying.current && ws && multi.moved(ws.id, v)}
+            onMoveEnd={(_, v) => ws && !screen && writeViewport(ws.id, v)}
             proOptions={{ hideAttribution: true }}
             className="cockpit-canvas"
           >
@@ -1300,10 +1368,10 @@ function Board({ focus, ticket, switcher }: { focus?: string; ticket?: string; s
   );
 }
 
-export function TermCanvas({ focus, ticket, switcher }: { focus?: string; ticket?: string; switcher: ReactNode }) {
+export function TermCanvas({ focus, ticket, switcher, screen }: { focus?: string; ticket?: string; switcher: ReactNode; screen?: string }) {
   return (
     <ReactFlowProvider>
-      <Board focus={focus} ticket={ticket} switcher={switcher} />
+      <Board focus={focus} ticket={ticket} switcher={switcher} screen={screen} />
     </ReactFlowProvider>
   );
 }
