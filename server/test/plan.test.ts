@@ -69,4 +69,13 @@ describe("a session's plan", () => {
     expect(say("mcp__cockpit__report_run", {})).toBe("cockpit report_run");
     expect(stepsOf("no list here")).toEqual([]);
   });
+
+  it("finds a plan's steps past its context, files and checks", () => {
+    const plan = "# Export\n\n## Context\n\n1. Users asked for it\n2. It's slow today\n\n## Order\n\n1. The **button**\n2. The `export.ts` route\n\n## Files\n\n- a.ts\n\n## Verification\n\n1. pnpm test";
+    expect(stepsOf(plan)).toEqual(["The button", "The export.ts route"]);
+    // without a section of steps: the numbered list outside the context and the checks
+    expect(stepsOf(plan.replace("## Order", "## Shape"))).toEqual(["The button", "The export.ts route"]);
+    // nothing numbered: its sections, less the ones every plan has
+    expect(stepsOf("# X\n## Context\ntext\n## Server\n- a\n## Web\n- b\n## Files\n- c")).toEqual(["Server", "Web"]);
+  });
 });

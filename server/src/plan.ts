@@ -133,12 +133,41 @@ async function scan(file: string) {
   return st;
 }
 
-// the steps of a plan written in markdown: its list items, or failing those its headings
+// The steps of a plan written in markdown. Plans tend to go: some context, the parts of the work, the files, how
+// it's checked. So: the list under a heading that says it's the steps, or else a numbered list (a sequence), or
+// else its section headings less the ones every plan has, or else its top-level list.
+const AROUND = /^(context|background|why|problem|goal|goals|summary|overview|files|files to change|critical files|notes|risks|open questions|out of scope|non-goals)\b/i;
+const CHECK = /^(verification|verify|verifying|testing|tests?|test plan|how to (test|check|verify)|how it's (checked|tested)|checking|checks?)\b/i;
+const STEPS = /^(steps|plan|implementation|approach|changes|what changes|the work|order|sequence)\b/i;
+const clean = (s: string) => s.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
 export function stepsOf(text: string): string[] {
   const lines = text.split("\n");
-  const items = lines.map((l) => l.match(/^\s{0,3}(?:\d+[.)]|[-*+])\s+(?:\[[ xX]\]\s+)?(.+)/)?.[1]).filter((s): s is string => !!s);
-  const steps = items.length ? items : lines.map((l) => l.match(/^#{2,4}\s+(.+)/)?.[1]).filter((s): s is string => !!s);
-  return steps.map((s) => s.replace(/\*\*|__|`/g, "").trim()).filter(Boolean).slice(0, 40);
+  const item = (l: string, numbered: boolean) => l.match(numbered ? /^\s{0,1}\d+[.)]\s+(?:\[[ xX]\]\s+)?(.+)/ : /^\s{0,1}[-*+]\s+(?:\[[ xX]\]\s+)?(.+)/)?.[1];
+  const heading = (l: string) => l.match(/^(#{1,4})\s+(.+)/);
+  const done = (xs: (string | undefined)[]) => xs.filter((s): s is string => !!s).map(clean).filter(Boolean).slice(0, 40);
+  // a section that says it's the steps: its list
+  for (let i = 0; i < lines.length; i++) {
+    const h = heading(lines[i]);
+    if (!h || !STEPS.test(clean(h[2]))) continue;
+    const end = lines.findIndex((l, j) => j > i && (heading(l)?.[1].length ?? 9) <= h[1].length);
+    const body = lines.slice(i + 1, end < 0 ? undefined : end);
+    const got = done(body.map((l) => item(l, true) ?? item(l, false)));
+    if (got.length >= 2) return got;
+    const subs = done(body.map((l) => heading(l)?.[2]));
+    if (subs.length >= 2) return subs;
+  }
+  // the lists outside the context, the files and how it's checked
+  let skip = false;
+  const work = lines.filter((l) => {
+    const h = heading(l);
+    if (h) skip = AROUND.test(clean(h[2])) || CHECK.test(clean(h[2]));
+    return !skip;
+  });
+  const numbered = done(work.map((l) => item(l, true)));
+  if (numbered.length >= 2) return numbered;
+  const sections = done(lines.map((l) => heading(l)).filter((h) => h && h[1].length >= 2 && !AROUND.test(clean(h[2]))).map((h) => h![2]));
+  if (sections.length >= 2) return sections;
+  return done(work.map((l) => item(l, false)));
 }
 
 export async function planOf(sessionId: string): Promise<SessionPlan> {
