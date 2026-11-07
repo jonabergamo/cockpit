@@ -269,6 +269,51 @@ try {
     await p.close();
   });
 
+  await step("text selected in a terminal is pinned as a note beside it, linked to it", async () => {
+    const w = await shell("pinner");
+    await until("its card", async () => await canvasOf(w.id));
+    await page.goto(`${base}/terminals?view=canvas&id=${w.id}`);
+    await page.waitForSelector(`[data-card="${w.id}"] .xterm-rows`);
+    const PIN = "keepthis-7Q2";
+    await api("POST", `/code/terms/${w.id}/input`, { data: `printf '%s\\n' ${PIN}\r` });
+    const box = await until("the printed word", () =>
+      page.evaluate(
+        ([id, word]) => {
+          const walker = document.createTreeWalker(document.querySelector(`[data-card="${id}"] .xterm-rows`), NodeFilter.SHOW_TEXT);
+          for (let n; (n = walker.nextNode()); ) {
+            const i = n.textContent.indexOf(word);
+            if (i < 0 || n.parentElement.closest("div").textContent.includes("printf")) continue;
+            const r = document.createRange();
+            r.setStart(n, i);
+            r.setEnd(n, i + word.length);
+            const b = r.getBoundingClientRect();
+            return { x1: b.left + 1, x2: b.right - 1, y: b.top + b.height / 2 };
+          }
+          return null;
+        },
+        [w.id, PIN],
+      ),
+    );
+    await page.mouse.move(box.x1, box.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x2, box.y, { steps: 8 });
+    await page.mouse.up();
+    await page.locator(`[data-card="${w.id}"] [data-pin]`).click();
+    const note = await until("a note linked to it", async () => {
+      const c = await canvasOf(w.id);
+      const card = c.nodes.find((n) => n.ref === w.id);
+      const n = c.nodes.find((x) => x.kind === "note" && c.edges.some((e) => (e.source === card.id && e.target === x.id) || (e.target === card.id && e.source === x.id)));
+      return n;
+    });
+    await page.locator(`[data-note="${note.id}"]`).getByText(PIN).first().waitFor();
+    await page.locator(`[data-note="${note.id}"]`).getByText("From pinner:").first().waitFor();
+    // and the button goes once it's used
+    expect((await page.locator(`[data-card="${w.id}"] [data-pin]`).count()) === 0, "the pin button stayed");
+    await api("DELETE", `/canvas/nodes/${note.id}`);
+    await api("DELETE", `/code/terms/${w.id}`);
+    await until("its card gone", async () => !(await canvasOf(w.id)));
+  });
+
   await step("w goes from one terminal waiting on you to the next, and the keys answer each", async () => {
     const one = await shell("asker-one");
     const two = await shell("asker-two");

@@ -32,8 +32,12 @@ function xtermTheme(t: Theme) {
 const termSize = () => (window.innerWidth < 640 ? Math.min(12, fontStore.get().codeSize) : fontStore.get().codeSize);
 
 // autoFocus off for a terminal that sits among others, like the canvas's: it takes the keys once you click it
-export function Terminal({ id, onExit, autoFocus = true }: { id: string; onExit?: (code: number) => void; autoFocus?: boolean }) {
+// onPin: text selected in it can be kept, from a button that shows where the selection ended (a note on the canvas)
+export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; onExit?: (code: number) => void; autoFocus?: boolean; onPin?: (text: string) => void }) {
   const box = useRef<HTMLDivElement>(null);
+  const pinRef = useRef(onPin);
+  pinRef.current = onPin;
+  const [pin, setPin] = useState<{ x: number; y: number; text: string }>();
   const term = useRef<XTerm>(null);
   const tmux = useRef(false);
   // the history replayed on attach still holds every OSC 52 claude sent; running those again would overwrite the
@@ -90,9 +94,18 @@ export function Terminal({ id, onExit, autoFocus = true }: { id: string; onExit?
     });
     t.open(box.current!);
     // on mouseup rather than every selection change, so the fallback copy doesn't steal focus mid-drag
-    const copySelection = () => termPrefs.copyOnSelect() && t.hasSelection() && copy(t.getSelection());
     const el = box.current!;
+    const copySelection = (e: MouseEvent) => {
+      if (termPrefs.copyOnSelect() && t.hasSelection()) copy(t.getSelection());
+      // where the mouse let go, in the box's own pixels: a card on the canvas is scaled by the zoom
+      const text = t.hasSelection() ? t.getSelection().trim() : "";
+      if (!pinRef.current || !text) return;
+      const r = el.getBoundingClientRect();
+      const scale = el.offsetWidth ? r.width / el.offsetWidth : 1;
+      setPin({ x: Math.min((e.clientX - r.left) / scale, el.offsetWidth - 110), y: Math.min((e.clientY - r.top) / scale + 8, el.offsetHeight - 32), text });
+    };
     el.addEventListener("mouseup", copySelection);
+    const unselect = t.onSelectionChange(() => !t.hasSelection() && setPin(undefined));
 
     // An image on the clipboard, or files dropped on the terminal, go up to the dev box and their paths get
     // pasted in, which claude turns into attachments.
@@ -191,6 +204,7 @@ export function Terminal({ id, onExit, autoFocus = true }: { id: string; onExit?
       unsub();
       unfont();
       el.removeEventListener("mouseup", copySelection);
+      unselect.dispose();
       el.removeEventListener("paste", onPaste, true);
       el.removeEventListener("dragover", onDragOver);
       el.removeEventListener("drop", onDrop);
@@ -258,6 +272,24 @@ export function Terminal({ id, onExit, autoFocus = true }: { id: string; onExit?
         </div>
       )}
       {note && <div className="absolute bottom-3 right-4 z-10 bg-raised border border-line rounded-md shadow-lg px-2.5 py-1 text-[12px] text-muted">{note}</div>}
+      {pin && onPin && (
+        <button
+          type="button"
+          className="absolute z-10 h-7 px-2.5 rounded-md bg-cobalt text-on-accent text-[12px] font-medium shadow-lg"
+          style={{ left: Math.max(4, pin.x), top: Math.max(4, pin.y) }}
+          // before the terminal takes the mouse down and clears the selection
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            onPin(pin.text);
+            setPin(undefined);
+            term.current?.clearSelection();
+          }}
+          title="Keep what you selected as a note beside this terminal, linked to it"
+          data-pin
+        >
+          Pin as note
+        </button>
+      )}
       {searching && (
         <form
           className="absolute top-2 right-4 z-10 flex items-center gap-1 bg-raised border border-line rounded-md shadow-lg px-1.5 py-1"

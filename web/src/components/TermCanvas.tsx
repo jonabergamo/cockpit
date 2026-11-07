@@ -262,7 +262,7 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
       </div>
       {waiting && <WaitingStrip session={data.session!} selected={!!selected} onBringUp={() => a.bringUp(id)} onAnswered={() => a.nextWaiting(id)} onFail={a.fail} />}
       <div ref={box} className="relative flex-1 min-h-0 nodrag nowheel nopan">
-        <Terminal id={t.id} autoFocus={false} />
+        <Terminal id={t.id} autoFocus={false} onPin={(text) => a.pin(id, `From ${data.title}:`, text)} />
       </div>
       <StatusFooter session={data.session} busy={data.status === "busy"} cost={data.cost} />
     </div>
@@ -1181,6 +1181,21 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       guard(api.post(`/canvas/${peer.ws}/group`, { nodes: withFolded(linkedTo(node, ws.nodes, links), ws.nodes), x: mid.x, y: mid.y, by: tabId }).then(refresh));
     },
     nextWaiting: (after) => goWaiting(after),
+    pin: (node, from, text) => {
+      const cur = wsRef.current;
+      const card = nodesRef.current.find((n) => n.id === node);
+      if (!cur || !card) return;
+      // a fence the text itself doesn't use, so it shows as it was
+      const fence = text.includes("```") ? "~~~" : "```";
+      const at = { x: card.position.x + (card.width ?? TERM_W) + 40, y: card.position.y };
+      guard(
+        api.post<CanvasNode>(`/canvas/${cur.id}/notes`, { ...at, text: `${from}\n\n${fence}\n${text}\n${fence}\n`, by: tabId }).then(async (n) => {
+          await api.post(`/canvas/${cur.id}/edges`, { source: node, target: n.id, by: tabId });
+          await refresh();
+          show(n);
+        }),
+      );
+    },
     bringUp: (id) => {
       const n = flow.getNode(id);
       if (n) frame(boxOf(n));

@@ -5,6 +5,8 @@ import type { CanvasInfo, CanvasRelay, RelayStatus } from "@cockpit/shared";
 export interface Actions {
   others: CanvasInfo[];
   bringUp: (node: string) => void;
+  // text selected in a terminal, kept as a note beside its card, linked to it
+  pin: (node: string, from: string, text: string) => void;
   // to the next terminal waiting on you, past this card
   nextWaiting: (after?: string) => void;
   // a terminal and all that's linked to it, to another workspace
