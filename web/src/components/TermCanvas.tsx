@@ -42,7 +42,7 @@ import { useTerms } from "../pages/Terminals";
 import { AwayPanel } from "./canvas/AwayPanel";
 import { AddMenu } from "./canvas/AddMenu";
 import { CardFinder, type FoundCard } from "./canvas/CardFinder";
-import { ContextMeter } from "./canvas/ContextMeter";
+import { StatusFooter } from "./canvas/ContextMeter";
 import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
 import { ActionsCtx, useActions, type Actions, type CardTone, type LinkData, type LinkKind } from "./canvas/context";
 import { useFit } from "./canvas/fit";
@@ -228,9 +228,7 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
         <span className="truncate text-faint" title={t.cwd}>
           {shortPath(t.cwd)}
         </span>
-        <span className="ml-auto" />
-        <ContextMeter session={data.session} busy={data.status === "busy"} cost={data.cost} />
-        <div className="flex items-center gap-0.5 nodrag shrink-0">
+        <div className="ml-auto flex items-center gap-0.5 nodrag shrink-0">
           <button type="button" onClick={(e) => a.spawn(id, e.currentTarget.getBoundingClientRect())} className={iconBtn} title="A new terminal beside this one, in its folder, linked to it" aria-label="New linked terminal">
             +
           </button>
@@ -266,6 +264,7 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
       <div ref={box} className="relative flex-1 min-h-0 nodrag nowheel nopan">
         <Terminal id={t.id} autoFocus={false} />
       </div>
+      <StatusFooter session={data.session} busy={data.status === "busy"} cost={data.cost} />
     </div>
   );
 }

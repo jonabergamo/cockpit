@@ -1,0 +1,34 @@
+#!/usr/bin/env node
+// Claude Code's status line, inside cockpit's terminals: what Claude Code says about the session (its model and
+// effort, how full its context is, what it has cost, how long it's been going, the lines it changed, the plan's
+// limits) goes to a file cockpit reads, and the terminal shows no status line, as the card says all of it.
+// cockpit passes it to the Claude it starts with --settings; COCKPIT_CLAUDE_DIR is where Claude Code keeps its files.
+// No dependencies, prints nothing and always exits 0.
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const put = (file, data) => {
+  const tmp = `${file}.${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(data));
+  renameSync(tmp, file);
+};
+
+(async () => {
+  let raw = "";
+  for await (const chunk of process.stdin) raw += chunk;
+  const p = JSON.parse(raw);
+  const dir = join(process.env.COCKPIT_CLAUDE_DIR || join(homedir(), ".claude"), "cockpit");
+  const at = Date.now() / 1000;
+  // the plan's limits, which nothing else says: the same file a status line of your own can write
+  if (p.rate_limits) {
+    mkdirSync(dir, { recursive: true });
+    put(join(dir, "rate-limits.json"), { at, rate_limits: p.rate_limits });
+  }
+  if (typeof p.session_id === "string" && /^[\w-]+$/.test(p.session_id)) {
+    mkdirSync(join(dir, "status"), { recursive: true });
+    put(join(dir, "status", `${p.session_id}.json`), { at, ...p });
+  }
+})()
+  .catch(() => {})
+  .finally(() => process.exit(0));

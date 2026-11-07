@@ -1,8 +1,9 @@
 // What a Claude session is working through: the plan it last had approved (plan mode's ExitPlanMode), its to-do
 // list when it keeps one (TodoWrite, or the TaskCreate/TaskUpdate tools), and what it's doing right now, from its
 // last few tool calls. A transcript only grows, so each file is read on from where the last look stopped.
-import { open, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { open, readFile, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { config } from "./config.ts";
 import type { Entry, SessionContext, SessionPlan, PlanStep } from "@cockpit/shared";
 import { sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
@@ -190,10 +191,13 @@ export function windowOf(model: string | undefined, tokens: number) {
   return 200_000;
 }
 
-// how full its context is: what the last answer in the main thread was sent, read from the end of the file
+// How it stands: the status line's numbers when it has written them, which are Claude Code's own; else how full its
+// context is from what the last answer in the main thread was sent, read from the end of the file
 export async function contextOf(sessionId: string): Promise<SessionContext | undefined> {
+  const line = await statusLineOf(sessionId);
+  if (line?.pct !== undefined) return line;
   const file = sessionFile(sessionId);
-  if (!file) return;
+  if (!file) return line;
   const tail = await readTail(file, 512 * 1024).catch(() => undefined);
   for (const line of [...(tail?.lines ?? [])].reverse()) {
     if (!line.includes('"type":"assistant"') || !line.includes('"usage"') || line.includes('"isSidechain":true')) continue;
@@ -204,7 +208,29 @@ export async function contextOf(sessionId: string): Promise<SessionContext | und
       const tokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
       // a synthetic message (an error, an interruption) counts nothing: look further back
       if (!tokens) continue;
-      return { tokens, window: windowOf(m.model, tokens), model: m.model };
+      const window = windowOf(m.model, tokens);
+      return { ...(await statusLineOf(sessionId)), tokens, window, pct: Math.round((tokens / window) * 100), model: m.model };
     } catch {}
   }
+  return statusLineOf(sessionId);
+}
+
+// What cockpit's status line (bin/cockpit-statusline) last wrote for the session: Claude Code's own numbers
+export async function statusLineOf(sessionId: string): Promise<SessionContext | undefined> {
+  if (!/^[\w-]+$/.test(sessionId)) return;
+  try {
+    const d = JSON.parse(await readFile(join(config.claude.dir, "cockpit", "status", `${sessionId}.json`), "utf8"));
+    const w = d.context_window ?? {};
+    return {
+      window: w.context_window_size ?? windowOf(d.model?.id, 0),
+      pct: typeof w.used_percentage === "number" ? Math.round(w.used_percentage) : undefined,
+      model: d.model?.display_name ?? d.model?.id,
+      effort: d.effort?.level,
+      costUSD: d.cost?.total_cost_usd,
+      durationMs: d.cost?.total_duration_ms,
+      added: d.cost?.total_lines_added,
+      removed: d.cost?.total_lines_removed,
+      at: Math.round(d.at * 1000),
+    };
+  } catch {}
 }

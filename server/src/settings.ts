@@ -82,6 +82,9 @@ const schema = z.object({
     })
     .prefault({}),
   away: z.object({ minutes: z.number().int().min(5).max(24 * 60).default(30) }).prefault({}),
+  // the Claude cockpit starts in a terminal: its status line on the card (model, context, cost...) and none in the
+  // terminal, or Claude Code's own in the terminal as you set it up
+  terminals: z.object({ statusLine: z.enum(["card", "claude"]).default("card") }).prefault({}),
   // the weekly digest's notification: on this day (0 is Sunday) from this hour
   weekly: z.object({ on: z.boolean().default(true), day: z.number().int().min(0).max(6).default(5), hour: z.number().int().min(0).max(23).default(16) }).prefault({}),
   // kinds of work, see templates.ts; the first whose pattern matches a ticket is used

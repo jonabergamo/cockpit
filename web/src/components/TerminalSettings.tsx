@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { saveView, savedView, setStripGroup, useStripGroup, type StripGroup, type TermView } from "../lib/canvas";
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
+import { useSaveSettings, useSettings } from "../lib/cost";
 import { Tabs } from "./ui";
 
 // How the Terminals screen shows them, and how they copy, on this device (a phone may want tabs where the desktop
@@ -9,6 +10,9 @@ export function TerminalSection() {
   const [view, setView] = useState(savedView);
   const copy = useCopyOnSelect();
   const group = useStripGroup();
+  const settings = useSettings().data?.settings;
+  const save = useSaveSettings();
+  const line = settings?.terminals?.statusLine ?? "card";
   return (
     <section className="bg-panel border border-line rounded-lg p-4 space-y-3">
       <div>
@@ -38,6 +42,22 @@ export function TerminalSection() {
           items={[
             { value: "ticket", label: "Ticket" },
             { value: "workspace", label: "Workspace" },
+          ]}
+        />
+      </div>
+      <div className="flex items-center gap-3 text-[13px]">
+        <span className="flex-1 min-w-0">
+          <span className="block">Claude's status line</span>
+          <span className="block text-[12px] text-faint">
+            {line === "card" ? "Its model, context, cost, time and lines go along the foot of its card, and the terminal shows none. For every device, from the next Claude you start." : "Claude Code's own, in the terminal, as you set it up in ~/.claude/settings.json. For every device, from the next Claude you start."}
+          </span>
+        </span>
+        <Tabs<"card" | "claude">
+          value={line}
+          onChange={(v) => void save({ terminals: { statusLine: v } })}
+          items={[
+            { value: "card", label: "On the card" },
+            { value: "claude", label: "In the terminal" },
           ]}
         />
       </div>

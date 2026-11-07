@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import * as pty from "node-pty";
 
 // node-pty starts every terminal on a Mac through its spawn-helper, and a pnpm install leaves that file without
@@ -23,7 +23,8 @@ function fixSpawnHelper() {
 fixSpawnHelper();
 import type { WebSocket } from "ws";
 import type { TermInfo } from "@cockpit/shared";
-import { demo, paths } from "./config.ts";
+import { config, demo, paths } from "./config.ts";
+import { getSettings } from "./settings.ts";
 import { emit } from "./events.ts";
 import { broadcast, send } from "./hub.ts";
 
@@ -240,7 +241,18 @@ export function claudeTermFor(cwd: string) {
     .sort((a, b) => b.cwd.length - a.cwd.length || b.createdAt - a.createdAt)[0]?.id;
 }
 
+// Claude started in a terminal gets cockpit's status line, which tells cockpit how the session stands (its model,
+// context, cost...) for the card to show and shows nothing in the terminal; unless Settings keeps Claude Code's own
+const statusBin = join(paths.root, "bin", "cockpit-statusline");
+const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+export function withStatusLine(command: string | undefined, args: string[] | undefined) {
+  if (!command || basename(command) !== basename(config.claude.bin) || getSettings().terminals.statusLine !== "card") return args;
+  const line = { statusLine: { type: "command", command: `COCKPIT_CLAUDE_DIR=${sq(config.claude.dir)} ${sq(statusBin)}`, padding: 0 } };
+  return ["--settings", JSON.stringify(line), ...(args ?? [])];
+}
+
 export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string; run?: string; beside?: boolean; was?: string }) {
+  opts = { ...opts, args: withStatusLine(opts.command, opts.args) };
   // a Claude session is one of its own, never a split of another
   const own = !!opts.session || /^claude\b/.test(opts.command ?? "");
   if (opts.beside && !opts.parent && !own) opts = { ...opts, parent: claudeTermFor(opts.cwd) };

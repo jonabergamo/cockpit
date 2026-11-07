@@ -1,4 +1,5 @@
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -8,6 +9,12 @@ const dir = mkdtempSync(join(tmpdir(), "plan-"));
 let file = "";
 const fresh = () => writeFileSync((file = join(dir, `${n++}.jsonl`)), "");
 vi.mock("../src/claude/sessions.ts", () => ({ sessionFile: () => file }));
+// Claude Code's folder, where cockpit's status line writes
+const claudeDir = mkdtempSync(join(tmpdir(), "claude-"));
+vi.mock("../src/config.ts", async (orig) => {
+  const o = await orig<typeof import("../src/config.ts")>();
+  return { ...o, config: { ...o.config, claude: { ...o.config.claude, dir: claudeDir } } };
+});
 const { contextOf, planOf, stepsOf, describe: say, windowOf } = await import("../src/plan.ts");
 
 let n = 0;
@@ -68,12 +75,24 @@ describe("a session's plan", () => {
     expect(await contextOf("s")).toBeUndefined();
     const answer = (model: string, usage: object, more = {}) => JSON.stringify({ type: "assistant", timestamp: ts(), ...more, message: { role: "assistant", model, usage, content: [{ type: "text", text: "hi" }] } });
     add(answer("claude-sonnet-4-5", { input_tokens: 10, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 40 }));
-    expect(await contextOf("s")).toEqual({ tokens: 150_050, window: 200_000, model: "claude-sonnet-4-5" });
+    expect(await contextOf("s")).toEqual({ tokens: 150_050, window: 200_000, pct: 75, model: "claude-sonnet-4-5" });
     // a subagent's answer and an empty one (an interruption) don't count
     add(answer("claude-haiku-4-5", { input_tokens: 5 }, { isSidechain: true }), answer("claude-sonnet-4-5", { input_tokens: 0 }));
     expect((await contextOf("s"))?.tokens).toBe(150_050);
     expect(windowOf("claude-opus-5-5", 1000)).toBe(1_000_000);
     expect(windowOf("claude-sonnet-4-5", 250_000)).toBe(1_000_000);
+  });
+
+  it("takes Claude Code's own numbers from cockpit's status line once it has written them", async () => {
+    fresh();
+    const bin = new URL("../../bin/cockpit-statusline", import.meta.url).pathname;
+    const line = { session_id: "with-line", model: { id: "claude-opus-5-5", display_name: "Opus 5.5" }, effort: { level: "medium" }, cost: { total_cost_usd: 94.18, total_duration_ms: 92_000_000, total_lines_added: 9751, total_lines_removed: 462 }, context_window: { context_window_size: 1_000_000, used_percentage: 23.4 }, rate_limits: { five_hour: { used_percentage: 3 } } };
+    // the status line prints nothing, so the terminal shows none
+    expect(execFileSync(bin, { input: JSON.stringify(line), env: { ...process.env, COCKPIT_CLAUDE_DIR: claudeDir } }).toString()).toBe("");
+    expect(await contextOf("with-line")).toMatchObject({ window: 1_000_000, pct: 23, model: "Opus 5.5", effort: "medium", costUSD: 94.18, durationMs: 92_000_000, added: 9751, removed: 462 });
+    // and the plan's limits, for the Usage screen
+    mkdirSync(join(claudeDir, "cockpit"), { recursive: true });
+    expect(JSON.parse(readFileSync(join(claudeDir, "cockpit", "rate-limits.json"), "utf8")).rate_limits.five_hour.used_percentage).toBe(3);
   });
 
   it("names a tool call in a few words", () => {

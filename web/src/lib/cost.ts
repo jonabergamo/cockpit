@@ -21,6 +21,7 @@ export interface SettingsRes {
     pipeline: { openPrompt: string; reviewPrompt: string; noCodePattern: string; mainBranches: string };
     alerts: { stuckMinutes: number; escalateMinutes: number };
     away: { minutes: number };
+    terminals: { statusLine: "card" | "claude" };
     budget: { perTicketUSD: number; perTicketMTokens: number; warnPct: number };
     weekly: { on: boolean; day: number; hour: number };
     templates: { id: string; name: string; match: string; vars: Record<string, string>; model: string; prompt: string; autopilot: "default" | "on" | "off" }[];

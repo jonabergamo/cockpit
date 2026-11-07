@@ -420,11 +420,21 @@ export interface SessionPlan {
   doing: { at: string; what: string; done: boolean }[];
 }
 
-// How full a session's context is: what its last turn sent the model, out of the window it has
+// How a session stands, as Claude Code's status line says (or, without one, worked out from its transcript): how
+// full its context is, its model and effort, what it has cost, how long it's been going and the lines it changed
 export interface SessionContext {
-  tokens: number;
+  // tokens is only known from the transcript; the status line says the share used
+  tokens?: number;
   window: number;
+  pct?: number;
   model?: string;
+  effort?: string;
+  costUSD?: number;
+  durationMs?: number;
+  added?: number;
+  removed?: number;
+  // when the status line last said it, in ms
+  at?: number;
 }
 
 export interface Ask {

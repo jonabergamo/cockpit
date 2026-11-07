@@ -285,7 +285,7 @@ try {
       setTimeout(() => ws.send(JSON.stringify({ type: "sessions", sessions: [fake] })), 300);
     });
     let doing = "Editing Export.tsx";
-    await p.route("**/api/sessions/e2e-planning/context", (r) => r.fulfill({ json: { tokens: 820_000, window: 1_000_000, model: "claude-opus-5-5" } }));
+    await p.route("**/api/sessions/e2e-planning/context", (r) => r.fulfill({ json: { window: 1_000_000, pct: 82, model: "Opus 5.5", effort: "medium", costUSD: 12.5, durationMs: 5_400_000, added: 120, removed: 8 } }));
     await p.route("**/api/sessions/e2e-planning/plan", (r) =>
       r.fulfill({
         json: {
@@ -305,11 +305,15 @@ try {
     await p.goto(`${base}/terminals?view=canvas&id=${w.id}`);
     const card = p.locator(`[data-card="${w.id}"]`);
     await card.waitFor();
-    // its header says how full the agent's context is, amber once it's past three quarters, and what it has cost
-    const meter = card.locator('[data-context="82"]');
+    // along its foot, what Claude's status line said: model and effort, the context (amber past three quarters),
+    // the cost, how long it's been going and the lines it changed
+    const foot = card.locator("[data-status-line]");
+    const meter = foot.locator('[data-context="82"]');
     await meter.waitFor({ timeout: 10_000 });
     expect((await meter.locator(".bg-amber").count()) === 1, "82% isn't amber");
-    await card.getByText(/12\.5/).first().waitFor();
+    for (const text of ["Opus 5.5", "(medium)", "1h30m", "+120", "−8"]) await foot.getByText(text, { exact: true }).waitFor();
+    await foot.getByText(/12\.5/).waitFor();
+    if (process.env.E2E_PROOFS) await card.screenshot({ path: join(process.env.E2E_PROOFS, "status line.png") });
     // the terminal selected, then a plan card from the Add menu: it's linked to it
     await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
     await p.getByRole("button", { name: "+ Add" }).click();
