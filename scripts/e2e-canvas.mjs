@@ -359,6 +359,7 @@ try {
       await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
     };
     await select();
+    if (process.env.E2E_PROOFS) await card.locator(".card-handle").screenshot({ path: join(process.env.E2E_PROOFS, "mic idle.png") });
     // the hub's Whisper, made up here: each pass has heard a little more, and the last one puts a word right
     const heard = ["echo said", "echo said out", "echo said out lout", "echo said out loud"];
     let calls = 0;
@@ -371,6 +372,7 @@ try {
     await page.keyboard.press("v");
     await card.locator('[data-voice="listening"]').waitFor();
     expect((await card.getByRole("button", { name: "Stop talking" }).count()) === 1, "the mic button doesn't say it's listening");
+    if (process.env.E2E_PROOFS) await card.locator(".card-handle").screenshot({ path: join(process.env.E2E_PROOFS, "mic listening.png") });
     // while it listens, what's heard so far is typed in and shown on the strip
     await until("typed as it's heard", async () => /echo said/.test(await prompt()), 10_000);
     await card.locator("[data-heard]").getByText(/echo said/).waitFor();

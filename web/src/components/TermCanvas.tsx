@@ -264,7 +264,10 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
             aria-label={talking ? "Stop talking" : "Talk to it"}
             aria-pressed={talking}
           >
-            {talking ? "●" : "🎙"}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={talking ? "animate-pulse" : ""} aria-hidden>
+              <rect x="5.5" y="1.75" width="5" height="8" rx="2.5" fill={talking ? "currentColor" : "none"} />
+              <path d="M3.25 7.5a4.75 4.75 0 0 0 9.5 0M8 12.25v2" />
+            </svg>
           </button>
           <button type="button" onClick={() => a.archive(id, true)} className={iconBtn} title="Archive it: it keeps running, folded into a small card with what's linked to it" aria-label="Archive">
             ↧
