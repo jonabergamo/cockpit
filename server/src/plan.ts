@@ -2,10 +2,12 @@
 // list when it keeps one (TodoWrite, or the TaskCreate/TaskUpdate tools), and what it's doing right now, from its
 // last few tool calls. A transcript only grows, so each file is read on from where the last look stopped.
 import { open, readFile, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
+import { homedir } from "node:os";
 import { config } from "./config.ts";
+import { run, ticketOf } from "./util.ts";
 import type { Entry, SessionContext, SessionPlan, PlanStep } from "@cockpit/shared";
-import { sessionFile } from "./claude/sessions.ts";
+import { getSession, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
 
 type State = {
@@ -194,10 +196,10 @@ export function windowOf(model: string | undefined, tokens: number) {
 // How it stands: the status line's numbers when it has written them, which are Claude Code's own; else how full its
 // context is from what the last answer in the main thread was sent, read from the end of the file
 export async function contextOf(sessionId: string): Promise<SessionContext | undefined> {
-  const line = await statusLineOf(sessionId);
-  if (line?.pct !== undefined) return line;
+  const known = (await statusLineOf(sessionId)) ?? (await whereOf(sessionId));
+  if (known?.pct !== undefined) return known;
   const file = sessionFile(sessionId);
-  if (!file) return line;
+  if (!file) return known;
   const tail = await readTail(file, 512 * 1024).catch(() => undefined);
   for (const line of [...(tail?.lines ?? [])].reverse()) {
     if (!line.includes('"type":"assistant"') || !line.includes('"usage"') || line.includes('"isSidechain":true')) continue;
@@ -209,10 +211,17 @@ export async function contextOf(sessionId: string): Promise<SessionContext | und
       // a synthetic message (an error, an interruption) counts nothing: look further back
       if (!tokens) continue;
       const window = windowOf(m.model, tokens);
-      return { ...(await statusLineOf(sessionId)), tokens, window, pct: Math.round((tokens / window) * 100), model: m.model };
+      return { ...(known ?? {}), tokens, window, pct: Math.round((tokens / window) * 100), model: m.model };
     } catch {}
   }
-  return statusLineOf(sessionId);
+  return known;
+}
+
+// a session without cockpit's status line (started before it, or outside cockpit): where it's working, from its folder
+async function whereOf(sessionId: string): Promise<SessionContext | undefined> {
+  const cwd = getSession(sessionId)?.cwd;
+  if (!cwd) return;
+  return { window: 0, dir: basename(cwd), ...(await gitOf(cwd)) };
 }
 
 // What cockpit's status line (bin/cockpit-statusline) last wrote for the session: Claude Code's own numbers
@@ -221,7 +230,15 @@ export async function statusLineOf(sessionId: string): Promise<SessionContext | 
   try {
     const d = JSON.parse(await readFile(join(config.claude.dir, "cockpit", "status", `${sessionId}.json`), "utf8"));
     const w = d.context_window ?? {};
+    const five = d.rate_limits?.five_hour;
+    const seven = d.rate_limits?.seven_day;
+    const cwd: string | undefined = d.workspace?.current_dir ?? d.cwd;
+    const project: string | undefined = d.workspace?.project_dir;
     return {
+      dir: cwd ? (project && cwd !== project ? `${basename(project)}/${relative(project, cwd)}` : basename(cwd)) : undefined,
+      ...(cwd ? await gitOf(cwd, d.worktree?.name) : {}),
+      five: typeof five?.used_percentage === "number" ? { pct: Math.round(five.used_percentage), resetsAt: typeof five.resets_at === "number" ? five.resets_at : five.resets_at ? Math.round(Date.parse(five.resets_at) / 1000) : undefined } : undefined,
+      seven: typeof seven?.used_percentage === "number" ? { pct: Math.round(seven.used_percentage) } : undefined,
       window: w.context_window_size ?? windowOf(d.model?.id, 0),
       pct: typeof w.used_percentage === "number" ? Math.round(w.used_percentage) : undefined,
       model: d.model?.display_name ?? d.model?.id,
@@ -233,4 +250,25 @@ export async function statusLineOf(sessionId: string): Promise<SessionContext | 
       at: Math.round(d.at * 1000),
     };
   } catch {}
+}
+
+// The git side of where it's working, as the status line in the terminal showed it: the worktree (when it's one),
+// the branch, uncommitted work and how far from upstream. Asked of git at most every ten seconds per folder.
+const gits = new Map<string, { at: number; v: Promise<Partial<SessionContext>> }>();
+const git = (cwd: string, ...args: string[]) => run("git", ["-C", cwd, "--no-optional-locks", ...args], { timeout: 4000 }).then((o) => o.trim(), () => "");
+export function gitOf(cwd: string, named?: string): Promise<Partial<SessionContext>> {
+  const hit = gits.get(cwd);
+  if (hit && Date.now() - hit.at < 10_000) return hit.v;
+  const v = (async () => {
+    const [gitDir, common, top] = (await git(cwd, "rev-parse", "--absolute-git-dir", "--path-format=absolute", "--git-common-dir", "--show-toplevel")).split("\n");
+    if (!gitDir) return {};
+    const branch = (await git(cwd, "symbolic-ref", "--short", "HEAD")) || (await git(cwd, "rev-parse", "--short", "HEAD")) || undefined;
+    const dirty = !!(await git(cwd, "status", "--porcelain"));
+    const [behind, ahead] = (await git(cwd, "rev-list", "--left-right", "--count", "@{u}...HEAD")).split(/\s+/).map(Number);
+    const trees = join(homedir(), ".claude", "worktrees") + "/";
+    const worktree = gitDir !== common && top ? named || (top.startsWith(trees) ? top.slice(trees.length).split("/")[0] : basename(top)) : undefined;
+    return { worktree, ticket: ticketOf(worktree, branch), branch, dirty, ahead: ahead || undefined, behind: behind || undefined };
+  })();
+  gits.set(cwd, { at: Date.now(), v });
+  return v;
 }

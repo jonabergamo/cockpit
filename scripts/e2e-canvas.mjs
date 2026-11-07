@@ -453,7 +453,11 @@ try {
       setTimeout(() => ws.send(JSON.stringify({ type: "sessions", sessions: [fake] })), 300);
     });
     let doing = "Editing Export.tsx";
-    await p.route("**/api/sessions/e2e-planning/context", (r) => r.fulfill({ json: { window: 1_000_000, pct: 82, model: "Opus 5.5", effort: "medium", costUSD: 12.5, durationMs: 5_400_000, added: 120, removed: 8 } }));
+    await p.route("**/api/sessions/e2e-planning/context", (r) =>
+      r.fulfill({
+        json: { window: 1_000_000, pct: 82, model: "Opus 5.5", effort: "medium", costUSD: 12.5, durationMs: 5_400_000, added: 120, removed: 8, dir: "cockpit/web", worktree: "canvas-spike", branch: "feat/export", dirty: true, ahead: 2, five: { pct: 3, resetsAt: Math.round(Date.now() / 1000) + 6300 }, seven: { pct: 19 } },
+      }),
+    );
     await p.route("**/api/sessions/e2e-planning/plan", (r) =>
       r.fulfill({
         json: {
@@ -473,13 +477,14 @@ try {
     await p.goto(`${base}/terminals?view=canvas&id=${w.id}`);
     const card = p.locator(`[data-card="${w.id}"]`);
     await card.waitFor();
-    // along its foot, what Claude's status line said: model and effort, the context (amber past three quarters),
+    // along its foot, what Claude's status line said: model and effort, the context (red from four fifths),
     // the cost, how long it's been going and the lines it changed
     const foot = card.locator("[data-status-line]");
     const meter = foot.locator('[data-context="82"]');
     await meter.waitFor({ timeout: 10_000 });
-    expect((await meter.locator(".bg-amber").count()) === 1, "82% isn't amber");
-    for (const text of ["Opus 5.5", "(medium)", "1h30m", "+120", "−8"]) await foot.getByText(text, { exact: true }).waitFor();
+    expect((await meter.locator(".bg-red").count()) === 1, "82% isn't red");
+    for (const text of ["Opus 5.5", "(medium)", "cockpit/web", "canvas-spike", "feat/export", "↑2", "+120", "−8"]) await foot.getByText(text, { exact: true }).waitFor();
+    for (const text of [/⏱ 1h30m/, /5h 3%/, /\(1h4\dm\)/, /7d 19%/]) await foot.getByText(text).first().waitFor();
     await foot.getByText(/12\.5/).waitFor();
     if (process.env.E2E_PROOFS) await card.screenshot({ path: join(process.env.E2E_PROOFS, "status line.png") });
     // the terminal selected, then a plan card from the Add menu: it's linked to it

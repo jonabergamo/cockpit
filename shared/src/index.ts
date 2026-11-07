@@ -455,6 +455,18 @@ export interface SessionContext {
   removed?: number;
   // when the status line last said it, in ms
   at?: number;
+  // where it's working: the folder (project/sub when it's moved into one), the worktree it's in (with the ticket
+  // its name says), the branch, whether anything isn't committed, and how far it is from its upstream
+  dir?: string;
+  worktree?: string;
+  ticket?: string;
+  branch?: string;
+  dirty?: boolean;
+  ahead?: number;
+  behind?: number;
+  // the plan's limits: the share of the five hours and of the week used, and when the five hours start again (s)
+  five?: { pct: number; resetsAt?: number };
+  seven?: { pct: number };
 }
 
 export interface Ask {

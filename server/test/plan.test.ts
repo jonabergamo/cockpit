@@ -1,14 +1,14 @@
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 // each test a transcript of its own
 const dir = mkdtempSync(join(tmpdir(), "plan-"));
 let file = "";
 const fresh = () => writeFileSync((file = join(dir, `${n++}.jsonl`)), "");
-vi.mock("../src/claude/sessions.ts", () => ({ sessionFile: () => file }));
+vi.mock("../src/claude/sessions.ts", () => ({ sessionFile: () => file, getSession: () => undefined }));
 // Claude Code's folder, where cockpit's status line writes
 const claudeDir = mkdtempSync(join(tmpdir(), "claude-"));
 vi.mock("../src/config.ts", async (orig) => {
@@ -90,9 +90,23 @@ describe("a session's plan", () => {
     // the status line prints nothing, so the terminal shows none
     expect(execFileSync(bin, { input: JSON.stringify(line), env: { ...process.env, COCKPIT_CLAUDE_DIR: claudeDir } }).toString()).toBe("");
     expect(await contextOf("with-line")).toMatchObject({ window: 1_000_000, pct: 23, model: "Opus 5.5", effort: "medium", costUSD: 94.18, durationMs: 92_000_000, added: 9751, removed: 462 });
+    // and where it's working, as the terminal's status line showed it: the folder, the branch, uncommitted work,
+    // the plan's five hours (and when they start again) and its week
+    const repo = mkdtempSync(join(tmpdir(), "repo-"));
+    const g = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" } });
+    g("init", "-q", "-b", "feature/ABC-12-export");
+    writeFileSync(join(repo, "a.txt"), "a");
+    g("add", ".");
+    g("commit", "-qm", "a");
+    writeFileSync(join(repo, "b.txt"), "not committed");
+    mkdirSync(join(repo, "web"));
+    const resets = Math.round(Date.now() / 1000) + 3600;
+    const where = { ...line, session_id: "where", workspace: { current_dir: join(repo, "web"), project_dir: repo }, rate_limits: { five_hour: { used_percentage: 3.2, resets_at: resets }, seven_day: { used_percentage: 19 } } };
+    execFileSync(bin, { input: JSON.stringify(where), env: { ...process.env, COCKPIT_CLAUDE_DIR: claudeDir } });
+    expect(await contextOf("where")).toMatchObject({ dir: `${basename(repo)}/web`, branch: "feature/ABC-12-export", dirty: true, five: { pct: 3, resetsAt: resets }, seven: { pct: 19 } });
     // and the plan's limits, for the Usage screen
     mkdirSync(join(claudeDir, "cockpit"), { recursive: true });
-    expect(JSON.parse(readFileSync(join(claudeDir, "cockpit", "rate-limits.json"), "utf8")).rate_limits.five_hour.used_percentage).toBe(3);
+    expect(JSON.parse(readFileSync(join(claudeDir, "cockpit", "rate-limits.json"), "utf8")).rate_limits.five_hour.used_percentage).toBe(3.2);
   });
 
   it("names a tool call in a few words", () => {
