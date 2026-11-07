@@ -3,6 +3,7 @@ import type { KitTeam } from "@cockpit/shared";
 import { db } from "../src/db.ts";
 import { getSettings, putSettings } from "../src/settings.ts";
 import { DEFAULT_TEAM, claudeArgs, memberLaunch, teamOf, templateFor } from "../src/templates.ts";
+import { READY_KINDS } from "../../web/src/lib/kits.ts";
 
 const bug: KitTeam = {
   worktree: true,
@@ -44,5 +45,12 @@ describe("kits", () => {
     // one with no prompt of its own, not the main one: it just opens, and waits for what comes along its lines
     expect(memberLaunch(tpl, { ...bug.terms[1], prompt: "" }, false, t).args).toEqual(["--model", "sonnet"]);
     expect(claudeArgs(undefined, "go", true)).toEqual(["--permission-mode", "plan", "go"]);
+  });
+
+  it("ready-made kinds are ones the settings take as they are", () => {
+    putSettings({ templates: READY_KINDS.map((k) => ({ ...kind(k.team), id: k.id, name: k.name, match: k.match, prompt: k.prompt })) });
+    expect(getSettings().templates.map((t) => t.id)).toEqual(["feature", "bug", "e2e", "discovery"]);
+    for (const k of READY_KINDS) expect(teamOf(getSettings().templates.find((t) => t.id === k.id))).toEqual(k.team);
+    expect(READY_KINDS.find((k) => k.id === "discovery")?.team.worktree).toBe(false);
   });
 });

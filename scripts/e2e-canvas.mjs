@@ -429,6 +429,32 @@ try {
     await until("its card gone", async () => !(await canvasOf(w.id)));
   });
 
+  await step("a kind of work gets a team from a ready-made one, changed and saved in Settings", async () => {
+    const was = (await api("GET", "/settings")).settings.templates;
+    await page.goto(`${base}/settings?tab=automation`);
+    await page.getByLabel("Add a ready-made kind").selectOption("bug");
+    const row = page.locator("[data-team]").last();
+    await row.locator("[data-team-text]").getByText("investigator → fixer, fixer ↔ tester").waitFor();
+    // the tester gets a model of its own and the plan card too
+    await row.getByRole("button", { name: /Team/ }).click();
+    const tester = row.locator('[data-member="tester"]');
+    await tester.getByLabel("Terminal model").selectOption("haiku");
+    await tester.getByLabel("plan", { exact: true }).check();
+    if (process.env.E2E_PROOFS) await row.screenshot({ path: join(process.env.E2E_PROOFS, "team editor.png") });
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const bug = await until("saved", async () => (await api("GET", "/settings")).settings.templates.find((t) => t.name === "Bug" && t.team));
+    const t = bug.team.terms.find((m) => m.id === "tester");
+    expect(t.model === "haiku" && t.cards.includes("plan") && bug.team.lines.length === 2, `saved as ${JSON.stringify(bug.team)}`);
+    // the kits list has it, for setting a ticket up
+    const kits = await api("GET", "/claude/kits");
+    expect(kits.kinds.some((k) => k.id === bug.id && k.team.terms.length === 3), "the kits don't have it");
+    // a line the server can't take says why
+    await row.getByRole("button", { name: "Add a line" }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText(/Two lines between/).waitFor();
+    await api("PUT", "/settings", { templates: was });
+  });
+
   await step("w goes from one terminal waiting on you to the next, and the keys answer each", async () => {
     const one = await shell("asker-one");
     const two = await shell("asker-two");

@@ -1,5 +1,10 @@
 import { useAgentName } from "../lib/agent";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { KitTeam, KitsRes } from "@cockpit/shared";
+import { api } from "../lib/api";
+import { READY_KINDS } from "../lib/kits";
+import { TeamEditor } from "./TeamEditor";
 import { type SettingsRes, useSaveSettings, useSettings } from "../lib/cost";
 import { useAppConfig } from "../lib/queries";
 import { Button, ErrorNote, inputClass } from "./ui";
@@ -19,7 +24,7 @@ function badPattern(p: string) {
   }
 }
 
-function Row({ t, vars, onChange, onRemove, onMove }: { t: Template; vars: string; onChange: (patch: Partial<Template>, vars?: string) => void; onRemove: () => void; onMove: (d: -1 | 1) => void }) {
+function Row({ t, vars, fallback, onChange, onRemove, onMove }: { t: Template; vars: string; fallback?: KitTeam; onChange: (patch: Partial<Template>, vars?: string) => void; onRemove: () => void; onMove: (d: -1 | 1) => void }) {
   return (
     <div className="rounded-md border border-line bg-raised p-3 space-y-2 text-[13px]">
       <div className="flex flex-wrap gap-2">
@@ -42,6 +47,7 @@ function Row({ t, vars, onChange, onRemove, onMove }: { t: Template; vars: strin
         <textarea value={t.prompt} onChange={(e) => onChange({ prompt: e.target.value })} rows={2} placeholder="Starting prompt. {url}, {ticket} and {summary} are the ticket's. Empty sends the ticket link" className={`${inputClass} flex-1 min-w-[240px] h-auto py-1.5`} aria-label="Starting prompt" />
         <textarea value={vars} onChange={(e) => onChange({}, e.target.value)} rows={2} placeholder={"apps=web,api"} className={`${inputClass} w-56 h-auto py-1.5 font-mono text-[12px]`} aria-label="Values for repo.createCommand" title="name=value, one per line, for {name} in repo.createCommand" />
       </div>
+      <TeamEditor team={t.team} fallback={fallback} onChange={(team) => onChange({ team })} />
       <div className="flex gap-1.5 justify-end">
         <Button size="sm" variant="ghost" onClick={() => onMove(-1)} title="Checked earlier">
           Up
@@ -68,6 +74,7 @@ export function TemplateSettings() {
   const [vars, setVars] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [err, setErr] = useState<unknown>();
+  const fallback = useQuery({ queryKey: ["kits"], queryFn: () => api.get<KitsRes>("/claude/kits"), staleTime: 60_000 }).data?.fallback;
   useEffect(() => {
     if (!saved || dirty) return;
     setList(saved);
@@ -111,13 +118,34 @@ export function TemplateSettings() {
         </p>
       </div>
       {list.map((t, i) => (
-        <Row key={t.id} t={t} vars={vars[t.id] ?? ""} onChange={(p, v) => change(t.id, p, v)} onRemove={() => (setList(list.filter((x) => x.id !== t.id)), setDirty(true))} onMove={(d) => move(i, d)} />
+        <Row key={t.id} t={t} vars={vars[t.id] ?? ""} fallback={fallback} onChange={(p, v) => change(t.id, p, v)} onRemove={() => (setList(list.filter((x) => x.id !== t.id)), setDirty(true))} onMove={(d) => move(i, d)} />
       ))}
       {!list.length && <p className="text-[13px] text-faint">None yet. Every ticket starts the same way, with its link as the prompt.</p>}
       <div className="flex gap-2">
         <Button size="sm" onClick={() => (setList([...list, blank()]), setDirty(true))}>
           Add a kind of work
         </Button>
+        <select
+          value=""
+          onChange={(e) => {
+            const r = READY_KINDS.find((k) => k.id === e.target.value);
+            if (!r) return;
+            // a copy of it, to change as you like; it goes before a catch-all one, so its pattern gets a look in
+            const kind: Template = { ...blank(), name: r.name, match: r.match, prompt: r.prompt, team: structuredClone(r.team) };
+            const all = list.findIndex((t) => !t.match.trim());
+            setList(all < 0 || !r.match ? [...list, kind] : [...list.slice(0, all), kind, ...list.slice(all)]);
+            setDirty(true);
+          }}
+          className={`${inputClass} h-8 text-[13px]`}
+          aria-label="Add a ready-made kind"
+        >
+          <option value="">Add a ready-made kind…</option>
+          {READY_KINDS.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.name}
+            </option>
+          ))}
+        </select>
         {dirty && (
           <>
             <Button size="sm" variant="primary" onClick={commit}>

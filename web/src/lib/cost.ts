@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import type { Fonts } from "./fonts";
+import type { KitTeam } from "@cockpit/shared";
 import { usd } from "./format";
 
 export type CostMode = "auto" | "real" | "api" | "hide";
@@ -24,7 +25,7 @@ export interface SettingsRes {
     terminals: { statusLine: "card" | "claude"; voiceSend: boolean };
     budget: { perTicketUSD: number; perTicketMTokens: number; warnPct: number };
     weekly: { on: boolean; day: number; hour: number };
-    templates: { id: string; name: string; match: string; vars: Record<string, string>; model: string; prompt: string; autopilot: "default" | "on" | "off" }[];
+    templates: { id: string; name: string; match: string; vars: Record<string, string>; model: string; prompt: string; autopilot: "default" | "on" | "off"; team?: KitTeam }[];
     notes: { prompt: string; maxChars: number; liveBranch: string };
     agents: { off: string[] };
     ci: { local: string[] };
