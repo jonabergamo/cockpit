@@ -276,8 +276,10 @@ export const work = new Hono()
   })
   // a node's worktree opens in an editor here, reaching into the node over ssh
   .post("/worktrees/open", async (c) => {
-    const { path } = await c.req.json<{ path: string }>();
-    const node = await findOwner(path);
+    // node: the machine the folder is on, when the caller knows it (a terminal's folder needn't be a worktree)
+    const b = await c.req.json<{ path: string; node?: string }>();
+    const path = b.path;
+    const node = b.node && b.node !== "local" ? b.node : await findOwner(path);
     return c.json(node ? openRemote(path, hostOf(node)) : openInEditor(path));
   })
   .get("/worktrees/clean", async (c) => {

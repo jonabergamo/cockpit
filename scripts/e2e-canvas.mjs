@@ -229,6 +229,15 @@ try {
     await changes.getByText("fresh.ts").waitFor();
     await changes.getByRole("button", { name: /app\.ts/ }).click();
     await changes.getByText("+three").waitFor();
+    // its repo opens in the editor from the card
+    let opened;
+    await page.route("**/api/worktrees/open", async (r) => {
+      opened = r.request().postDataJSON();
+      await r.fulfill({ json: { id: "editor-job" } });
+    });
+    await changes.locator("[data-open-editor]").click();
+    await until("asked to open it", async () => opened?.path === repo);
+    await page.unroute("**/api/worktrees/open");
     // at 100%, for the proof
     await changes.locator(".card-handle").dblclick();
     await page.waitForTimeout(400);

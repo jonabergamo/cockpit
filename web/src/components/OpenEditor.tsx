@@ -39,8 +39,9 @@ export function useOpenEditor() {
   const label = useEditorName();
   const [jobId, setJobId] = useState<string>();
   const open = useMutation({
-    mutationFn: (path: string) => api.post<{ id: string }>("/worktrees/open", { path }),
+    mutationFn: ({ path, node }: { path: string; node?: string }) => api.post<{ id: string }>("/worktrees/open", { path, node }),
     onSuccess: (j) => setJobId(j.id),
   });
-  return { label, open: (path: string) => open.mutate(path), pending: open.isPending, error: open.error, job: jobs.data?.find((j) => j.id === jobId) };
+  // node: the machine the folder is on, when it isn't this one; the editor here reaches into it
+  return { label, open: (path: string, node?: string) => open.mutate({ path, node }), pending: open.isPending, error: open.error, job: jobs.data?.find((j) => j.id === jobId) };
 }

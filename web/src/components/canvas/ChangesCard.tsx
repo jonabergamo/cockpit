@@ -1,4 +1,5 @@
 import { type Node, type NodeProps } from "@xyflow/react";
+import { useOpenEditor } from "../OpenEditor";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -102,6 +103,8 @@ export function ChangesCard({ id, data, selected }: NodeProps<ChangesCardNode>) 
         : undefined;
 
   const fit = useFit({ id, selected, fit: data.fit, max: 640, minWidth: 300, minHeight: 120 });
+  const editor = useOpenEditor();
+  const editorFailed = editor.error ?? (editor.job && editor.job.code !== undefined && editor.job.code !== 0 ? new Error(editor.job.output.trim().split("\n").pop() || `it ended with ${editor.job.code}`) : undefined);
   return (
     <div className={`w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden text-[12px] ${selected ? "border-cobalt" : "border-line"}`} style={fit.style} data-changes={id}>
       {fit.resizer}
@@ -152,9 +155,27 @@ export function ChangesCard({ id, data, selected }: NodeProps<ChangesCardNode>) 
                   Code
                 </button>
               )}
+              <button
+                type="button"
+                disabled={editor.pending}
+                onClick={() => editor.open(d.root, node)}
+                className="h-6 px-1.5 rounded text-cobalt hover:bg-ground disabled:opacity-50 flex items-center gap-1"
+                title={`Open ${d.root}${node ? ` on ${node}` : ""} in ${editor.label}`}
+                data-open-editor
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3.25c0 .4-.35.75-.75.75h-8c-.4 0-.75-.35-.75-.75v-8c0-.4.35-.75.75-.75H6.5" />
+                </svg>
+                {editor.label}
+              </button>
             </div>
           </div>
           <div className="nowheel flex-auto min-h-0 overflow-y-auto py-1">
+            {editorFailed && (
+              <div className="px-3 py-1 text-red" data-open-editor-error>
+                Couldn't open {editor.label}: {editorFailed instanceof Error ? editorFailed.message : String(editorFailed)}
+              </div>
+            )}
             {d.files.length ? d.files.map((f) => <FileRow key={f.path} f={f} root={d.root} node={node} />) : <div className="px-3 py-2 text-muted">Nothing changed on this branch yet.</div>}
             {d.more > 0 && <div className="px-3 py-1 text-faint">and {d.more} more files</div>}
           </div>
