@@ -651,6 +651,11 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       }
       // talking to a terminal: v again or Enter turns it into text, Esc drops it
       const v = voice.get();
+      // a v held down repeats: those keep it listening, it ends when the key comes up
+      if (e.key === "v" && e.repeat) {
+        e.preventDefault();
+        return;
+      }
       if (v.state === "listening" && (e.key === "v" || e.key === "Enter")) {
         e.preventDefault();
         voice.stop();

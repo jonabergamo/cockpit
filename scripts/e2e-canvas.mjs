@@ -391,7 +391,12 @@ try {
     await select();
     await page.keyboard.down("v");
     await card.locator('[data-voice="listening"]').waitFor();
-    await page.waitForTimeout(2200);
+    // a key held down repeats, as a real keyboard does: it keeps listening through those
+    for (let i = 0; i < 6; i++) {
+      await page.waitForTimeout(300);
+      await page.keyboard.down("v");
+    }
+    expect((await card.locator('[data-voice="listening"]').count()) === 1, "a held v stopped it while still held");
     await page.keyboard.up("v");
     await until("stopped by letting go", async () => (await card.locator("[data-voice]").count()) === 0, 10_000);
     // with Settings saying so, it's sent once it's settled
