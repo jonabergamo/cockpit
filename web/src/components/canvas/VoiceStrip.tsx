@@ -10,14 +10,20 @@ export function VoiceStrip({ card }: { card: string }) {
       {v.state === "listening" && (
         <>
           <span className="size-2 rounded-full bg-red animate-pulse shrink-0" />
-          <span className="font-medium">Listening</span>
-          <span className="text-muted text-[12px] truncate">v or Enter when you're done, Esc to drop it</span>
+          <span className="font-medium shrink-0">Listening</span>
+          {v.heard ? (
+            <span className="text-ink text-[12px] truncate" data-heard>
+              {v.heard}
+            </span>
+          ) : (
+            <span className="text-muted text-[12px] truncate">it types as you talk · v or Enter when you're done, Esc to drop it</span>
+          )}
           <button type="button" onClick={() => voice.stop()} className="ml-auto h-6 px-2 rounded-md bg-cobalt text-on-accent text-[12px] shrink-0">
             Done
           </button>
         </>
       )}
-      {v.state === "hearing" && <span>Turning it into text…</span>}
+      {v.state === "hearing" && <span className="truncate">Settling what you said{v.heard ? `: ${v.heard}` : "…"}</span>}
       {v.state === "error" && (
         <>
           <span className="truncate" title={v.error}>

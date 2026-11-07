@@ -57,6 +57,7 @@ import { TicketPicker } from "./canvas/TicketPicker";
 import { WaitingStrip } from "./canvas/WaitingStrip";
 import { VoiceStrip } from "./canvas/VoiceStrip";
 import { useVoice, voice } from "../lib/voice";
+import { useSettings } from "../lib/cost";
 import { Terminal } from "./Terminal";
 import { Button, ErrorNote, inputClass, Markdown } from "./ui";
 
@@ -220,6 +221,7 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
   const waiting = data.status === "waiting" && !!data.session;
   const v = useVoice();
   const talking = v.card === id && v.state === "listening";
+  const voiceSend = !!useSettings().data?.settings.terminals?.voiceSend;
   const dot = t.exited !== undefined ? "bg-line" : t.state === "disconnected" ? "bg-amber animate-pulse" : data.status === "busy" ? "bg-cobalt animate-pulse" : "bg-green";
   return (
     <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden ${waiting ? "border-amber border-2 canvas-waiting" : selected ? "border-cobalt" : "border-line"}`} data-card={t.id} data-status={data.status}>
@@ -256,7 +258,7 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
           )}
           <button
             type="button"
-            onClick={() => voice.toggle(id, t.id)}
+            onClick={() => voice.toggle(id, t.id, voiceSend)}
             className={`${iconBtn} ${talking ? "!text-red" : ""}`}
             title={talking ? "Done: turn what you said into text and type it in" : "Say it instead of typing (v): it's typed in for you to read and send"}
             aria-label={talking ? "Stop talking" : "Talk to it"}
@@ -661,7 +663,10 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       }
       if (e.key === "v" && sel?.type === "term") {
         e.preventDefault();
-        voice.toggle(sel.id, (sel.data as TermData).term.id);
+        if (e.repeat) return;
+        // held down, it's push to talk: letting go stops it (see the keyup below)
+        vDown.current = Date.now();
+        voice.toggle(sel.id, (sel.data as TermData).term.id, voiceSend);
         return;
       }
       if (e.key === "Enter" && sel) {
@@ -681,8 +686,19 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       else if (/^[1-9]$/.test(e.key) && sel?.type === "term" && (sel.data as TermData).status === "waiting") return;
       else if (/^[1-9]$/.test(e.key) && list[Number(e.key) - 1]) pick(list[Number(e.key) - 1].id);
     };
+    // letting go of a v held for a moment ends what you're saying; a quick tap leaves it listening
+    const onUp = (e: KeyboardEvent) => {
+      if (e.key !== "v" || !vDown.current) return;
+      const held = Date.now() - vDown.current;
+      vDown.current = 0;
+      if (held > 300 && voice.get().state === "listening") voice.stop();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onUp);
+    };
   });
   // A run recording right now, beside the runs card it's on: its screen shows up when it starts and goes when it
   // ends. The runs that are going come live from the socket, whatever's on screen, so this doesn't wait for the
@@ -1155,6 +1171,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
   };
   const [scheduling, setScheduling] = useState(false);
   const scheduled = (useSchedules().data ?? []).filter((s) => s.canvas === ws?.id).length;
+  const voiceSend = !!useSettings().data?.settings.terminals?.voiceSend;
+  const vDown = useRef(0);
   // what's being set up for a ticket, while it is
   const [settingUp, setSettingUp] = useState<string>();
   // the ticket's worktree, made first when it has none: its job is waited on, a few minutes at most

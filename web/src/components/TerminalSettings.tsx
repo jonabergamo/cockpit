@@ -54,13 +54,17 @@ export function TerminalSection() {
         </span>
         <Tabs<"card" | "claude">
           value={line}
-          onChange={(v) => void save({ terminals: { statusLine: v } })}
+          onChange={(v) => void save({ terminals: { ...settings!.terminals, statusLine: v } })}
           items={[
             { value: "card", label: "On the card" },
             { value: "claude", label: "In the terminal" },
           ]}
         />
       </div>
+      <label className="flex items-center gap-2 text-[13px]">
+        <input type="checkbox" checked={!!settings?.terminals?.voiceSend} onChange={(e) => void save({ terminals: { ...settings!.terminals, voiceSend: e.target.checked } })} />
+        Send what I say to a terminal straight away, rather than leave it to read first
+      </label>
       <label className="flex items-center gap-2 text-[13px]">
         <input type="checkbox" checked={copy} onChange={(e) => termPrefs.setCopyOnSelect(e.target.checked)} />
         Copy text as soon as you select it

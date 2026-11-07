@@ -348,38 +348,73 @@ try {
     await page.keyboard.press("Escape");
   });
 
-  await step("v talks to the terminal selected: what's said is typed in, for you to read and send", async () => {
+  await step("v talks to the terminal selected: it types as you talk, settles when you stop, and is left for you to send", async () => {
     const w = await shell("talker");
     await until("its card", async () => await canvasOf(w.id));
     await page.goto(`${base}/terminals?view=canvas&id=${w.id}`);
     const card = page.locator(`[data-card="${w.id}"]`);
     await card.locator(".xterm-rows").waitFor();
-    await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
-    await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-    // the hub's Whisper, made up here: what it heard
+    const select = async () => {
+      await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
+      await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+    };
+    await select();
+    // the hub's Whisper, made up here: each pass has heard a little more, and the last one puts a word right
+    const heard = ["echo said", "echo said out", "echo said out lout", "echo said out loud"];
+    let calls = 0;
     let sent;
     await page.route("**/api/dictate", async (r) => {
       sent = r.request().postDataJSON();
-      await r.fulfill({ json: { text: "echo said-out-loud", language: "en" } });
+      await r.fulfill({ json: { text: heard[Math.min(calls++, heard.length - 1)], language: "en" } });
     });
+    const prompt = async () => (await card.locator(".xterm-rows").innerText()).split("\n").map((l) => l.trimEnd()).filter((l) => l.includes("echo said")).pop() ?? "";
     await page.keyboard.press("v");
     await card.locator('[data-voice="listening"]').waitFor();
     expect((await card.getByRole("button", { name: "Stop talking" }).count()) === 1, "the mic button doesn't say it's listening");
-    await page.waitForTimeout(700);
+    // while it listens, what's heard so far is typed in and shown on the strip
+    await until("typed as it's heard", async () => /echo said/.test(await prompt()), 10_000);
+    await card.locator("[data-heard]").getByText(/echo said/).waitFor();
+    await until("a few passes", async () => calls >= 3, 10_000);
     await page.keyboard.press("v");
-    await until("the recording sent", async () => typeof sent?.data === "string" && sent.data.startsWith("data:audio"));
-    // typed in, not run: it's on the prompt line and nothing printed it back
-    await until("typed into the terminal", async () => (await card.locator(".xterm-rows").innerText()).includes("echo said-out-loud"));
+    await until("settled", async () => (await card.locator("[data-voice]").count()) === 0, 10_000);
+    expect(typeof sent?.data === "string" && sent.data.startsWith("data:audio"), "no recording was sent");
+    // corrected in place, with nothing left of the earlier passes, and not run
+    await until("the last pass in the terminal", async () => (await prompt()).endsWith("echo said out loud"));
     await page.waitForTimeout(500);
     const rows = (await card.locator(".xterm-rows").innerText()).split("\n").map((l) => l.trim());
-    expect(!rows.includes("said-out-loud"), "it was run, not just typed in");
-    await card.locator("[data-voice]").waitFor({ state: "detached" });
+    expect(!rows.includes("said out loud"), "it was run, not just typed in");
+    expect(!(await card.locator(".xterm-rows").innerText()).includes("lout"), "a wrong word from an earlier pass was left");
+    // clear the line for the next part
+    await api("POST", `/code/terms/${w.id}/input`, { data: "\x15" });
+    // held down, it's push to talk: letting go stops it
+    calls = 0;
+    await select();
+    await page.keyboard.down("v");
+    await card.locator('[data-voice="listening"]').waitFor();
+    await page.waitForTimeout(2200);
+    await page.keyboard.up("v");
+    await until("stopped by letting go", async () => (await card.locator("[data-voice]").count()) === 0, 10_000);
+    // with Settings saying so, it's sent once it's settled
+    const was = (await api("GET", "/settings")).settings.terminals;
+    await api("PUT", "/settings", { terminals: { ...was, voiceSend: true } });
+    await api("POST", `/code/terms/${w.id}/input`, { data: "\x15" });
+    await page.reload();
+    await card.locator(".xterm-rows").waitFor();
+    calls = 3;
+    await select();
+    await card.getByRole("button", { name: "Talk to it" }).click();
+    await card.locator('[data-voice="listening"]').waitFor();
+    await page.waitForTimeout(1800);
+    await card.getByRole("button", { name: "Done" }).click();
+    await until("run", async () => (await card.locator(".xterm-rows").innerText()).split("\n").map((l) => l.trim()).includes("said out loud"), 10_000);
+    await api("PUT", "/settings", { terminals: was });
     // why it didn't work, on the card
     await page.unroute("**/api/dictate");
     await page.route("**/api/dictate", (r) => r.fulfill({ status: 500, json: { error: "Speech to text isn't set up on this machine" } }));
-    await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
+    await select();
     await card.getByRole("button", { name: "Talk to it" }).click();
     await card.locator('[data-voice="listening"]').waitFor();
+    await page.waitForTimeout(1200);
     await card.getByRole("button", { name: "Done" }).click();
     await card.locator('[data-voice="error"]').getByText(/isn't set up/).waitFor();
     await page.keyboard.press("Escape");
