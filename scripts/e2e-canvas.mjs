@@ -272,7 +272,7 @@ try {
   await step("a plan card shows what the agent in its terminal is working through, and doing now", async () => {
     const w = await shell("planner");
     await until("its card", async () => await canvasOf(w.id));
-    const fake = { id: "e2e-planning", project: "e2e", cwd: w.cwd, title: "Export button", status: "busy", startedAt: Date.now(), updatedAt: Date.now(), size: 0, term: w.id };
+    const fake = { id: "e2e-planning", project: "e2e", cwd: w.cwd, title: "Export button", status: "busy", startedAt: Date.now(), updatedAt: Date.now(), size: 0, term: w.id, costUSD: 12.5 };
     const p = await page.context().newPage();
     p.on("pageerror", (e) => errors.push(e.message));
     await p.routeWebSocket(/\/ws$/, (ws) => {
@@ -285,6 +285,7 @@ try {
       setTimeout(() => ws.send(JSON.stringify({ type: "sessions", sessions: [fake] })), 300);
     });
     let doing = "Editing Export.tsx";
+    await p.route("**/api/sessions/e2e-planning/context", (r) => r.fulfill({ json: { tokens: 820_000, window: 1_000_000, model: "claude-opus-5-5" } }));
     await p.route("**/api/sessions/e2e-planning/plan", (r) =>
       r.fulfill({
         json: {
@@ -304,6 +305,11 @@ try {
     await p.goto(`${base}/terminals?view=canvas&id=${w.id}`);
     const card = p.locator(`[data-card="${w.id}"]`);
     await card.waitFor();
+    // its header says how full the agent's context is, amber once it's past three quarters, and what it has cost
+    const meter = card.locator('[data-context="82"]');
+    await meter.waitFor({ timeout: 10_000 });
+    expect((await meter.locator(".bg-amber").count()) === 1, "82% isn't amber");
+    await card.getByText(/12\.5/).first().waitFor();
     // the terminal selected, then a plan card from the Add menu: it's linked to it
     await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
     await p.getByRole("button", { name: "+ Add" }).click();

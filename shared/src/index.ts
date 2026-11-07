@@ -420,6 +420,13 @@ export interface SessionPlan {
   doing: { at: string; what: string; done: boolean }[];
 }
 
+// How full a session's context is: what its last turn sent the model, out of the window it has
+export interface SessionContext {
+  tokens: number;
+  window: number;
+  model?: string;
+}
+
 export interface Ask {
   screen: string;
   question?: string;

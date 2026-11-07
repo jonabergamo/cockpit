@@ -8,7 +8,7 @@ const dir = mkdtempSync(join(tmpdir(), "plan-"));
 let file = "";
 const fresh = () => writeFileSync((file = join(dir, `${n++}.jsonl`)), "");
 vi.mock("../src/claude/sessions.ts", () => ({ sessionFile: () => file }));
-const { planOf, stepsOf, describe: say } = await import("../src/plan.ts");
+const { contextOf, planOf, stepsOf, describe: say, windowOf } = await import("../src/plan.ts");
 
 let n = 0;
 const ts = () => new Date(Date.UTC(2026, 10, 7, 10, 0, n++)).toISOString();
@@ -61,6 +61,19 @@ describe("a session's plan", () => {
     expect((await planOf("s")).plan?.approved).toBe(false);
     add(call("p3", "ExitPlanMode", { plan: "## First\n## Second" }));
     expect((await planOf("s")).plan).toMatchObject({ approved: undefined, steps: ["First", "Second"] });
+  });
+
+  it("says how full its context is from the main thread's last answer", async () => {
+    fresh();
+    expect(await contextOf("s")).toBeUndefined();
+    const answer = (model: string, usage: object, more = {}) => JSON.stringify({ type: "assistant", timestamp: ts(), ...more, message: { role: "assistant", model, usage, content: [{ type: "text", text: "hi" }] } });
+    add(answer("claude-sonnet-4-5", { input_tokens: 10, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 40 }));
+    expect(await contextOf("s")).toEqual({ tokens: 150_050, window: 200_000, model: "claude-sonnet-4-5" });
+    // a subagent's answer and an empty one (an interruption) don't count
+    add(answer("claude-haiku-4-5", { input_tokens: 5 }, { isSidechain: true }), answer("claude-sonnet-4-5", { input_tokens: 0 }));
+    expect((await contextOf("s"))?.tokens).toBe(150_050);
+    expect(windowOf("claude-opus-5-5", 1000)).toBe(1_000_000);
+    expect(windowOf("claude-sonnet-4-5", 250_000)).toBe(1_000_000);
   });
 
   it("names a tool call in a few words", () => {

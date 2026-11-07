@@ -42,6 +42,7 @@ import { useTerms } from "../pages/Terminals";
 import { AwayPanel } from "./canvas/AwayPanel";
 import { AddMenu } from "./canvas/AddMenu";
 import { CardFinder, type FoundCard } from "./canvas/CardFinder";
+import { ContextMeter } from "./canvas/ContextMeter";
 import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
 import { ActionsCtx, useActions, type Actions, type CardTone, type LinkData, type LinkKind } from "./canvas/context";
 import { useFit } from "./canvas/fit";
@@ -71,7 +72,7 @@ const RUNS_H = 320;
 
 // status: what its agent is doing, when an agent runs in it (busy, waiting on you, idle)
 // archived: since when it's been put away, and what's folded into it
-type TermData = { term: TermInfo; title: string; status?: SessionStatus; session?: string; archived?: number; folded?: string[] };
+type TermData = { term: TermInfo; title: string; status?: SessionStatus; session?: string; cost?: number; archived?: number; folded?: string[] };
 type NoteData = { fresh: boolean; fit?: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
@@ -227,7 +228,9 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
         <span className="truncate text-faint" title={t.cwd}>
           {shortPath(t.cwd)}
         </span>
-        <div className="ml-auto flex items-center gap-0.5 nodrag shrink-0">
+        <span className="ml-auto" />
+        <ContextMeter session={data.session} busy={data.status === "busy"} cost={data.cost} />
+        <div className="flex items-center gap-0.5 nodrag shrink-0">
           <button type="button" onClick={(e) => a.spawn(id, e.currentTarget.getBoundingClientRect())} className={iconBtn} title="A new terminal beside this one, in its folder, linked to it" aria-label="New linked terminal">
             +
           </button>
@@ -744,7 +747,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         const t = byId.get(n.ref);
         const s = t && sessionOf(t);
         const archived = n.archived?.head === n.id ? { archived: n.archived.at, folded: foldedInto(n.id) } : {};
-        if (t) out.push({ ...base, ...(n.archived ? { height: n.h } : {}), type: "term", data: { term: t, title: titleOf(t), status: s?.status, session: s?.id, ...archived } });
+        if (t) out.push({ ...base, ...(n.archived ? { height: n.h } : {}), type: "term", data: { term: t, title: titleOf(t), status: s?.status, session: s?.id, cost: s?.costUSD, ...archived } });
       }
       // each recording's screen to the right of its runs card, or to its left when something's there
       const clash = (b: { x: number; y: number; w: number; h: number }) => ws.nodes.some((n) => n.x < b.x + b.w && b.x < n.x + n.w && n.y < b.y + b.h && b.y < n.y + n.h);

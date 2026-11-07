@@ -3,9 +3,9 @@
 // last few tool calls. A transcript only grows, so each file is read on from where the last look stopped.
 import { open, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { Entry, SessionPlan, PlanStep } from "@cockpit/shared";
+import type { Entry, SessionContext, SessionPlan, PlanStep } from "@cockpit/shared";
 import { sessionFile } from "./claude/sessions.ts";
-import { parseLine } from "./claude/transcript.ts";
+import { parseLine, readTail } from "./claude/transcript.ts";
 
 type State = {
   offset: number;
@@ -181,4 +181,30 @@ export async function planOf(sessionId: string): Promise<SessionPlan> {
     todos: tasks.length ? tasks : st.todos,
     doing: st.doing.slice(-6).reverse().map(({ id: _, ...d }) => d),
   };
+}
+
+// The window a model has. Transcripts don't say, so: a million for the models that have one (the Claude 5 family,
+// and any run with the 1M option), or for a session that has already gone past 200k; else 200k.
+export function windowOf(model: string | undefined, tokens: number) {
+  if (tokens > 200_000 || /\[1m\]|-5-|fable/i.test(model ?? "")) return 1_000_000;
+  return 200_000;
+}
+
+// how full its context is: what the last answer in the main thread was sent, read from the end of the file
+export async function contextOf(sessionId: string): Promise<SessionContext | undefined> {
+  const file = sessionFile(sessionId);
+  if (!file) return;
+  const tail = await readTail(file, 512 * 1024).catch(() => undefined);
+  for (const line of [...(tail?.lines ?? [])].reverse()) {
+    if (!line.includes('"type":"assistant"') || !line.includes('"usage"') || line.includes('"isSidechain":true')) continue;
+    try {
+      const m = JSON.parse(line).message;
+      const u = m?.usage;
+      if (!u) continue;
+      const tokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+      // a synthetic message (an error, an interruption) counts nothing: look further back
+      if (!tokens) continue;
+      return { tokens, window: windowOf(m.model, tokens), model: m.model };
+    } catch {}
+  }
 }
