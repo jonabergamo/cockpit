@@ -19,7 +19,7 @@ const { db } = await import("../src/db.ts");
 const canvas = await import("../src/canvas.ts");
 const { broadcast } = await import("../src/hub.ts");
 const { input, isTyping } = await import("../src/pty.ts");
-const { relayMessage, startRelays } = await import("../src/relay.ts");
+const { handOff, relayMessage, startRelays } = await import("../src/relay.ts");
 
 const term = (id: string): TermInfo => ({ id, title: id, cwd: "/tmp", command: "claude", createdAt: 0, node: "local" });
 const session = (id: string, termId: string, status: Session["status"]): Session => ({ id, project: "p", cwd: "/tmp", status, startedAt: 0, updatedAt: 0, size: 0, term: termId, title: `${id} title` });
@@ -166,5 +166,33 @@ describe("relays", () => {
 
   it("says where it came from and how far along it is", () => {
     expect(relayMessage("Builder", "Done.", { from: "both", role: "plan", limit: 4 }, 2)).toBe("From Builder, which just finished a turn:\n\nDone.\n\nTurn this into the next concrete steps, in order.\n\n(Passed on by cockpit's canvas, 2 of 4.)");
+  });
+
+  it("hands over the last answer once, when you say, with what to do with it, and needs no relay", async () => {
+    broadcast({ type: "sessions", sessions: [session("bld", "builder", "idle"), session("rev", "reviewer", "idle")] });
+    await settle();
+    await handOff(line().id, "source", "Check the edge cases");
+    expect(sent).toEqual([{ id: "rev", text: "From bld title, its last answer, handed to you:\n\nAdded the export button and its test.\n\nCheck the edge cases\n\n(Passed on by cockpit's canvas.)" }]);
+    expect(line()).toMatchObject({ status: { state: "sent", text: "Passed on to rev title" } });
+    expect(line().relay).toBeUndefined();
+    // the other way, to a busy one: held until it's free
+    broadcast({ type: "sessions", sessions: [session("bld", "builder", "busy")] });
+    await handOff(line().id, "target", "");
+    expect(sent).toHaveLength(1);
+    expect(line().status).toMatchObject({ state: "held" });
+    broadcast({ type: "sessions", sessions: [session("bld", "builder", "idle")] });
+    await settle();
+    expect(sent[1]).toMatchObject({ id: "bld" });
+    expect(sent[1].text).toContain("Take it into account in what you do next.");
+  });
+
+  it("says why it can't hand an answer over", async () => {
+    const main = canvas.listCanvases()[0];
+    const note = canvas.addNote(main.id);
+    const toNote = canvas.addEdge(main.id, main.nodes[0].id, note.id);
+    await expect(handOff(toNote.id, "source")).rejects.toThrow(/two terminals/);
+    // no session at the end it would come from
+    broadcast({ type: "sessions", sessions: [session("bld", "builder", "ended")] });
+    await expect(handOff(line().id, "source")).rejects.toThrow(/no agent in it/);
   });
 });

@@ -6,6 +6,7 @@ import { listTerms, onTermsChanged } from "../pty.ts";
 import { allWorktrees } from "../remote/work.ts";
 import { away } from "../away.ts";
 import { isReviewTerm } from "../reviews.ts";
+import { handOff } from "../relay.ts";
 
 // every change is pushed, so other tabs and devices follow; by names the tab that made it, which already shows it
 const changed = (by?: string) => broadcast({ type: "canvas", by });
@@ -167,6 +168,17 @@ export const canvasRoutes = new Hono()
       const e = canvas.addEdge(c.req.param("id"), b.source, b.target);
       changed(b.by);
       return c.json(e);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
+  // the last answer of the terminal at one end, handed to the other once
+  .post("/edges/:edge/handoff", async (c) => {
+    const b = await c.req.json<{ from?: "source" | "target"; ask?: string; by?: string }>();
+    try {
+      await handOff(c.req.param("edge"), b.from === "target" ? "target" : "source", typeof b.ask === "string" ? b.ask : undefined);
+      changed(b.by);
+      return c.json({ ok: true });
     } catch (e) {
       return c.json(fail(e), 400);
     }

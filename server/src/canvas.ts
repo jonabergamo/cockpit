@@ -84,7 +84,8 @@ const canvasRow = (id: string) => db.prepare<[string], { id: string; name: strin
 type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number; status?: string | null };
 // what each relay last did, kept with the line so a warning is still there after a restart
 export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) => db.prepare("update canvas_edges set status = ? where id = ?").run(JSON.stringify({ ...status, at: Date.now() }), edge);
-const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops, ...(e.status ? { status: JSON.parse(e.status) as RelayStatus } : {}) } : {}) });
+// a line says how the last thing it carried went: a relayed turn, or a last answer handed over along it
+const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops } : {}), ...(e.status ? { status: JSON.parse(e.status) as RelayStatus } : {}) });
 const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, status from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
 // every card but a terminal fits its content until you size it yourself
 const strip = ({ canvas: _, fit, archived, ...n }: NodeRow): CanvasNode => {
@@ -359,6 +360,14 @@ export function setRelay(id: string, relay: CanvasRelay | null) {
 }
 
 // The relays a finished turn in this terminal goes along: the terminal at the other end, and how
+// the terminals at either end of a line between two of them
+export function termEnds(edge: string) {
+  const e = db.prepare<[string], { source: string; target: string }>("select source, target from canvas_edges where id = ?").get(edge);
+  const s = e && nodeRow(e.source);
+  const t = e && nodeRow(e.target);
+  return s?.kind === "term" && t?.kind === "term" ? { source: s.ref, target: t.ref } : undefined;
+}
+
 export function relaysFrom(term: string) {
   const card = refRow("term", term);
   if (!card) return [];

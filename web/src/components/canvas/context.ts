@@ -24,6 +24,8 @@ export interface Actions {
   spawn: (node: string, anchor: DOMRect) => void;
   // a line between two terminals relaying turns, or not (null)
   setRelay: (edge: string, relay: CanvasRelay | null) => void;
+  // what the agent at one end said last, handed to the one at the other, with what to do with it
+  handOff: (edge: string, from: "source" | "target", ask: string) => Promise<void>;
   // a terminal was just started from a ticket card: it gets a changes card of its own once it's on the canvas
   started: (ticketNode: string, term: string) => void;
   // everything for working on a ticket at once: its agent, a reviewer on its turns, its changes and its runs

@@ -138,6 +138,33 @@ function update(s: Session) {
   if (was === "busy" && s.term) void finished(s).catch((e) => console.error("relay", e));
 }
 
+// A last answer handed along a line, once, when you say: what the agent at one end said last goes to the agent at the
+// other, with what you'd like done with it. It's delivered the way a relayed turn is (held while the other is busy).
+export const handOffMessage = (from: string, text: string, ask?: string) =>
+  `From ${from}, its last answer, handed to you:\n\n${text}\n\n${ask?.trim() || "Take it into account in what you do next."}\n\n(Passed on by cockpit's canvas.)`;
+
+export async function handOff(edge: string, from: "source" | "target", ask?: string) {
+  const ends = canvas.termEnds(edge);
+  if (!ends) throw new Error("Only a line between two terminals can hand an answer over");
+  const fromTerm = ends[from];
+  const to = ends[from === "source" ? "target" : "source"];
+  const s = sessionIn(fromTerm);
+  if (!s) throw new Error(`${nameOf(fromTerm)} has no agent in it, so there's no answer to hand over`);
+  const text = (await lastText(s).catch(() => undefined))?.trim();
+  if (!text) throw new Error(`Couldn't read what ${titleOf(s)} said last`);
+  const target = sessionIn(to);
+  const name = nameOf(to);
+  if (!target && !freshAgent(to)) throw new Error(`${name} isn't running an agent, so there's no one to hand it to`);
+  const message = handOffMessage(titleOf(s), text, ask?.slice(0, 2000));
+  if (!target) await deliver(edge, name, () => typeIn(to, message));
+  else if (target.status === "idle") await deliver(edge, name, () => send(target.id, message));
+  else {
+    held.set(edge, { to: target.id, name, text: message });
+    canvas.setRelayStatus(edge, { state: "held", text: `Held for ${name}, which is ${target.status === "waiting" ? "waiting on you" : "busy"}: it goes once it's free` });
+  }
+  changed();
+}
+
 export function startRelays() {
   tap((ev) => {
     if (ev.type === "sessions") for (const s of ev.sessions) update(s);

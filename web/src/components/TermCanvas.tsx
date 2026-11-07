@@ -1207,6 +1207,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       guard(api.del(`/canvas/nodes/${node}?by=${tabId}`));
     },
     spawn: (node, anchor) => setSpawning({ from: node, x: anchor.left, y: anchor.bottom + 4 }),
+    handOff: (edge, from, ask) => api.post(`/canvas/edges/${edge}/handoff`, { from, ask, by: tabId }).then(refresh),
     setRelay: (edge, relay) => {
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.map((e) => (e.id === edge ? { ...e, relay: relay ?? undefined, hops: 0 } : e)) })));
       guard(api.patch(`/canvas/edges/${edge}`, { relay, by: tabId }).catch((e) => (refresh(), Promise.reject(e))));

@@ -74,6 +74,39 @@ const ROLES: { value: CanvasRelay["role"]; label: string }[] = [
   { value: "custom", label: "your own words" },
 ];
 
+// Once, when you say: the last answer of the agent at one end, handed to the one at the other, with what you'd like
+// done with it (or just to take it into account)
+function HandOff({ id, names, status, relayed }: { id: string; names: [string, string]; status?: RelayStatus; relayed: boolean }) {
+  const a = useActions();
+  const [ask, setAsk] = useState("");
+  const [busy, setBusy] = useState<"source" | "target">();
+  const [err, setErr] = useState<string>();
+  const go = (from: "source" | "target") => {
+    setBusy(from);
+    setErr(undefined);
+    a.handOff(id, from, ask)
+      .then(() => setAsk(""))
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(undefined));
+  };
+  const btn = "h-6 px-2 rounded-full border border-line bg-ground hover:border-cobalt hover:text-cobalt max-w-40 truncate disabled:opacity-50";
+  return (
+    <div className="flex flex-col gap-1.5 p-1 border-b border-line mb-1 pb-2" data-handoff={id}>
+      <span className="text-faint">Hand over the last answer</span>
+      <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="and ask it to… (optional)" className="h-6 w-64 rounded bg-ground border border-line px-1.5 text-[11px] text-ink" aria-label="What to do with it" />
+      <div className="flex items-center gap-1.5">
+        <button type="button" disabled={!!busy} onClick={() => go("source")} className={btn} title={`What ${names[0]} said last, to ${names[1]}`}>
+          {busy === "source" ? "Handing over" : `${names[0]} → ${names[1]}`}
+        </button>
+        <button type="button" disabled={!!busy} onClick={() => go("target")} className={btn} title={`What ${names[1]} said last, to ${names[0]}`}>
+          {busy === "target" ? "Handing over" : `${names[1]} → ${names[0]}`}
+        </button>
+      </div>
+      {err ? <div className="max-w-72 leading-snug text-red">⚠ {err}</div> : !relayed && status && <StatusLine status={status} />}
+    </div>
+  );
+}
+
 // What a line between two terminals passes on: whose finished turns, what the other end does with them, how many
 // hops before it stops for you. Changing any of it starts the count again.
 function RelayControls({ id, relay, hops, status, names }: { id: string; relay?: CanvasRelay; hops?: number; status?: RelayStatus; names: [string, string] }) {
@@ -173,6 +206,7 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
                 </button>
               )}
             </div>
+            {kind === "talk" && data?.names && <HandOff id={id} names={data.names} status={data.status} relayed={!!relay} />}
             {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} status={data.status} names={data.names} />}
           </div>
         ) : (

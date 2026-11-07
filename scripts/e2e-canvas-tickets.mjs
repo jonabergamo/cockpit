@@ -113,6 +113,29 @@ try {
     await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
   });
 
+  await step("a line between two terminals hands one's last answer to the other, with what to do with it", async () => {
+    const hit = await page.locator(".react-flow__edge-interaction").first().boundingBox();
+    await page.mouse.click(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    const box = page.locator("[data-handoff]");
+    await box.waitFor();
+    // these shells run no agent: it says so, on the line
+    await box.getByRole("button", { name: /^one → two$/ }).click();
+    await box.getByText(/one has no agent in it/).waitFor();
+    // with an agent there, it goes with what you asked
+    let sent;
+    await page.route("**/api/canvas/edges/*/handoff", async (r) => {
+      sent = r.request().postDataJSON();
+      await r.fulfill({ json: { ok: true } });
+    });
+    await box.getByLabel("What to do with it").fill("Plan the tests for it");
+    await box.getByRole("button", { name: /^two → one$/ }).click();
+    await until("handed over", async () => sent?.from === "target" && sent?.ask === "Plan the tests for it");
+    // and the box is ready for the next
+    await until("the ask cleared", async () => (await box.getByLabel("What to do with it").inputValue()) === "");
+    await page.unroute("**/api/canvas/edges/*/handoff");
+    await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
+  });
+
   await step("Canvas on the Tickets page puts that ticket on the canvas", async () => {
     await page.goto(`${base}/tickets`);
     await page.locator("#ticket-ACME-418").getByRole("button", { name: "Canvas" }).click();
