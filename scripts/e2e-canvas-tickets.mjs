@@ -201,6 +201,55 @@ try {
     await page.unroute(/\/api\/claude\/launch$/);
   });
 
+  await step("a ticket picked with everything set up gets its worktree made first, then its agent, reviewer, changes and runs", async () => {
+    // a ticket of yours with no worktree yet, and not on the canvas
+    const { tickets } = await api("GET", "/tickets");
+    const wts = await api("GET", "/worktrees");
+    const placed = (await api("GET", "/canvas")).flatMap((c) => c.nodes).filter((n) => n.kind === "ticket").map((n) => n.ref);
+    const t = tickets.find((x) => !x.finished && !wts.some((w) => w.ticket === x.key) && !placed.includes(x.key));
+    expect(!!t, "no ticket without a worktree in the demo");
+    // making a worktree is a job: here it finishes at once, and the worktree shows up after
+    let made;
+    await page.route(/\/api\/worktrees$/, async (r) => {
+      if (r.request().method() === "POST") {
+        made = r.request().postDataJSON();
+        return r.fulfill({ json: { id: "wt-job" } });
+      }
+      const res = await r.fetch();
+      const list = await res.json();
+      return r.fulfill({ response: res, json: made ? [...list, { ...wts.find((w) => !w.main), ticket: t.key, branch: `feature/${t.key}`, main: false }] : list });
+    });
+    await page.route(/\/api\/jobs$/, (r) => r.fulfill({ json: made ? [{ id: "wt-job", label: "worktree", command: "", startedAt: Date.now(), output: "done", code: 0 }] : [] }));
+    await page.route(/\/api\/claude\/launch$/, async (r) => {
+      const term = await shell(r.request().postDataJSON()?.title ?? "agent");
+      return r.fulfill({ json: { id: term.id } });
+    });
+    const count = async (kind) => (await api("GET", "/canvas")).flatMap((c) => c.nodes).filter((n) => n.kind === kind).length;
+    const before = { term: await count("term"), changes: await count("changes"), runs: await count("runs") };
+    await page.getByRole("button", { name: "+ Add" }).click();
+    await page.getByRole("menuitem", { name: /^Ticket/ }).click();
+    const all = page.getByLabel(/Set everything up to work on it/);
+    if (!(await all.isChecked())) await all.check();
+    await page.getByLabel("Find a ticket").fill(t.key);
+    await page.getByRole("option", { name: new RegExp(t.key) }).first().click();
+    await page.locator("[data-setting-up]").waitFor();
+    await until("its worktree asked for", async () => made?.key === t.key);
+    await until(
+      "everything on the canvas",
+      async () => (await count("term")) === before.term + 2 && (await count("changes")) === before.changes + 1 && (await count("runs")) === before.runs + 1,
+      30_000,
+    );
+    expect(!!(await cockpit.canvasOf("ticket", t.key)), "the ticket isn't on the canvas");
+    await page.locator("[data-setting-up]").waitFor({ state: "detached" });
+    // the choice is remembered for the next ticket
+    await page.getByRole("button", { name: "+ Add" }).click();
+    await page.getByRole("menuitem", { name: /^Ticket/ }).click();
+    expect(await page.getByLabel(/Set everything up to work on it/).isChecked(), "it forgot the choice");
+    await page.getByLabel(/Set everything up to work on it/).uncheck();
+    await page.keyboard.press("Escape");
+    for (const r of [/\/api\/worktrees$/, /\/api\/jobs$/, /\/api\/claude\/launch$/]) await page.unroute(r);
+  });
+
   await step("the cards at the top are grouped by ticket, and a group's heading goes to its ticket on the canvas", async () => {
     await page.goto(`${base}/terminals?view=canvas`);
     const group = page.locator('[data-strip-group="ACME-412"]');

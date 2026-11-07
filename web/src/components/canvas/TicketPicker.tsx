@@ -1,20 +1,34 @@
 import { useState } from "react";
+import { useAgentName } from "../../lib/agent";
 import { useTickets } from "../../lib/queries";
 import { inputClass, Modal, StatusTag } from "../ui";
 
 const KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 
-// Your open tickets and epics to put on the canvas, or any key typed in. Those already on it are marked.
-export function TicketPicker({ open, onClose, onPick, placed }: { open: boolean; onClose: () => void; onPick: (key: string) => void; placed: Set<string> }) {
+// whether a ticket picked comes with everything for working on it, remembered on this device
+const ALL = "cockpit.ticketSetup";
+const readAll = () => {
+  try {
+    return localStorage.getItem(ALL) === "1";
+  } catch {
+    return false;
+  }
+};
+
+// Your open tickets and epics to put on the canvas, or any key typed in. Those already on it are marked. Ticked,
+// "everything" sets the ticket up to work on in one go: its worktree, its agent, a reviewer, its changes and runs.
+export function TicketPicker({ open, onClose, onPick, placed }: { open: boolean; onClose: () => void; onPick: (key: string, all: boolean) => void; placed: Set<string> }) {
   const tickets = useTickets();
+  const agent = useAgentName();
   const [q, setQ] = useState("");
-  const all = [...(tickets.data?.epics ?? []), ...(tickets.data?.tickets ?? []).filter((t) => !t.finished)];
+  const [all, setAll] = useState(readAll);
+  const mine = [...(tickets.data?.epics ?? []), ...(tickets.data?.tickets ?? []).filter((t) => !t.finished)];
   const needle = q.trim().toLowerCase();
-  const shown = all.filter((t) => !needle || t.key.toLowerCase().includes(needle) || t.summary.toLowerCase().includes(needle)).slice(0, 40);
-  const typed = KEY.test(q.trim()) && !all.some((t) => t.key === q.trim().toUpperCase()) ? q.trim().toUpperCase() : undefined;
+  const shown = mine.filter((t) => !needle || t.key.toLowerCase().includes(needle) || t.summary.toLowerCase().includes(needle)).slice(0, 40);
+  const typed = KEY.test(q.trim()) && !mine.some((t) => t.key === q.trim().toUpperCase()) ? q.trim().toUpperCase() : undefined;
   const pick = (key: string) => {
     setQ("");
-    onPick(key);
+    onPick(key, all);
   };
   return (
     <Modal open={open} onClose={onClose} title="Put a ticket on the canvas">
@@ -31,6 +45,23 @@ export function TicketPicker({ open, onClose, onPick, placed }: { open: boolean;
         className={`${inputClass} w-full`}
         aria-label="Find a ticket"
       />
+      <label className="mt-2 flex items-start gap-2 text-[13px]">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={all}
+          onChange={(e) => {
+            setAll(e.target.checked);
+            try {
+              localStorage.setItem(ALL, e.target.checked ? "1" : "0");
+            } catch {}
+          }}
+        />
+        <span>
+          Set everything up to work on it
+          <span className="block text-[12px] text-faint">Its worktree, {agent} on it, a reviewer on its turns, and its changes and runs, laid out and linked</span>
+        </span>
+      </label>
       <div className="mt-2 max-h-[50vh] overflow-y-auto -mx-1" role="listbox" aria-label="Tickets">
         {typed && (
           <button type="button" role="option" aria-selected={false} onClick={() => pick(typed)} className="w-full text-left px-2 py-1.5 rounded hover:bg-ground text-[13px]">
