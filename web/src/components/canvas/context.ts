@@ -5,6 +5,8 @@ import type { CanvasInfo, CanvasRelay, RelayStatus } from "@cockpit/shared";
 export interface Actions {
   others: CanvasInfo[];
   bringUp: (node: string) => void;
+  // to the next terminal waiting on you, past this card
+  nextWaiting: (after?: string) => void;
   // a terminal and all that's linked to it, to another workspace
   move: (term: string, to: string) => void;
   // the canvas is open on another screen too (the workspace it shows): a card and all that's linked to it can go to

@@ -260,7 +260,7 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
           </button>
         </div>
       </div>
-      {waiting && <WaitingStrip session={data.session!} onBringUp={() => a.bringUp(id)} onFail={a.fail} />}
+      {waiting && <WaitingStrip session={data.session!} selected={!!selected} onBringUp={() => a.bringUp(id)} onAnswered={() => a.nextWaiting(id)} onFail={a.fail} />}
       <div ref={box} className="relative flex-1 min-h-0 nodrag nowheel nopan">
         <Terminal id={t.id} autoFocus={false} />
       </div>
@@ -516,16 +516,17 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     flow.setCenter(b.x + b.w / 2, b.y + b.h / 2, { zoom: Math.max(zoom, 0.2), duration: 250 });
   };
   const boxOf = (n: CardNode) => ({ x: n.position.x, y: n.position.y, w: n.width ?? n.measured?.width ?? TERM_W, h: n.height ?? n.measured?.height ?? TERM_H });
-  const nextWaiting = useRef(0);
-  const goWaiting = () => {
-    if (!waiting.length) return;
-    const w = waiting[nextWaiting.current++ % waiting.length];
-    const go = () => frame(w.node);
-    if (w.canvas !== ws?.id) {
-      shownWs.current = w.canvas;
-      pick(w.canvas);
-      setTimeout(go, 80);
-    } else go();
+  // The next terminal waiting on you, selected and brought up, so its menu answers from the keys: the one after the
+  // card you're on (or after: the one just answered, which may still say it's waiting), wrapping round
+  const goWaiting = (after?: string) => {
+    const from = after ?? nodesRef.current.find((n) => n.selected)?.id;
+    const rest = waiting.filter((w) => w.node.id !== after);
+    if (!rest.length) return;
+    const i = waiting.findIndex((w) => w.node.id === from);
+    const w = (i >= 0 ? [...waiting.slice(i + 1), ...waiting.slice(0, i + 1)] : waiting).find((x) => x.node.id !== after) ?? rest[0];
+    // out of any terminal, so the keys that answer reach the canvas
+    if (document.activeElement instanceof HTMLElement && document.activeElement.closest(".xterm")) document.activeElement.blur();
+    goTo(w.canvas, w.node, true);
   };
   // Going to a card: its workspace, the card selected and brought into view. framed: fitted with room around it (a
   // card at the top, the recap); otherwise at the zoom you're at, a little closer if you're far out (the finder, keys)
@@ -643,6 +644,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       else if (e.key === "f") flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 });
       else if (e.key === "?") setKeysShown((v) => !v);
       else if (e.key === "m") toggleMap();
+      // on a terminal waiting on you, the numbers answer its menu (its strip listens for them)
+      else if (/^[1-9]$/.test(e.key) && sel?.type === "term" && (sel.data as TermData).status === "waiting") return;
       else if (/^[1-9]$/.test(e.key) && list[Number(e.key) - 1]) pick(list[Number(e.key) - 1].id);
     };
     window.addEventListener("keydown", onKey);
@@ -1177,6 +1180,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       const mid = middleOf(peer);
       guard(api.post(`/canvas/${peer.ws}/group`, { nodes: withFolded(linkedTo(node, ws.nodes, links), ws.nodes), x: mid.x, y: mid.y, by: tabId }).then(refresh));
     },
+    nextWaiting: (after) => goWaiting(after),
     bringUp: (id) => {
       const n = flow.getNode(id);
       if (n) frame(boxOf(n));
@@ -1287,7 +1291,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         </div>
         <div className="flex items-center gap-1 px-2 h-full border-l border-line shrink-0">
           {waiting.length > 0 && (
-            <button type="button" onClick={goWaiting} className="h-7 px-2 rounded-md bg-amber-soft text-amber border border-amber/50 text-[13px] font-medium flex items-center gap-1.5 hover:brightness-105" title="Go to the next terminal waiting on you">
+            <button type="button" onClick={() => goWaiting()} className="h-7 px-2 rounded-md bg-amber-soft text-amber border border-amber/50 text-[13px] font-medium flex items-center gap-1.5 hover:brightness-105" title="Go to the next terminal waiting on you">
               <span className="size-2 rounded-full bg-amber animate-pulse" />
               {waiting.length} waiting
             </button>
@@ -1445,10 +1449,10 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
                 ["← ↑ → ↓", "the nearest card that way"],
                 ["Enter", "bring it up and type into its terminal"],
                 ["/", "find any card"],
-                ["w", "the next terminal waiting on you"],
+                ["w", "the next terminal waiting on you; its menu's numbers answer it, then on to the next"],
                 ["f", "fit every card on screen"],
                 ["m", "the map, coloured by how each card is doing"],
-                ["1–9", "a workspace"],
+                ["1–9", "a workspace (on one waiting on you: its answer)"],
                 ["?", "these keys"],
               ].map(([k, what]) => (
                 <div key={k} className="contents">

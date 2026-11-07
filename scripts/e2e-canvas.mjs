@@ -269,6 +269,54 @@ try {
     await p.close();
   });
 
+  await step("w goes from one terminal waiting on you to the next, and the keys answer each", async () => {
+    const one = await shell("asker-one");
+    const two = await shell("asker-two");
+    await until("their cards", async () => (await canvasOf(one.id)) && (await canvasOf(two.id)));
+    const fake = (id, w) => ({ id, project: "e2e", cwd: w.cwd, title: id, status: "waiting", startedAt: Date.now(), updatedAt: Date.now(), size: 0, term: w.id });
+    const p = await page.context().newPage();
+    p.on("pageerror", (e) => errors.push(e.message));
+    await p.routeWebSocket(/\/ws$/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => {
+        if (typeof m === "string" && m.includes('"type":"sessions"')) return;
+        ws.send(m);
+      });
+      setTimeout(() => ws.send(JSON.stringify({ type: "sessions", sessions: [fake("e2e-ask-one", one), fake("e2e-ask-two", two)] })), 300);
+    });
+    const pressed = {};
+    for (const id of ["e2e-ask-one", "e2e-ask-two"]) {
+      await p.route(`**/api/sessions/${id}/ask`, (r) => r.fulfill({ json: { reachable: true, screen: "", question: `Go on, ${id}?`, options: [{ key: "1", label: "Yes" }, { key: "2", label: "No" }, { key: "3", label: "Something else" }] } }));
+      await p.route(`**/api/sessions/${id}/keys`, async (r) => {
+        pressed[id] = r.request().postDataJSON().keys;
+        await r.fulfill({ json: { sent: true } });
+      });
+    }
+    await p.goto(`${base}/terminals?view=canvas`);
+    await p.getByRole("button", { name: /2 waiting/ }).waitFor();
+    await p.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+    const selected = () => p.locator(".react-flow__node.selected [data-card]").getAttribute("data-card").catch(() => null);
+    await p.keyboard.press("w");
+    await until("a waiting one selected", async () => [one.id, two.id].includes(await selected()));
+    const first = await selected();
+    const firstSession = first === one.id ? "e2e-ask-one" : "e2e-ask-two";
+    const second = first === one.id ? two.id : one.id;
+    // its strip says the keys answer it
+    await p.locator(`[data-card="${first}"] [data-keys-hint]`).getByText("1–3 to answer").waitFor();
+    await p.keyboard.press("1");
+    await until("1 pressed in the first", async () => pressed[firstSession]?.[0] === "1");
+    // and it's on to the next one, without leaving the keys
+    await until("the next one selected", async () => (await selected()) === second);
+    await p.keyboard.press("2");
+    await until("2 pressed in the second", async () => pressed[first === one.id ? "e2e-ask-two" : "e2e-ask-one"]?.[0] === "2");
+    // the numbers answered; they didn't switch workspace
+    expect((await p.getByRole("tab", { name: /Main/ }).getAttribute("aria-selected")) === "true", "a number switched workspace");
+    await p.close();
+    for (const w of [one, two]) await api("DELETE", `/code/terms/${w.id}`);
+    await until("their cards gone", async () => !(await canvasOf(one.id)) && !(await canvasOf(two.id)));
+  });
+
   await step("a plan card shows what the agent in its terminal is working through, and doing now", async () => {
     const w = await shell("planner");
     await until("its card", async () => await canvasOf(w.id));
