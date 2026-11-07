@@ -57,8 +57,10 @@ export async function startCockpit({ port, name, demo = false }) {
 }
 
 export async function openBrowser(errors) {
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
-  const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, permissions: ["clipboard-read", "clipboard-write"] });
+  // a made-up mic, for talking to a terminal
+  const args = ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"];
+  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM, args } : { args });
+  const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, permissions: ["clipboard-read", "clipboard-write", "microphone"] });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("dialog", (d) => d.accept());

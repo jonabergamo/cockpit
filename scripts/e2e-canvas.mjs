@@ -348,6 +348,47 @@ try {
     await page.keyboard.press("Escape");
   });
 
+  await step("v talks to the terminal selected: what's said is typed in, for you to read and send", async () => {
+    const w = await shell("talker");
+    await until("its card", async () => await canvasOf(w.id));
+    await page.goto(`${base}/terminals?view=canvas&id=${w.id}`);
+    const card = page.locator(`[data-card="${w.id}"]`);
+    await card.locator(".xterm-rows").waitFor();
+    await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
+    await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+    // the hub's Whisper, made up here: what it heard
+    let sent;
+    await page.route("**/api/dictate", async (r) => {
+      sent = r.request().postDataJSON();
+      await r.fulfill({ json: { text: "echo said-out-loud", language: "en" } });
+    });
+    await page.keyboard.press("v");
+    await card.locator('[data-voice="listening"]').waitFor();
+    expect((await card.getByRole("button", { name: "Stop talking" }).count()) === 1, "the mic button doesn't say it's listening");
+    await page.waitForTimeout(700);
+    await page.keyboard.press("v");
+    await until("the recording sent", async () => typeof sent?.data === "string" && sent.data.startsWith("data:audio"));
+    // typed in, not run: it's on the prompt line and nothing printed it back
+    await until("typed into the terminal", async () => (await card.locator(".xterm-rows").innerText()).includes("echo said-out-loud"));
+    await page.waitForTimeout(500);
+    const rows = (await card.locator(".xterm-rows").innerText()).split("\n").map((l) => l.trim());
+    expect(!rows.includes("said-out-loud"), "it was run, not just typed in");
+    await card.locator("[data-voice]").waitFor({ state: "detached" });
+    // why it didn't work, on the card
+    await page.unroute("**/api/dictate");
+    await page.route("**/api/dictate", (r) => r.fulfill({ status: 500, json: { error: "Speech to text isn't set up on this machine" } }));
+    await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
+    await card.getByRole("button", { name: "Talk to it" }).click();
+    await card.locator('[data-voice="listening"]').waitFor();
+    await card.getByRole("button", { name: "Done" }).click();
+    await card.locator('[data-voice="error"]').getByText(/isn't set up/).waitFor();
+    await page.keyboard.press("Escape");
+    await card.locator("[data-voice]").waitFor({ state: "detached" });
+    await page.unroute("**/api/dictate");
+    await api("DELETE", `/code/terms/${w.id}`);
+    await until("its card gone", async () => !(await canvasOf(w.id)));
+  });
+
   await step("w goes from one terminal waiting on you to the next, and the keys answer each", async () => {
     const one = await shell("asker-one");
     const two = await shell("asker-two");
@@ -540,11 +581,13 @@ try {
     await page.waitForSelector(`[data-card="${made.ref}"]`);
     await page.locator(`[data-card="${made.ref}"]`).getByRole("button", { name: "New linked terminal" }).click();
     await page.getByRole("menu").getByRole("menuitem", { name: /New shell/ }).click();
-    const next = await until("another", async () => (await termCards()).find((n) => !before.has(n.ref) && n.ref !== made.ref), 15_000);
-    expect(Math.abs(next.y - made.y) < 1 && next.x > made.x, "it isn't beside the one it came from");
-    await until("linked to it", async () => (await api("GET", "/canvas")).flatMap((c) => c.edges).some((e) => e.source === made.id && e.target === next.id));
+    const found = await until("another", async () => (await termCards()).find((n) => !before.has(n.ref) && n.ref !== made.ref), 15_000);
+    // it shows up wherever the canvas first puts a new terminal, then goes beside the one it came from, linked to it
+    await until("linked to it", async () => (await api("GET", "/canvas")).flatMap((c) => c.edges).some((e) => e.source === made.id && e.target === found.id));
+    const next = (await termCards()).find((n) => n.ref === found.ref);
+    const madeNow = (await termCards()).find((n) => n.ref === made.ref);
+    expect(Math.abs(next.y - madeNow.y) < 1 && next.x > madeNow.x, `it isn't beside the one it came from: ${JSON.stringify({ made: [madeNow.x, madeNow.y], next: [next.x, next.y] })}`);
   });
-
   const allNodes = async () => (await api("GET", "/canvas")).flatMap((c) => c.nodes);
   let runsCard;
   await step("a runs card linked to a terminal shows its runs as they happen, opens a failing one and turns red", async () => {

@@ -82,6 +82,22 @@ export function stream(command: string, onChunk: (s: string) => void, cwd?: stri
 
 // A program run from a login shell (so the PATH has what you installed), with stdin given and stdout read line
 // by line as it comes; stderr is kept for when it fails. Arguments go as they are, never through the shell.
+// A process that stays up to answer one line at a time (a model kept loaded, say): write sends it a line, each line
+// it prints comes to onLine, and onExit says when it's gone
+export function spawnServer(cmd: string, args: string[], opts: { onLine: (line: string) => void; onExit: () => void }) {
+  const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "ignore"] });
+  let rest = "";
+  child.stdout!.on("data", (b: Buffer) => {
+    const lines = (rest + b.toString()).split("\n");
+    rest = lines.pop() ?? "";
+    for (const l of lines) if (l.trim()) opts.onLine(l);
+  });
+  child.stdin!.on("error", () => {});
+  child.on("exit", opts.onExit);
+  child.on("error", opts.onExit);
+  return { write: (line: string) => child.stdin!.write(line + "\n"), kill: () => child.kill() };
+}
+
 export function spawnLines(argv: string[], opts: { cwd?: string; input?: string; onLine: (line: string) => void }) {
   const child = spawn("bash", ["-lc", 'exec "$@"', "bash", ...argv], { cwd: opts.cwd, env: process.env, detached: true });
   let rest = "";

@@ -55,6 +55,8 @@ import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
 import { SpawnMenu, type SpawnKind, type SpawnOption } from "./canvas/SpawnMenu";
 import { TicketPicker } from "./canvas/TicketPicker";
 import { WaitingStrip } from "./canvas/WaitingStrip";
+import { VoiceStrip } from "./canvas/VoiceStrip";
+import { useVoice, voice } from "../lib/voice";
 import { Terminal } from "./Terminal";
 import { Button, ErrorNote, inputClass, Markdown } from "./ui";
 
@@ -216,6 +218,8 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
   useZoomFix(box);
   const t = data.term;
   const waiting = data.status === "waiting" && !!data.session;
+  const v = useVoice();
+  const talking = v.card === id && v.state === "listening";
   const dot = t.exited !== undefined ? "bg-line" : t.state === "disconnected" ? "bg-amber animate-pulse" : data.status === "busy" ? "bg-cobalt animate-pulse" : "bg-green";
   return (
     <div className={`h-full w-full flex flex-col rounded-lg border bg-panel shadow-lg overflow-hidden ${waiting ? "border-amber border-2 canvas-waiting" : selected ? "border-cobalt" : "border-line"}`} data-card={t.id} data-status={data.status}>
@@ -250,6 +254,16 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
               ))}
             </select>
           )}
+          <button
+            type="button"
+            onClick={() => voice.toggle(id, t.id)}
+            className={`${iconBtn} ${talking ? "!text-red" : ""}`}
+            title={talking ? "Done: turn what you said into text and type it in" : "Say it instead of typing (v): it's typed in for you to read and send"}
+            aria-label={talking ? "Stop talking" : "Talk to it"}
+            aria-pressed={talking}
+          >
+            {talking ? "●" : "🎙"}
+          </button>
           <button type="button" onClick={() => a.archive(id, true)} className={iconBtn} title="Archive it: it keeps running, folded into a small card with what's linked to it" aria-label="Archive">
             ↧
           </button>
@@ -261,6 +275,7 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
           </button>
         </div>
       </div>
+      <VoiceStrip card={id} />
       {waiting && <WaitingStrip session={data.session!} selected={!!selected} onBringUp={() => a.bringUp(id)} onAnswered={() => a.nextWaiting(id)} onFail={a.fail} />}
       <div ref={box} className="relative flex-1 min-h-0 nodrag nowheel nopan">
         <Terminal id={t.id} autoFocus={false} onPin={(text) => a.pin(id, `From ${data.title}:`, text)} />
@@ -630,6 +645,23 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         const target = best ?? (!sel ? cur[0] : undefined);
         const node = target && ws?.nodes.find((x) => x.id === target.id);
         if (node && ws) goTo(ws.id, { ...node, x: target!.position.x, y: target!.position.y, w: target!.width ?? node.w, h: target!.height ?? node.h });
+        return;
+      }
+      // talking to a terminal: v again or Enter turns it into text, Esc drops it
+      const v = voice.get();
+      if (v.state === "listening" && (e.key === "v" || e.key === "Enter")) {
+        e.preventDefault();
+        voice.stop();
+        return;
+      }
+      if (e.key === "Escape" && (v.state === "listening" || v.state === "error")) {
+        e.preventDefault();
+        voice.cancel();
+        return;
+      }
+      if (e.key === "v" && sel?.type === "term") {
+        e.preventDefault();
+        voice.toggle(sel.id, (sel.data as TermData).term.id);
         return;
       }
       if (e.key === "Enter" && sel) {
@@ -1064,7 +1096,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     ];
   };
   const spawnFrom = async (fromId: string, kind: SpawnKind, at?: { x: number; y: number }) => {
-    const cur = wsRef.current;
+    // where it is now on the server: a card just placed may have been moved since this tab last heard
+    const cur = (await qc.fetchQuery({ queryKey: ["canvas"], queryFn: () => api.get<CanvasInfo[]>("/canvas"), staleTime: 0 }).catch(() => undefined))?.find((c) => c.id === wsRef.current?.id) ?? wsRef.current;
     const from = cur?.nodes.find((x) => x.id === fromId);
     if (!cur || !from) return;
     if (kind === "setup") return setupTicket(fromId);
@@ -1504,6 +1537,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
                 ["Enter", "bring it up and type into its terminal"],
                 ["/", "find any card"],
                 ["w", "the next terminal waiting on you; its menu's numbers answer it, then on to the next"],
+                ["v", "talk to the terminal selected: v again to have it typed in"],
                 ["f", "fit every card on screen"],
                 ["m", "the map, coloured by how each card is doing"],
                 ["1–9", "a workspace (on one waiting on you: its answer)"],
