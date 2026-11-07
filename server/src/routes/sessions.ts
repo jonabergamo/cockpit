@@ -4,6 +4,7 @@ import { tailEntries } from "../claude/entries.ts";
 import { findSession, onNode, searchEverywhere } from "../remote/sessions.ts";
 import { searchHistory } from "../claude/history.ts";
 import { askOf, sendKeys, sendText } from "../agents.ts";
+import { planOf } from "../plan.ts";
 
 export const sessions = new Hono()
   .get("/", (c) => {
@@ -25,6 +26,7 @@ export const sessions = new Hono()
     return r ? c.json(r) : c.notFound();
   })
   .get("/:id/agents", async (c) => c.json(await onNode(c.req.param("id"), (n) => n.request("session.agents", { id: c.req.param("id") }), () => listSubagents(c.req.param("id")))))
+  .get("/:id/plan", async (c) => c.json(await onNode(c.req.param("id"), (n) => n.request("session.plan", { id: c.req.param("id") }), () => planOf(c.req.param("id")))))
   .get("/:id/ask", async (c) => c.json(await onNode(c.req.param("id"), (n) => n.request("session.ask", { id: c.req.param("id") }), () => askOf(c.req.param("id")))))
   // false means cockpit can't reach its pane; the caller resumes it in a terminal instead
   .post("/:id/send", async (c) => {

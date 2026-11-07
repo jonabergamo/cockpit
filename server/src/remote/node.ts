@@ -3,6 +3,7 @@
 // Pairing lives in <data>/node.json: { id, name, hubs: [{ hub, key, pairedAt }] }, where key is the hash of the
 // token the hub showed. `cockpit node pair` writes it; it's read again on every connection, so pairing needs no
 // restart.
+import { planOf } from "../plan.ts";
 import { quickHere, type QuickAsk } from "../quick.ts";
 import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -157,6 +158,7 @@ export function serve(c: Channel) {
   c.handle("session.read", ({ id, agent, offset }: { id: string; agent?: string; offset: number }) => entriesSince(id, agent, offset).then((r) => r ?? null));
   c.handle("session.agents", ({ id }: { id: string }) => listSubagents(id));
   c.handle("session.ask", ({ id }: { id: string }) => askOf(id));
+  c.handle("session.plan", ({ id }: { id: string }) => planOf(id));
   c.handle("session.send", ({ id, text }: { id: string; text: string }) => sendText(id, text));
   c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => sendKeys(id, keys));
   c.handle("sessions.search", ({ q, limit, any }: { q: string; limit?: number; any?: boolean }) => searchSessions(q, limit, any));

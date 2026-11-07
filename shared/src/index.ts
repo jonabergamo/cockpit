@@ -137,8 +137,9 @@ export type TermState = "running" | "disconnected" | "exited";
 // linking them. A terminal or a ticket sits on one workspace at a time; a note is a markdown file of its own.
 export interface CanvasNode {
   id: string;
-  // changes: the branch changes of whatever terminal or ticket it's linked to; runs: its tests, lint, e2e, CI...
-  kind: "term" | "note" | "ticket" | "changes" | "runs";
+  // changes: the branch changes of whatever terminal or ticket it's linked to; runs: its tests, lint, e2e, CI...;
+  // plan: what the agent in the terminal it's linked to is working through, and doing now
+  kind: "term" | "note" | "ticket" | "changes" | "runs" | "plan";
   // the terminal's id, the ticket's key, or the note's file name (a changes or runs card's own id, it has nothing else)
   ref: string;
   x: number;
@@ -407,6 +408,18 @@ export * from "./plugin.ts";
 export * from "./agents.ts";
 
 // What a running session is showing, for answering it without opening its terminal
+// What a session is working through: the plan it last asked to go ahead with, its to-do list when it keeps one,
+// and its last few tool calls, newest first
+export interface PlanStep {
+  text: string;
+  status: "todo" | "doing" | "done";
+}
+export interface SessionPlan {
+  plan?: { text: string; at: string; approved?: boolean; steps: string[] };
+  todos?: PlanStep[];
+  doing: { at: string; what: string; done: boolean }[];
+}
+
 export interface Ask {
   screen: string;
   question?: string;

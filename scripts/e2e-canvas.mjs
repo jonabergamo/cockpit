@@ -269,10 +269,71 @@ try {
     await p.close();
   });
 
+  await step("a plan card shows what the agent in its terminal is working through, and doing now", async () => {
+    const w = await shell("planner");
+    await until("its card", async () => await canvasOf(w.id));
+    const fake = { id: "e2e-planning", project: "e2e", cwd: w.cwd, title: "Export button", status: "busy", startedAt: Date.now(), updatedAt: Date.now(), size: 0, term: w.id };
+    const p = await page.context().newPage();
+    p.on("pageerror", (e) => errors.push(e.message));
+    await p.routeWebSocket(/\/ws$/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => {
+        if (typeof m === "string" && m.includes('"type":"sessions"')) return;
+        ws.send(m);
+      });
+      setTimeout(() => ws.send(JSON.stringify({ type: "sessions", sessions: [fake] })), 300);
+    });
+    let doing = "Editing Export.tsx";
+    await p.route("**/api/sessions/e2e-planning/plan", (r) =>
+      r.fulfill({
+        json: {
+          plan: { text: "# Export\n\n1. Add the button\n2. Write export.ts\n3. Test it", at: new Date(Date.now() - 120_000).toISOString(), approved: true, steps: ["Add the button", "Write export.ts", "Test it"] },
+          todos: [
+            { text: "Add the button", status: "done" },
+            { text: "Write export.ts", status: "doing" },
+            { text: "Test it", status: "todo" },
+          ],
+          doing: [
+            { at: new Date().toISOString(), what: doing, done: false },
+            { at: new Date().toISOString(), what: "Reading Toolbar.tsx", done: true },
+          ],
+        },
+      }),
+    );
+    await p.goto(`${base}/terminals?view=canvas&id=${w.id}`);
+    const card = p.locator(`[data-card="${w.id}"]`);
+    await card.waitFor();
+    // the terminal selected, then a plan card from the Add menu: it's linked to it
+    await card.locator(".card-handle").click({ position: { x: 30, y: 10 } });
+    await p.getByRole("button", { name: "+ Add" }).click();
+    await p.getByRole("menuitem", { name: /^Plan/ }).click();
+    const plan = p.locator("[data-plan]");
+    await plan.locator("[data-plan-now]").getByText("Editing Export.tsx").waitFor({ timeout: 10_000 });
+    await plan.getByText("1 of 3 done").waitFor();
+    expect((await plan.locator('[data-step="doing"]').innerText()).includes("Write export.ts"), "the step it's on isn't marked");
+    await plan.getByText("approved").waitFor();
+    await plan.locator("ol li", { hasText: "Test it" }).waitFor();
+    // a working agent's plan is read again every few seconds
+    doing = "Run the tests";
+    await plan.locator("[data-plan-now]").getByText("Run the tests").waitFor({ timeout: 8000 });
+    await plan.getByRole("button", { name: "The whole plan" }).click();
+    await plan.locator("h1", { hasText: "Export" }).waitFor();
+    const node = (await canvasOf(w.id)).nodes.find((n) => n.kind === "plan");
+    expect((await canvasOf(w.id)).edges.some((e) => e.source === node.id || e.target === node.id), "the plan card isn't linked to its terminal");
+    if (process.env.E2E_PROOFS) await plan.screenshot({ path: join(process.env.E2E_PROOFS, "plan card.png") });
+    await p.close();
+    await api("DELETE", `/canvas/nodes/${node.id}`);
+    // its terminal goes too, so it isn't where the next steps click
+    await api("DELETE", `/code/terms/${w.id}`);
+    await until("its card gone", async () => !(await canvasOf(w.id)));
+  });
+
   await step("the keys find a card, move between cards and type into a terminal", async () => {
     await page.goto(`${base}/terminals?view=canvas`);
     await page.waitForSelector(".react-flow__node");
-    await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } });
+    // out of any terminal, wherever the cards happen to be
+    await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
     await page.keyboard.press("/");
     const find = page.getByLabel("Find a card");
     await find.fill("charlie");

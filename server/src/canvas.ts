@@ -63,6 +63,8 @@ export const CHANGES_W = 440;
 export const CHANGES_H = 420;
 export const RUNS_W = 440;
 export const RUNS_H = 320;
+export const PLAN_W = 380;
+export const PLAN_H = 360;
 const GAP = 40;
 
 type NodeRow = Omit<CanvasNode, "fit" | "archived"> & { canvas: string; fit: number | null; archived?: string | null };
@@ -282,7 +284,7 @@ export function addNote(canvas: string, at?: At, text = "") {
 
 // A changes card shows the branch of what it's linked to, a runs card its runs (tests, lint, e2e, CI...). Given a
 // card to link it to, it goes under that card, beside any other card already hanging there.
-function addPanel(kind: "changes" | "runs", w: number, h: number, canvas: string, at?: At, link?: string) {
+function addPanel(kind: "changes" | "runs" | "plan", w: number, h: number, canvas: string, at?: At, link?: string) {
   if (!canvasRow(canvas)) throw new Error("No such workspace");
   const to = link ? nodeRow(link) : undefined;
   if (link && to?.canvas !== canvas) throw new Error("That card isn't on this workspace");
@@ -291,6 +293,7 @@ function addPanel(kind: "changes" | "runs", w: number, h: number, canvas: string
 }
 export const addChanges = (canvas: string, at?: At, link?: string) => addPanel("changes", CHANGES_W, CHANGES_H, canvas, at, link);
 export const addRuns = (canvas: string, at?: At, link?: string) => addPanel("runs", RUNS_W, RUNS_H, canvas, at, link);
+export const addPlan = (canvas: string, at?: At, link?: string) => addPanel("plan", PLAN_W, PLAN_H, canvas, at, link);
 
 export function readNote(node: string) {
   const n = nodeRow(node);

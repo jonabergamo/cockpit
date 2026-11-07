@@ -47,6 +47,7 @@ import { ActionsCtx, useActions, type Actions, type CardTone, type LinkData, typ
 import { useFit } from "./canvas/fit";
 import { LinkEdge, Ports } from "./canvas/LinkEdge";
 import { RunsCard, type RunsCardNode, type RunsFrom } from "./canvas/RunsCard";
+import { PlanCard, type PlanCardNode, type PlanFrom } from "./canvas/PlanCard";
 import { SCREEN_H, SCREEN_W, ScreenCard, type ScreenCardNode } from "./canvas/ScreenCard";
 import { TicketCard, type TicketCardNode } from "./canvas/TicketCard";
 import { SpawnMenu, type SpawnKind, type SpawnOption } from "./canvas/SpawnMenu";
@@ -64,6 +65,8 @@ const TICKET_H = 190;
 const CHANGES_W = 440;
 const CHANGES_H = 420;
 const RUNS_W = 440;
+const PLAN_W = 380;
+const PLAN_H = 360;
 const RUNS_H = 320;
 
 // status: what its agent is doing, when an agent runs in it (busy, waiting on you, idle)
@@ -72,7 +75,7 @@ type TermData = { term: TermInfo; title: string; status?: SessionStatus; session
 type NoteData = { fresh: boolean; fit?: boolean };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
-type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode | RunsCardNode | ScreenCardNode;
+type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode | RunsCardNode | PlanCardNode | ScreenCardNode;
 type LinkEdgeT = Edge<LinkData, "link">;
 
 const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
@@ -331,11 +334,11 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   );
 }
 
-const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard, changes: ChangesCard, runs: RunsCard, screen: ScreenCard };
+const nodeTypes = { term: TermCard, note: NoteCard, ticket: TicketCard, changes: ChangesCard, runs: RunsCard, plan: PlanCard, screen: ScreenCard };
 const edgeTypes = { link: LinkEdge };
 
 // what a line between these two kinds of card stands for
-const watches = (k?: string) => k === "changes" || k === "runs";
+const watches = (k?: string) => k === "changes" || k === "runs" || k === "plan";
 const kindOf = (a?: string, b?: string): LinkKind => (watches(a) || watches(b) ? "watch" : a === "note" || b === "note" ? "note" : a === "ticket" || b === "ticket" ? "work" : "talk");
 
 // the minimap's colours: waiting on you, working, failing and passing stand out from across the canvas
@@ -440,7 +443,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
           const t = byId.get(x.ref);
           return t ? titleOf(t) : "a terminal";
         }
-        return x.kind === "ticket" ? x.ref : { note: "Note", changes: "Changes", runs: "Runs" }[x.kind];
+        return x.kind === "ticket" ? x.ref : { note: "Note", changes: "Changes", runs: "Runs", plan: "Plan" }[x.kind];
       });
 
   // The lines: the ones you drew, and cockpit's own from each ticket to the terminals running in its worktree.
@@ -588,7 +591,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       }
       if (n.kind === "ticket") return [{ ...base, label: n.ref, detail: [...(ticketsQ.data?.tickets ?? []), ...(ticketsQ.data?.epics ?? [])].find((t) => t.key === n.ref)?.summary }];
       if (n.kind === "note") return [{ ...base, label: qc.getQueryData<{ text: string }>(["note", n.id])?.text.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") || "Note" }];
-      return [{ ...base, label: n.kind === "runs" ? "Runs" : "Changes" }];
+      return [{ ...base, label: { runs: "Runs", plan: "Plan", changes: "Changes" }[n.kind] }];
     }),
   );
 
@@ -700,6 +703,13 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       const tk = ends.find((n) => n?.kind === "ticket");
       if (tk) return { ticket: tk.ref, label: tk.ref };
     };
+    // a plan card shows what the agent in the terminal it's linked to is working through
+    const planOf = (id: string): PlanFrom | undefined => {
+      const ends = links.filter((e) => e.source === id || e.target === id).map((e) => cards.get(e.source === id ? e.target : e.source));
+      const t = ends.map((n) => (n?.kind === "term" ? byId.get(n.ref) : undefined)).find(Boolean);
+      const s = t && sessionOf(t);
+      if (t) return { term: t.id, label: titleOf(t), session: s?.id, status: s?.status };
+    };
     setNodes((prev) => {
       const old = new Map(prev.map((n) => [n.id, n]));
       const out: CardNode[] = [];
@@ -724,6 +734,10 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         }
         if (n.kind === "runs") {
           out.push({ ...base, type: "runs", data: { from: runsOf(n.id), fit: n.fit } });
+          continue;
+        }
+        if (n.kind === "plan") {
+          out.push({ ...base, type: "plan", data: { from: planOf(n.id), fit: n.fit } });
           continue;
         }
         // its terminal has closed, or its machine hasn't listed it yet
@@ -976,6 +990,17 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       }),
     );
   };
+  // the same for a plan card, for the terminal selected
+  const newPlan = () => {
+    if (!ws) return;
+    const sel = nodesRef.current.find((n) => n.selected && n.type === "term");
+    guard(
+      api.post<{ node: CanvasNode }>(`/canvas/${ws.id}/plan`, { ...centre(PLAN_W, PLAN_H), link: sel?.id, by: tabId }).then(async ({ node }) => {
+        await refresh();
+        show(node);
+      }),
+    );
+  };
   // Started from a ticket card: once the new terminal is on the canvas (the server places it beside the ticket),
   // a changes card and a runs card go under it, linked, unless that ticket's work already has them.
   // a terminal just opened, once its card is on this workspace (the server places it as it lists the terminal)
@@ -1028,6 +1053,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       { kind: "shell", label: "New shell", hint: "A plain terminal, linked to this one" },
       { kind: "changes", label: "Changes card", hint: "The branch it's on: files and commits" },
       { kind: "runs", label: "Runs card", hint: "The tests, lint and e2e it runs, as they go" },
+      { kind: "plan", label: "Plan card", hint: "What its agent is working through, and doing now" },
     ];
   };
   const spawnFrom = async (fromId: string, kind: SpawnKind, at?: { x: number; y: number }) => {
@@ -1036,7 +1062,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     if (!cur || !from) return;
     if (kind === "setup") return setupTicket(fromId);
     // a card that watches it goes where the line was let go, or under it
-    if (kind === "changes" || kind === "runs") {
+    if (kind === "changes" || kind === "runs" || kind === "plan") {
       const { node } = await api.post<{ node: CanvasNode }>(`/canvas/${cur.id}/${kind}`, { ...(at ?? {}), link: at ? undefined : fromId, by: tabId });
       if (at) await api.post(`/canvas/${cur.id}/edges`, { source: fromId, target: node.id, by: tabId });
       await refresh();
@@ -1271,6 +1297,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
               { label: "Note", hint: "A markdown note", onPick: newNote },
               { label: "Changes", hint: "The code changes on a branch: link it to a terminal or a ticket (or select one first)", onPick: newChanges },
               { label: "Runs", hint: "The tests, lint, e2e and CI runs of a terminal or a ticket: link it to one (or select one first)", onPick: newRuns },
+              { label: "Plan", hint: "What a terminal's agent is working through and doing now: link it to one (or select one first)", onPick: newPlan },
             ]}
           />
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">

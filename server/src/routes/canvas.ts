@@ -151,6 +151,16 @@ export const canvasRoutes = new Hono()
       return c.json(fail(e), 400);
     }
   })
+  .post("/:id/plan", async (c) => {
+    const b = await c.req.json<At & { link?: string }>();
+    try {
+      const made = canvas.addPlan(c.req.param("id"), at(b), b.link);
+      changed(b.by);
+      return c.json(made);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
   .post("/:id/edges", async (c) => {
     const b = await c.req.json<{ source: string; target: string; by?: string }>();
     try {
