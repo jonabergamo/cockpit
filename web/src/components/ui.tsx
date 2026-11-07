@@ -195,7 +195,7 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
   return (
     <div className={`fixed inset-0 z-50 flex items-start justify-center px-4 ${wide ? "pt-[6vh]" : "pt-[12vh]"}`}>
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className={`relative w-full ${wide ? "max-w-3xl" : "max-w-lg"} bg-panel border border-line rounded-lg shadow-xl`}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`relative w-full ${wide ? "max-w-3xl" : "max-w-lg"} bg-panel border border-line rounded-lg shadow-xl`}>
         <h2 className="font-semibold px-4 pt-3 pb-2">{title}</h2>
         <div className="px-4 pb-4">{children}</div>
       </div>

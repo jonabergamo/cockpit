@@ -41,6 +41,7 @@ import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
 import { AwayPanel } from "./canvas/AwayPanel";
 import { AddMenu } from "./canvas/AddMenu";
+import { Schedules, useSchedules } from "./canvas/Schedules";
 import { CardFinder, type FoundCard } from "./canvas/CardFinder";
 import { StatusFooter } from "./canvas/ContextMeter";
 import { ChangesCard, type ChangesCardNode, type ChangesFrom } from "./canvas/ChangesCard";
@@ -1119,6 +1120,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       setSettingUp(undefined);
     }
   };
+  const [scheduling, setScheduling] = useState(false);
+  const scheduled = (useSchedules().data ?? []).filter((s) => s.canvas === ws?.id).length;
   // what's being set up for a ticket, while it is
   const [settingUp, setSettingUp] = useState<string>();
   // the ticket's worktree, made first when it has none: its job is waited on, a few minutes at most
@@ -1354,6 +1357,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
               { label: "Changes", hint: "The code changes on a branch: link it to a terminal or a ticket (or select one first)", onPick: newChanges },
               { label: "Runs", hint: "The tests, lint, e2e and CI runs of a terminal or a ticket: link it to one (or select one first)", onPick: newRuns },
               { label: "Plan", hint: "What a terminal's agent is working through and doing now: link it to one (or select one first)", onPick: newPlan },
+              { label: "Scheduled agent", hint: `${agent} on its own at a time you pick, its card on this workspace${scheduled ? ` (${scheduled} here)` : ""}`, onPick: () => setScheduling(true) },
             ]}
           />
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
@@ -1516,6 +1520,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
             <p className="mt-2 text-faint">They work while you aren't typing in a terminal: click the canvas to leave one.</p>
           </div>
         )}
+        {ws && <Schedules open={scheduling} onClose={() => setScheduling(false)} workspace={ws.id} workspaceName={ws.name} />}
         <TicketPicker open={picking} onClose={() => setPicking(false)} onPick={addTicket} placed={new Set(list.flatMap((c) => c.nodes.filter((n) => n.kind === "ticket").map((n) => n.ref)))} />
         {ws && !nodes.length && !canvases.isLoading && (
           <div className="absolute inset-0 grid place-items-center pointer-events-none">

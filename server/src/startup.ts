@@ -18,6 +18,7 @@ import { startUsage } from "./usage.ts";
 import { startCodexUsage } from "./codexUsage.ts";
 import { startVerify } from "./verify.ts";
 import { startWeekly } from "./weekly.ts";
+import { startSchedules } from "./schedules.ts";
 import { board } from "./board.ts";
 import { tracked, nodesUp, requestWork } from "./remote/work.ts";
 import { startUpdates, useBusyCheck, useNodeUpdates } from "./update.ts";
@@ -84,6 +85,7 @@ export function startAutomations() {
 export function startHubServices() {
   startSnapshots();
   startWeekly();
+  startSchedules();
   startBadges();
   // updates: the nodes go first, in the same go, and nothing updates while work is going on anywhere
   useNodeUpdates(async () =>

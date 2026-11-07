@@ -352,6 +352,8 @@ export type ServerEvent =
   | { type: "terms"; terms: TermInfo[] }
   // a canvas workspace changed; by is the browser tab that changed it, which already shows it
   | { type: "canvas"; by?: string }
+  // a schedule was added, changed or ran
+  | { type: "schedules" }
   | { type: "notify"; id: number; title: string; body: string; link: string }
   // the plugin list, screens or themes changed
   | { type: "plugins" }
@@ -418,6 +420,24 @@ export interface SessionPlan {
   plan?: { text: string; at: string; approved?: boolean; steps: string[] };
   todos?: PlanStep[];
   doing: { at: string; what: string; done: boolean }[];
+}
+
+// An agent that starts on its own: at a time ("08:30"), on the days picked (0 is Sunday), in a folder on a machine,
+// with a prompt, its card on a workspace
+export interface Schedule {
+  id: string;
+  name: string;
+  cwd: string;
+  node?: string;
+  prompt: string;
+  at: string;
+  days: number[];
+  canvas?: string;
+  on: boolean;
+  lastRun?: number;
+  lastTerm?: string;
+  lastError?: string;
+  next?: number;
 }
 
 // How a session stands, as Claude Code's status line says (or, without one, worked out from its transcript): how

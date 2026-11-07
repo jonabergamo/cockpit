@@ -82,6 +82,7 @@ listen((ev) => {
   if (ev.type === "terms") queryClient.setQueryData(["terms"], ev.terms);
   // a change this tab made is already on screen
   if (ev.type === "canvas" && ev.by !== tabId) queryClient.invalidateQueries({ queryKey: ["canvas"] });
+  if (ev.type === "schedules") queryClient.invalidateQueries({ queryKey: ["schedules"] });
   if (ev.type === "badges") queryClient.setQueryData(["badges"], ev.badges);
   if (ev.type === "plugins") queryClient.invalidateQueries({ queryKey: ["config"] }), queryClient.invalidateQueries({ queryKey: ["plugins"] });
   // whether each machine can be reached, for every screen that picks one (the terminal launcher, say)

@@ -314,6 +314,40 @@ try {
     await until("its card gone", async () => !(await canvasOf(w.id)));
   });
 
+  await step("an agent is scheduled on a workspace, at a time and on the days picked, and can be run now", async () => {
+    await page.goto(`${base}/terminals?view=canvas`);
+    await page.getByRole("button", { name: "+ Add" }).click();
+    await page.getByRole("menuitem", { name: /^Scheduled agent/ }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Name").fill("Morning e2e");
+    const folder = dialog.locator("select").first();
+    await folder.selectOption({ index: 1 });
+    await dialog.getByLabel("Prompt").fill("Run the e2e suite and tell me what failed");
+    await dialog.getByLabel("Time").fill("07:45");
+    // weekdays to start with; Saturday too
+    await dialog.getByRole("button", { name: "Sat" }).click();
+    await dialog.getByRole("button", { name: "Add schedule" }).click();
+    const row = dialog.locator("[data-schedule]", { hasText: "Morning e2e" });
+    await row.waitFor();
+    await row.getByText("07:45, Mon, Tue, Wed, Thu, Fri, Sat").waitFor();
+    await row.locator("[data-schedule-next]").getByText(/^Next (today|tomorrow|\w{3}) at 07:45/).waitFor();
+    const [saved] = await api("GET", "/schedules");
+    expect(saved?.prompt === "Run the e2e suite and tell me what failed" && saved.canvas && saved.days.join() === "1,2,3,4,5,6", `saved as ${JSON.stringify(saved)}`);
+    // off, it says so
+    await row.getByLabel("Morning e2e on").click();
+    await row.locator("[data-schedule-next]").getByText("Next off").waitFor();
+    // run now: here the agent isn't started (it's Claude itself), only asked for
+    let ran;
+    await page.route(`**/api/schedules/${saved.id}/run`, (r) => ((ran = true), r.fulfill({ json: { id: "x" } })));
+    await row.getByRole("button", { name: "Run now" }).click();
+    await until("asked to run", async () => ran);
+    await page.unroute(`**/api/schedules/${saved.id}/run`);
+    await row.getByRole("button", { name: "Delete Morning e2e" }).click();
+    await row.waitFor({ state: "detached" });
+    expect((await api("GET", "/schedules")).length === 0, "it wasn't deleted");
+    await page.keyboard.press("Escape");
+  });
+
   await step("w goes from one terminal waiting on you to the next, and the keys answer each", async () => {
     const one = await shell("asker-one");
     const two = await shell("asker-two");
