@@ -180,20 +180,24 @@ try {
   });
 
   await step("Set up on a ticket opens its agent, a reviewer relaying once checks pass, and its changes and runs", async () => {
-    // the demo starts no agents, so each one it asks for is a shell here
+    // the demo starts no agents, so each one it asks for is a shell here, named the way the server names them
+    const asked = [];
     await page.route(/\/api\/claude\/launch$/, async (r) => {
-      const t = await shell(r.request().postDataJSON()?.title ?? "agent");
+      const body = r.request().postDataJSON();
+      asked.push(body);
+      const t = await shell(body.member && body.member !== "agent" ? `${body.member === "reviewer" ? "review" : body.member} · ${body.ticket}` : (body.title ?? body.ticket ?? "agent"));
       return r.fulfill({ json: { id: t.id } });
     });
     const count = async (kind) => (await api("GET", "/canvas")).flatMap((c) => c.nodes).filter((n) => n.kind === kind).length;
-    const before = { term: await count("term"), changes: await count("changes"), runs: await count("runs") };
+    const before = { term: await count("term"), changes: await count("changes"), runs: await count("runs"), plan: await count("plan") };
     await fit();
     await page.locator(ticket("ACME-418")).getByRole("button", { name: "Set up", exact: true }).click();
     await until(
       "everything on the canvas",
-      async () => (await count("term")) === before.term + 2 && (await count("changes")) === before.changes + 1 && (await count("runs")) === before.runs + 1,
+      async () => (await count("term")) === before.term + 2 && (await count("changes")) === before.changes + 1 && (await count("runs")) === before.runs + 1 && (await count("plan")) === before.plan + 1,
       20_000,
     );
+    expect(asked.map((b) => b.member).join() === "agent,reviewer" && asked.every((b) => b.ticket === "ACME-418"), `it asked for ${JSON.stringify(asked)}`);
     const review = await until("the reviewer's line", async () => (await edges()).find((e) => e.relay?.role === "review"));
     expect(review.relay.when === "passing", "the reviewer gets every turn, not just passing ones");
     const terms = await api("GET", "/code/terms");
@@ -224,21 +228,63 @@ try {
       const term = await shell(r.request().postDataJSON()?.title ?? "agent");
       return r.fulfill({ json: { id: term.id } });
     });
+    // a kind of work with a team of three: an investigator planning first hands its findings to a fixer, whose turns
+    // go to a tester, whose failures come back
+    const team = {
+      worktree: true,
+      terms: [
+        { id: "investigator", name: "investigator", prompt: "", planFirst: true, cards: [] },
+        { id: "fixer", name: "fixer", prompt: "Fix {ticket}", planFirst: false, cards: ["changes", "runs"] },
+        { id: "tester", name: "tester", prompt: "", planFirst: false, cards: ["runs"] },
+      ],
+      lines: [
+        { from: "investigator", to: "fixer", role: "plan", both: false, limit: 2 },
+        { from: "fixer", to: "tester", role: "custom", prompt: "Run the tests for this and report what fails", both: true, limit: 4, when: "passing" },
+      ],
+    };
+    // the demo keeps no settings, so the kinds come made up here; the server's own checks of a team are its tests
+    const fallback = (await api("GET", "/claude/kits")).fallback;
+    await page.route(/\/api\/claude\/kits/, (r) => r.fulfill({ json: { kinds: [{ id: "bug", name: "Bug", team }], fallback } }));
+    const launched = [];
+    await page.unroute(/\/api\/claude\/launch$/);
+    await page.route(/\/api\/claude\/launch$/, async (r) => {
+      const body = r.request().postDataJSON();
+      launched.push(body);
+      const term = await shell(body.member === "investigator" ? body.ticket : `${body.member} · ${body.ticket}`);
+      return r.fulfill({ json: { id: term.id } });
+    });
     const count = async (kind) => (await api("GET", "/canvas")).flatMap((c) => c.nodes).filter((n) => n.kind === kind).length;
-    const before = { term: await count("term"), changes: await count("changes"), runs: await count("runs") };
+    const before = { term: await count("term"), changes: await count("changes"), runs: await count("runs"), plan: await count("plan") };
+    const relaysBefore = new Set((await edges()).filter((e) => e.relay).map((e) => e.id));
+    await page.reload();
     await page.getByRole("button", { name: "+ Add" }).click();
     await page.getByRole("menuitem", { name: /^Ticket/ }).click();
     const all = page.getByLabel(/Set everything up to work on it/);
     if (!(await all.isChecked())) await all.check();
+    await page.getByRole("dialog").getByRole("combobox", { name: "Kind of work" }).selectOption("bug");
     await page.getByLabel("Find a ticket").fill(t.key);
     await page.getByRole("option", { name: new RegExp(t.key) }).first().click();
     await page.locator("[data-setting-up]").waitFor();
     await until("its worktree asked for", async () => made?.key === t.key);
     await until(
-      "everything on the canvas",
-      async () => (await count("term")) === before.term + 2 && (await count("changes")) === before.changes + 1 && (await count("runs")) === before.runs + 1,
+      "the team on the canvas",
+      async () => (await count("term")) === before.term + 3 && (await count("changes")) === before.changes + 1 && (await count("runs")) === before.runs + 2 && (await count("plan")) === before.plan + 1,
       30_000,
     );
+    expect(launched.map((b) => b.member).join() === "investigator,fixer,tester" && launched.every((b) => b.kind === "bug"), `it launched ${JSON.stringify(launched)}`);
+    // the lines between them, with what each passes on
+    const lines = await until("its lines", async () => {
+      const es = (await edges()).filter((e) => e.relay && !relaysBefore.has(e.id));
+      return es.length >= 2 && es;
+    });
+    const roles = lines.map((e) => `${e.relay.role}:${e.relay.from}:${e.relay.when ?? ""}:${e.relay.limit}`).sort();
+    for (const want of ["custom:both:passing:4", "plan:source::2"]) expect(roles.includes(want), `no ${want} line among ${roles}`);
+    // the terminals left to right in the team's order
+    const termsNow = await api("GET", "/code/terms");
+    const at = async (title) => (await api("GET", "/canvas")).flatMap((c) => c.nodes).find((n) => n.kind === "term" && n.ref === termsNow.find((x) => x.title === title)?.id);
+    const [inv, fix, tst] = [await at(t.key), await at(`fixer · ${t.key}`), await at(`tester · ${t.key}`)];
+    expect(inv && fix && tst && inv.x < fix.x && fix.x < tst.x && inv.y === fix.y, "they aren't left to right in order");
+    await page.unroute(/\/api\/claude\/kits/);
     expect(!!(await cockpit.canvasOf("ticket", t.key)), "the ticket isn't on the canvas");
     await page.locator("[data-setting-up]").waitFor({ state: "detached" });
     // the choice is remembered for the next ticket

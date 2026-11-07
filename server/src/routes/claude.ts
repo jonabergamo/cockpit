@@ -16,7 +16,7 @@ import { config } from "../config.ts";
 import { allowedRoot, gitRoot, insideSaved } from "../files.ts";
 import { type EpicRef, openLead } from "../lead.ts";
 import { spawnTerm } from "../pty.ts";
-import { claudeArgs, promptFor, templateFor, templateOf } from "../templates.ts";
+import { claudeArgs, memberLaunch, promptFor, teamOf, templateFor, templateOf } from "../templates.ts";
 import { statusesOf } from "../providers.ts";
 import { ask } from "../ask.ts";
 import { refreshTerms, spawnRemote } from "../remote/terminals.ts";
@@ -37,6 +37,14 @@ export const claude = new Hono()
     return c.json({ path: await createMemory(join(projectsDir, body.project, "memory"), body) });
   })
   .get("/doctor", async (c) => c.json(await doctor()))
+  // the kinds of work and each one's team, and which kind a ticket is, for setting it up
+  .get("/kits", async (c) => {
+    const key = c.req.query("ticket");
+    const t = key ? (await statusesOf([key]).catch(() => []))[0] : undefined;
+    const list = getSettings().templates;
+    const matched = key ? templateFor({ summary: t?.summary, type: t?.type }) : undefined;
+    return c.json({ matched: matched?.id, kinds: list.map((k) => ({ id: k.id, name: k.name, team: teamOf(k) })), fallback: teamOf(undefined) });
+  })
   .get("/workflows", async (c) => c.json(await listRuns()))
   .get("/workflows/:id", async (c) => {
     const run = await getRun(c.req.param("id"));
@@ -45,7 +53,26 @@ export const claude = new Hono()
   // Starts an interactive claude in a terminal, optionally resuming a session or with a first prompt
   // Starts an interactive claude in a terminal: resuming a given session, the resume picker, or a fresh one
   .post("/launch", async (c) => {
-    const { cwd, resume, picker, prompt, title, ticket, node } = await c.req.json<{ cwd?: string; resume?: string; picker?: boolean; prompt?: string; title?: string; ticket?: string; node?: string }>();
+    const { cwd, resume, picker, prompt, title, ticket, node, kind, member } = await c.req.json<{ cwd?: string; resume?: string; picker?: boolean; prompt?: string; title?: string; ticket?: string; node?: string; kind?: string; member?: string }>();
+
+    // one of a kind's team for a ticket: its agent, model, plan mode and prompt, on whichever machine the folder is
+    if (member && ticket && cwd) {
+      const tpl = templateFor({}, kind);
+      const team = teamOf(tpl);
+      const m = team.terms.find((x) => x.id === member);
+      if (!m) return c.json({ error: `No ${member} in that kind's team` }, 400);
+      const t = (await statusesOf([ticket]).catch(() => []))[0];
+      const go = memberLaunch(tpl, m, team.terms[0].id === m.id, { key: ticket, url: t?.url, summary: t?.summary });
+      const opts = { cwd, command: go.command, args: go.args, title: title ?? (team.terms[0].id === m.id ? ticket : `${m.name} · ${ticket}`) };
+      try {
+        if (node && node !== "local") return c.json({ ...(await spawnRemote(node, opts)), planned: go.planned });
+        const ok = (await allowedRoot(cwd)) || cwd === config.repo.path || insideSaved(cwd) || (await allowedRoot((await gitRoot(cwd)) ?? cwd));
+        if (!ok) return c.json({ error: "cwd not allowed" }, 403);
+        return c.json({ ...spawnTerm(opts), planned: go.planned });
+      } catch (e) {
+        return c.json({ error: (e as Error).message }, ((e as { status?: number }).status ?? 500) as 500);
+      }
+    }
 
     // on a node: the folder is that machine's, so it's the node that knows whether it exists
     if (node && node !== "local") {

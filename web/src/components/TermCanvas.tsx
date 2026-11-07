@@ -26,7 +26,7 @@ import "@xyflow/react/dist/style.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { CanvasInfo, CanvasNode, Run, SessionStatus, TermInfo, Worktree } from "@cockpit/shared";
+import type { CanvasInfo, CanvasNode, KitsRes, Run, SessionStatus, TermInfo, Worktree } from "@cockpit/shared";
 import { useAgentName } from "../lib/agent";
 import { api } from "../lib/api";
 import { onFocusRequest, saveWorkspace, savedWorkspace, setCanvasSelected, tabId, useCanvases } from "../lib/canvas";
@@ -1014,16 +1014,16 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         show(n);
       }),
     );
-  const addTicket = (key: string, all = false) => {
+  const addTicket = (key: string, all = false, kind?: string) => {
     setPicking(false);
     if (!ws) return;
     const there = ws.nodes.find((n) => n.kind === "ticket" && n.ref === key);
-    if (there) return all ? guard(setupTicket(there.id)) : show(there);
+    if (there) return all ? guard(setupTicket(there.id, kind)) : show(there);
     guard(
       api.post<CanvasNode>(`/canvas/${ws.id}/tickets`, { key, ...centre(TICKET_W, TICKET_H), by: tabId }).then(async (n) => {
         await refresh();
         show(n);
-        if (all) await setupTicket(n.id);
+        if (all) await setupTicket(n.id, kind);
       }),
     );
   };
@@ -1161,7 +1161,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
   // Everything for working on a ticket, in one go: its agent beside the ticket (the server puts a terminal in the
   // ticket's worktree there), a reviewer beside that on a line that passes on each turn once its checks pass, and
   // the changes and runs of its work under it. Then all of it is brought into view.
-  const setupTicket = async (ticketNode: string) => {
+  const setupTicket = async (ticketNode: string, kind?: string) => {
     // a ticket card just put on the canvas may not be in what this tab has yet
     const fresh = async () => (await qc.fetchQuery({ queryKey: ["canvas"], queryFn: () => api.get<CanvasInfo[]>("/canvas"), staleTime: 0 })).find((c) => c.nodes.some((n) => n.id === ticketNode));
     const cur = wsRef.current?.nodes.some((n) => n.id === ticketNode) ? wsRef.current : await fresh();
@@ -1169,7 +1169,10 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     if (!cur || !tk) throw new Error("That ticket's card isn't on the canvas any more");
     const ticket = [...(ticketsQ.data?.tickets ?? []), ...(ticketsQ.data?.epics ?? [])].find((x) => x.key === tk.ref);
     try {
-      await setupWith(cur, tk, ticket, await worktreeFor(tk.ref, ticket));
+      // a kind that writes no code works in the repo as it is, with no worktree made for it
+      const kits = await api.get<KitsRes>(`/claude/kits?ticket=${encodeURIComponent(tk.ref)}`);
+      const team = kits.kinds.find((x) => x.id === (kind ?? kits.matched))?.team ?? kits.fallback;
+      await setupWith(cur, tk, team.worktree ? await worktreeFor(tk.ref, ticket) : undefined, kind);
     } finally {
       setSettingUp(undefined);
     }
@@ -1196,21 +1199,40 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     }
     throw new Error(`${key}'s worktree is taking too long: see it on the Jobs screen`);
   };
-  const setupWith = async (cur: CanvasInfo, tk: CanvasNode, ticket: { url?: string } | undefined, wt: Worktree) => {
-    setSettingUp(`${tk.ref}: starting ${agent}`);
-    const main = await api.post<{ id: string }>("/claude/launch", { cwd: wt.path, prompt: ticket?.url ?? tk.ref, title: tk.ref, ticket: tk.ref, node: wt.node });
-    await qc.invalidateQueries({ queryKey: ["terms"] });
-    if (!(await cardOf(main.id))) throw new Error("The terminal started but didn't show on the canvas");
-    // beside the ticket, or along to the right of whatever is there already
-    const card = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: main.id, x: tk.x + tk.w + 40, y: tk.y, by: tabId });
-    const made = [tk.id, card.id];
-    for (const kind of ["changes", "runs"] as const) made.push((await api.post<{ node: CanvasNode }>(`/canvas/${cur.id}/${kind}`, { link: card.id, by: tabId })).node.id);
-    setSettingUp(`${tk.ref}: starting its reviewer`);
-    const rev = await api.post<{ id: string }>("/claude/launch", { cwd: wt.path, title: `review · ${tk.ref}`, node: wt.node });
-    const revCard = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: rev.id, x: card.x + card.w + 40, y: card.y, by: tabId });
-    made.push(revCard.id);
-    const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: card.id, target: revCard.id, by: tabId });
-    await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "both", role: "review", limit: 4, when: "passing" }, by: tabId });
+  // A kind of work's team for a ticket, laid out and linked: its terminals left to right beside the ticket (the
+  // main one first), each one's cards under it, and the lines between them passing their turns along. A terminal
+  // that plans first starts in plan mode, with its plan on a card beside it.
+  const setupWith = async (cur: CanvasInfo, tk: CanvasNode, wt: Worktree | undefined, kind?: string) => {
+    const kits = await api.get<KitsRes>(`/claude/kits?ticket=${encodeURIComponent(tk.ref)}`);
+    const k = kits.kinds.find((x) => x.id === (kind ?? kits.matched));
+    const team = k?.team ?? kits.fallback;
+    // no worktree for this kind: the ticket's repo, as it is
+    const place = wt ?? worktrees.data?.find((w) => w.main);
+    if (!place) throw new Error("There's no repo to work in: add one in Settings");
+    const made: string[] = [tk.id];
+    const cards = new Map<string, CanvasNode>();
+    let x = tk.x + tk.w + 40;
+    for (const m of team.terms) {
+      setSettingUp(`${tk.ref}: starting the ${m.name}`);
+      const t = await api.post<{ id: string }>("/claude/launch", { cwd: place.path, node: place.node, ticket: tk.ref, kind: k?.id, member: m.id });
+      await qc.invalidateQueries({ queryKey: ["terms"] });
+      if (!(await cardOf(t.id))) throw new Error(`The ${m.name} started but didn't show on the canvas`);
+      const card = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: t.id, x, y: tk.y, by: tabId });
+      cards.set(m.id, card);
+      made.push(card.id);
+      x = card.x + card.w + 40;
+      // a terminal planning first always has its plan beside it
+      const want = [...new Set([...(m.planFirst ? (["plan"] as const) : []), ...m.cards])];
+      for (const c of want) made.push((await api.post<{ node: CanvasNode }>(`/canvas/${cur.id}/${c}`, { link: card.id, by: tabId })).node.id);
+    }
+    setSettingUp(`${tk.ref}: linking them`);
+    for (const l of team.lines) {
+      const a = cards.get(l.from);
+      const b = cards.get(l.to);
+      if (!a || !b) continue;
+      const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: a.id, target: b.id, by: tabId });
+      await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: l.both ? "both" : "source", role: l.role, limit: l.limit, ...(l.when ? { when: l.when } : {}), ...(l.prompt ? { prompt: l.prompt } : {}) }, by: tabId });
+    }
     await qc.invalidateQueries({ queryKey: ["terms"] });
     await refresh();
     setTimeout(() => flow.fitView({ nodes: made.map((id) => ({ id })), padding: 0.08, maxZoom: 1, duration: 300 }), 150);
@@ -1319,7 +1341,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       guard(api.del(`/canvas/edges/${edge}?by=${tabId}`));
     },
     started: (ticketNode, term) => void started(ticketNode, term),
-    setup: (ticketNode) => setupTicket(ticketNode).catch((e) => setErr(e)),
+    setup: (ticketNode, kind) => setupTicket(ticketNode, kind).catch((e) => setErr(e)),
     fail: setErr,
     tone: (node, tone) => setTones((t) => (t[node] === tone ? t : { ...t, [node]: tone })),
     fit: (node) => {

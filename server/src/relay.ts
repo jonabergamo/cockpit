@@ -93,7 +93,7 @@ async function finished(s: Session) {
   const relays = canvas.relaysFrom(s.term!).filter(({ edge }) => (edge.hops ?? 0) < edge.relay!.limit);
   if (!relays.length) return;
   // the lines that only pass on passing work hold this turn back while its checks fail
-  const gated = relays.some(({ edge }) => edge.relay!.when === "passing");
+  const gated = relays.some(({ edge }) => edge.relay!.when === "passing" || edge.relay!.when === "failing");
   const failing = gated ? await failingChecks(s).catch(() => [] as Run[]) : [];
   const text = await lastText(s).catch(() => undefined);
   if (!text?.trim()) {
@@ -103,6 +103,10 @@ async function finished(s: Session) {
   for (const { edge, to, toEnd } of relays) {
     const target = sessionIn(to);
     const name = nameOf(to);
+    if (edge.relay!.when === "failing" && !failing.length) {
+      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: nothing is failing in ${titleOf(s)}, so there's nothing to hand ${name}` });
+      continue;
+    }
     if (edge.relay!.when === "passing" && failing.length) {
       const what = [...new Set(failing.map((r) => r.name))].slice(0, 2).join(" and ");
       canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: ${what}${failing.length > 2 ? " and more" : ""} failing in ${titleOf(s)}. The next turn after they pass goes to ${name}` });

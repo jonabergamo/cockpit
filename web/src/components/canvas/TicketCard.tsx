@@ -1,7 +1,7 @@
 import { type Node, type NodeProps } from "@xyflow/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type { Epic, PullRequest, Ticket } from "@cockpit/shared";
+import type { Epic, KitsRes, PullRequest, Ticket } from "@cockpit/shared";
 import { useAgentName } from "../../lib/agent";
 import { api, qs } from "../../lib/api";
 import { ago } from "../../lib/format";
@@ -78,9 +78,14 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
   });
   const resume = useMutation({ mutationFn: (session: string) => openSession({ id: session }) });
   const [settingUp, setSettingUp] = useState(false);
+  // the kind of work it matches, whose team Set up opens, or another picked here
+  const kits = useQuery({ queryKey: ["kits", data.key], queryFn: () => api.get<KitsRes>(`/claude/kits?ticket=${encodeURIComponent(data.key)}`), enabled: !!wt && !data.terms, staleTime: 60_000 }).data;
+  const [kind, setKind] = useState("");
+  const chosen = kits?.kinds.find((k) => k.id === (kind || kits.matched));
+  const team = chosen?.team ?? kits?.fallback;
   const setUp = () => {
     setSettingUp(true);
-    void a.setup(id).finally(() => setSettingUp(false));
+    void a.setup(id, kind || undefined).finally(() => setSettingUp(false));
   };
   const err = create.error ?? start.error ?? resume.error ?? (job && job.code !== undefined && job.code !== 0 ? new Error(job.output.trim().split("\n").pop() || "The worktree couldn't be made") : undefined);
   useEffect(() => {
@@ -147,9 +152,21 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
           {wt ? (
             <>
               {!data.terms && (
-                <Button size="sm" variant="primary" disabled={settingUp} onClick={setUp} title={`${agent} in its worktree, a reviewer on its turns once its checks pass, and its changes and runs, laid out and linked`}>
+                <Button size="sm" variant="primary" disabled={settingUp} onClick={setUp} title={team ? `Its team, laid out and linked: ${team.terms.map((m) => `${m.name}${m.planFirst ? " (plans first)" : ""}`).join(", ")}` : `${agent} and its team, laid out and linked`}>
                   {settingUp ? "Setting up" : "Set up"}
                 </Button>
+              )}
+              {!data.terms && !!kits?.kinds.length && (
+                <select value={kind} onChange={(e) => setKind(e.target.value)} className="h-7 max-w-40 rounded border border-line bg-raised px-1 text-[12px] text-muted" aria-label="Kind of work" title="Whose team Set up opens">
+                  <option value="">{kits.matched ? `${kits.kinds.find((k) => k.id === kits.matched)?.name} (it matches)` : "The usual pair"}</option>
+                  {kits.kinds
+                    .filter((k) => k.id !== kits.matched)
+                    .map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {k.name}
+                      </option>
+                    ))}
+                </select>
               )}
               <Button size="sm" variant={data.terms ? "default" : "ghost"} disabled={start.isPending} onClick={() => start.mutate()} title={`Starts ${agent} in its worktree with ${t?.url ?? data.key}`}>
                 {start.isPending ? "Starting" : `Start ${agent}`}

@@ -99,6 +99,53 @@ const schema = z.object({
         model: z.string().max(60).default(""),
         prompt: z.string().max(4000).default(""),
         autopilot: z.enum(["default", "on", "off"]).default("default"),
+        // the terminals a ticket of this kind is set up with, and how they talk; none is the usual pair
+        team: z
+          .object({
+            worktree: z.boolean().default(true),
+            terms: z
+              .array(
+                z.object({
+                  id: z.string().regex(/^[\w-]{1,30}$/),
+                  name: z.string().min(1).max(40),
+                  agent: z.string().max(40).optional(),
+                  model: z.string().max(60).optional(),
+                  prompt: z.string().max(4000).default(""),
+                  planFirst: z.boolean().default(false),
+                  cards: z.array(z.enum(["plan", "changes", "runs"])).max(3).default([]),
+                }),
+              )
+              .min(1)
+              .max(6),
+            lines: z
+              .array(
+                z.object({
+                  from: z.string(),
+                  to: z.string(),
+                  role: z.enum(["review", "plan", "build", "custom"]),
+                  prompt: z.string().max(2000).optional(),
+                  both: z.boolean().default(false),
+                  limit: z.number().int().min(1).max(30).default(4),
+                  when: z.enum(["passing", "failing"]).optional(),
+                }),
+              )
+              .max(15)
+              .default([]),
+          })
+          .superRefine((t, ctx) => {
+            const ids = t.terms.map((m) => m.id);
+            if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "Two of its terminals have the same id" });
+            // the canvas has one line between two cards, so a team has one between two terminals, which may go both ways
+            const pairs = t.lines.map((l) => [l.from, l.to].sort().join(" and "));
+            const twice = pairs.find((p, i) => pairs.indexOf(p) !== i);
+            if (twice) ctx.addIssue({ code: "custom", message: `Two lines between ${twice}: make it one, both ways` });
+            for (const l of t.lines) {
+              if (!ids.includes(l.from) || !ids.includes(l.to)) ctx.addIssue({ code: "custom", message: `A line goes from ${l.from} to ${l.to}, and one of them isn't in the team` });
+              if (l.from === l.to) ctx.addIssue({ code: "custom", message: "A line can't go from a terminal to itself" });
+              if (l.role === "custom" && !l.prompt?.trim()) ctx.addIssue({ code: "custom", message: "Say what the other end does, on a line in your own words" });
+            }
+          })
+          .optional(),
       }),
     )
     .max(30)

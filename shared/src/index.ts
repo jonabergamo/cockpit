@@ -174,11 +174,49 @@ export interface RelayStatus {
 
 // from: whose finished turns go along the line (its source's, its target's, or both ways). role: what the one
 // receiving is asked to do with it, or your own words in prompt. limit: how many hops before it stops for you.
+// A kind of work's team: the terminals a ticket of that kind starts with, what each does, the cards beside each,
+// and the lines between them that pass their turns along. The first terminal is the main one.
+export interface KitMember {
+  id: string;
+  name: string;
+  // another coding agent than the main one ("codex", "gemini"); none is the main agent
+  agent?: string;
+  model?: string;
+  // its first prompt, with {ticket}, {url} and {summary}; the main one's empty takes the kind's own
+  prompt: string;
+  // starts in plan mode, its plan on a card beside it, and works only once you've approved it
+  planFirst: boolean;
+  cards: ("plan" | "changes" | "runs")[];
+}
+export interface KitLine {
+  from: string;
+  to: string;
+  role: CanvasRelay["role"];
+  prompt?: string;
+  // both ways, or only from `from` to `to`
+  both: boolean;
+  limit: number;
+  when?: "passing" | "failing";
+}
+// what GET /api/claude/kits says: the kinds and their teams, the one a ticket matches, and the team with no kind
+export interface KitsRes {
+  matched?: string;
+  kinds: { id: string; name: string; team: KitTeam }[];
+  fallback: KitTeam;
+}
+export interface KitTeam {
+  // false: it works in the repo itself, with no worktree of its own (a discovery writes no code)
+  worktree: boolean;
+  terms: KitMember[];
+  lines: KitLine[];
+}
+
 export interface CanvasRelay {
   from: "source" | "target" | "both";
   role: "review" | "plan" | "build" | "custom";
-  // passing: only a turn after which none of its checks (tests, lint, types...) are failing goes along
-  when?: "every" | "passing";
+  // passing: only a turn after which none of its checks (tests, lint, types...) are failing goes along; failing:
+  // only one after which something is failing (a runner handing its failures back)
+  when?: "every" | "passing" | "failing";
   prompt?: string;
   limit: number;
 }

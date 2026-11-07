@@ -168,6 +168,21 @@ describe("relays", () => {
     expect(relayMessage("Builder", "Done.", { from: "both", role: "plan", limit: 4 }, 2)).toBe("From Builder, which just finished a turn:\n\nDone.\n\nTurn this into the next concrete steps, in order.\n\n(Passed on by cockpit's canvas, 2 of 4.)");
   });
 
+  it("a line for failures only hands a turn on while something is failing", async () => {
+    canvas.setRelay(line().id, { from: "source", role: "build", limit: 4, when: "failing" });
+    expect(line().relay?.when).toBe("failing");
+    broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "idle")] });
+    failingRuns.length = 0;
+    await turn("bld", "builder");
+    expect(sent).toEqual([]);
+    expect(line().status).toMatchObject({ state: "held" });
+    expect(line().status?.text).toMatch(/nothing is failing/);
+    failingRuns.push({ name: "checkout e2e", status: "fail", meta: {} });
+    await turn("bld", "builder");
+    expect(sent).toHaveLength(1);
+    failingRuns.length = 0;
+  });
+
   it("hands over the last answer once, when you say, with what to do with it, and needs no relay", async () => {
     broadcast({ type: "sessions", sessions: [session("bld", "builder", "idle"), session("rev", "reviewer", "idle")] });
     await settle();
