@@ -98,6 +98,13 @@ const terms = new Map<string, Term>();
 // Without tmux they are plain ptys and die with the server.
 // a second cockpit for testing can keep to its own tmux server
 const SOCKET = process.env.COCKPIT_TMUX_SOCKET || (demo ? "cockpit-demo" : "cockpit");
+// Started by the desktop app or launchd, cockpit gets no locale, and a tmux client without a UTF-8 one draws every
+// non-ASCII character (claude's ⏺ and ❯) as "_". The first of LC_ALL, LC_CTYPE and LANG that's set is the one that counts.
+const locale = process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG || "";
+if (!/utf-?8/i.test(locale)) {
+  delete process.env.LC_ALL;
+  process.env.LC_CTYPE = process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
+}
 export const hasTmux = spawnSync("tmux", ["-V"]).status === 0;
 const tmuxConf = `${paths.data}/${SOCKET}.tmux.conf`;
 
@@ -211,7 +218,7 @@ const ptyOpts = (cwd: string) => ({
   env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" } as Record<string, string>,
 });
 
-const attachClient = (meta: Meta) => pty.spawn("tmux", ["-L", SOCKET, "-f", tmuxConf, "attach-session", "-t", name(meta.id)], ptyOpts(meta.cwd));
+const attachClient = (meta: Meta) => pty.spawn("tmux", ["-u", "-L", SOCKET, "-f", tmuxConf, "attach-session", "-t", name(meta.id)], ptyOpts(meta.cwd));
 
 // tmux refuses a command over about 16KB ("command too long"), like claude with a long prompt, so a long one runs
 // from a script that removes itself before it starts the command
