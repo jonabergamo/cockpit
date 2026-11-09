@@ -135,21 +135,41 @@ export default function setup(k: Cockpit) {
     });
   const activeSprint = async () => (await sprints()).find((x) => x.state === "active");
 
-  // six at a time, since the sprint listing can't return custom fields like points
+  // six at a time, since the sprint listing can't return custom fields like points. A view that fails (acli
+  // hangs past its timeout when Jira is slow) is tried again, then falls back to the last good view of that
+  // ticket. If a ticket still has nothing, this throws: a sprint missing tickets would get cached and the
+  // reports would show too few points for hours.
   async function viewMany(keys: string[]) {
     const out: any[] = [];
-    const queue = [...keys];
-    await Promise.all(
-      Array.from({ length: 6 }, async () => {
-        for (let key = queue.shift(); key; key = queue.shift()) {
-          try {
-            out.push(await acli(["workitem", "view", key, "--fields", fields()]));
-          } catch {
-            // deleted, or no access
+    const view = (key: string) => acli(["workitem", "view", key, "--fields", fields()]);
+    const lastGood = (key: string) => k.cache<any>(`view:${key}`, Infinity, () => Promise.reject(new Error("never viewed")));
+    const keep = (key: string, v: any) => k.cache(`view:${key}`, 0, async () => v, true);
+    let queue = [...keys];
+    for (let attempt = 0; attempt < 2 && queue.length; attempt++) {
+      const failed: string[] = [];
+      await Promise.all(
+        Array.from({ length: attempt ? 3 : 6 }, async () => {
+          for (let key = queue.shift(); key; key = queue.shift()) {
+            try {
+              const v = await view(key);
+              out.push(v);
+              await keep(key, v);
+            } catch {
+              failed.push(key);
+            }
           }
-        }
-      }),
-    );
+        }),
+      );
+      queue = failed;
+    }
+    const missing: string[] = [];
+    for (const key of queue) {
+      const v = await lastGood(key).catch(() => undefined);
+      if (v) out.push(v);
+      else missing.push(key);
+    }
+    if (missing.length) throw new Error(`couldn't read ${missing.length} of ${keys.length} tickets from Jira (${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}); try again in a minute`);
+    if (queue.length) k.log(`sprint views`, `${queue.length} of ${keys.length} tickets came from their last good view`);
     return out;
   }
 
