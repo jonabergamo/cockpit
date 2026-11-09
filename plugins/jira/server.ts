@@ -135,7 +135,7 @@ export default function setup(k: Cockpit) {
     });
   const activeSprint = async () => (await sprints()).find((x) => x.state === "active");
 
-  // six at a time, since the sprint listing can't return custom fields like points. A view that fails (acli
+  // three at a time to go easy on Jira's rate limit, since the sprint listing can't return custom fields like points. A view that fails (acli
   // hangs past its timeout when Jira is slow) is tried again, then falls back to the last good view of that
   // ticket. If a ticket still has nothing, this throws: a sprint missing tickets would get cached and the
   // reports would show too few points for hours.
@@ -148,7 +148,7 @@ export default function setup(k: Cockpit) {
     for (let attempt = 0; attempt < 2 && queue.length; attempt++) {
       const failed: string[] = [];
       await Promise.all(
-        Array.from({ length: attempt ? 3 : 6 }, async () => {
+        Array.from({ length: attempt ? 2 : 3 }, async () => {
           for (let key = queue.shift(); key; key = queue.shift()) {
             try {
               const v = await view(key);
@@ -186,7 +186,7 @@ export default function setup(k: Cockpit) {
     const queue = list.filter((t) => !t.parent).map((t) => t.key);
     const found = new Map<string, any>();
     await Promise.all(
-      Array.from({ length: 6 }, async () => {
+      Array.from({ length: 3 }, async () => {
         for (let key = queue.shift(); key; key = queue.shift()) {
           const k2 = key;
           const parent = await k.cache(`parent:${k2}`, DAY, async () => (await acli(["workitem", "view", k2, "--fields", "parent"])).fields?.parent ?? null).catch(() => null);
@@ -238,7 +238,7 @@ export default function setup(k: Cockpit) {
       const out: Record<string, number | null> = {};
       const queue = [...new Set(keys)];
       await Promise.all(
-        Array.from({ length: 6 }, async () => {
+        Array.from({ length: 3 }, async () => {
           for (let key = queue.shift(); key; key = queue.shift()) {
             const k2 = key;
             try {
