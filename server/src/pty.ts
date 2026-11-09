@@ -258,7 +258,13 @@ export function withStatusLine(command: string | undefined, args: string[] | und
   return ["--settings", JSON.stringify(line), ...(args ?? [])];
 }
 
+// cockpit's own chat with a local model (server/bin/chat.mjs). Asked for by this name so a hub can start it on a
+// node, where cockpit's folder and Node live somewhere else; each machine puts in its own paths here.
+export const CHAT_COMMAND = "cockpit:chat";
+const ownCommand = (command?: string, args?: string[]) => (command === CHAT_COMMAND ? { command: process.execPath, args: [join(paths.root, "server", "bin", "chat.mjs"), ...(args ?? [])] } : { command, args });
+
 export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string; run?: string; beside?: boolean; was?: string }) {
+  opts = { ...opts, ...ownCommand(opts.command, opts.args) };
   opts = { ...opts, args: withStatusLine(opts.command, opts.args) };
   // a Claude session is one of its own, never a split of another
   const own = !!opts.session || /^claude\b/.test(opts.command ?? "");

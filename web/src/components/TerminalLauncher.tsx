@@ -5,7 +5,9 @@ import { useDeferredValue, useEffect, useState } from "react";
 import type { Machine, Session } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { shortPath } from "../lib/format";
-import { launch, launcher, MODES, recentOn, useLauncher, type LaunchMode } from "../lib/launcher";
+import { useSettings } from "../lib/cost";
+import { launch, launcher, MODES, recentOn, REVIEWS, useLauncher, type LaunchMode } from "../lib/launcher";
+import { useAppConfig } from "../lib/queries";
 import { group, item } from "./CommandPalette";
 import { useRoots } from "./RootPicker";
 
@@ -26,11 +28,24 @@ export function useRecentFolders() {
   return { folders: out, all, label, ready: roots.isSuccess && sessions.isSuccess };
 }
 
-const modeLabel: Record<LaunchMode, string> = { claude: "Agent", resume: "Resume", shell: "Shell" };
+const modeLabel: Record<LaunchMode, string> = { claude: "Agent", resume: "Resume", shell: "Shell", local: "Local model", codex: "Codex" };
+// the local model by its family, like Qwen for qwen2.5-coder:7b
+const modelName = (m: string) => {
+  const f = m.split(/[:/]/)[0].replace(/[\d.]+.*$/, "") || m;
+  return f.charAt(0).toUpperCase() + f.slice(1);
+};
 
 // Pick a folder, or type any path in your home, and start Claude, the resume picker or a shell there.
 export function TerminalLauncher() {
-  const { open, mode, node: picked } = useLauncher();
+  const { open, mode: chosen, node: picked, review } = useLauncher();
+  const settings = useSettings();
+  const cfg = useAppConfig();
+  const model = settings.data?.settings.quick.model;
+  // the local model only once Settings has one
+  const modes = MODES.filter((m) => m !== "local" || !!model);
+  const mode = modes.includes(chosen) ? chosen : "claude";
+  const label = (m: LaunchMode) => (m === "local" && model ? modelName(model) : modeLabel[m]);
+  const reviewing = review && REVIEWS.includes(mode);
   const machines = useQuery({ queryKey: ["machines"], queryFn: () => api.get<{ machines: Machine[] }>("/machines"), enabled: open });
   const others = machines.data?.machines ?? [];
   // auto is the first connected node, so work goes where the repo and the tools are; this machine stands in when
@@ -41,7 +56,7 @@ export function TerminalLauncher() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const roots = useRoots();
-  const { folders: recent, all, label } = useRecentFolders();
+  const { folders: recent, all, label: folderLabel } = useRecentFolders();
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
@@ -59,6 +74,8 @@ export function TerminalLauncher() {
 
   if (!open) return null;
 
+  const extra = (m: LaunchMode) => ({ model, url: settings.data?.settings.quick.url, base: cfg.data?.baseBranch, review: reviewing && REVIEWS.includes(m) });
+
   const start = async (cwd: string, m: LaunchMode = mode) => {
     setBusy(true);
     setErr(undefined);
@@ -69,11 +86,11 @@ export function TerminalLauncher() {
       return then ? then(id) : navigate({ to: "/terminals", search: { id } });
     };
     try {
-      if (node !== "local") return done(await launch(qc, cwd, m, cwd.split("/").filter(Boolean).pop() ?? cwd, node));
+      if (node !== "local") return done(await launch(qc, cwd, m, cwd.split("/").filter(Boolean).pop() ?? cwd, node, extra(m)));
       // anything outside the known roots gets saved first, which is what lets the server open it
       if (!all.includes(cwd)) await api.post("/code/folders", { path: cwd });
       await qc.invalidateQueries({ queryKey: ["roots"] });
-      done(await launch(qc, cwd, m, label(cwd)));
+      done(await launch(qc, cwd, m, folderLabel(cwd), "local", extra(m)));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -91,7 +108,7 @@ export function TerminalLauncher() {
       <span className="font-medium shrink-0 max-w-[45%] truncate">{name}</span>
       <span className="truncate text-muted text-[12px]">{sub ?? shortPath(path)}</span>
       <span className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-data-[selected=true]:opacity-100">
-        {MODES.map((m) => (
+        {modes.map((m) => (
           <button
             key={m}
             onClick={(e) => {
@@ -100,7 +117,7 @@ export function TerminalLauncher() {
             }}
             className="px-1.5 h-6 rounded text-[12px] text-muted hover:text-ink hover:bg-raised"
           >
-            {m}
+            {m === "local" || m === "codex" ? label(m).toLowerCase() : m}
           </button>
         ))}
         {onForget && (
@@ -136,22 +153,41 @@ export function TerminalLauncher() {
           if (e.key === "Escape") launcher.close();
           if (e.key === "Tab") {
             e.preventDefault();
-            launcher.setMode(MODES[(MODES.indexOf(mode) + (e.shiftKey ? MODES.length - 1 : 1)) % MODES.length]);
+            launcher.setMode(modes[(modes.indexOf(mode) + (e.shiftKey ? modes.length - 1 : 1)) % modes.length]);
           }
         }}
       >
         <div className="flex items-center gap-1 px-3 pt-3">
-          {MODES.map((m) => (
+          {modes.map((m) => (
             <button
               key={m}
               onClick={() => launcher.setMode(m)}
+              title={m === "local" ? `A chat with ${model} through Ollama, quick and free` : m === "codex" ? "Codex in its own terminal" : undefined}
               className={`px-2.5 h-7 rounded text-[13px] font-medium ${mode === m ? "bg-raised text-ink shadow-[0_0_0_1px_var(--line)]" : "text-muted hover:text-ink"}`}
             >
-              {modeLabel[m]}
+              {label(m)}
             </button>
           ))}
           <span className="ml-auto text-[12px] text-faint">{busy ? "Starting" : "Tab switches · ⏎ starts"}</span>
         </div>
+        {REVIEWS.includes(mode) && (
+          <div className="flex flex-wrap items-center gap-1 px-3 pt-2 text-[12px]">
+            <span className="text-faint mr-1">Start with</span>
+            {[
+              { v: false, name: "a chat" },
+              { v: true, name: "a review of the changes" },
+            ].map((o) => (
+              <button
+                key={String(o.v)}
+                onClick={() => launcher.setReview(o.v)}
+                title={o.v ? `The folder's uncommitted changes, or the branch against ${cfg.data?.baseBranch || "main"} when there are none. Then the chat goes on.` : undefined}
+                className={`px-2 h-6 rounded ${reviewing === o.v ? "bg-raised text-ink shadow-[0_0_0_1px_var(--line)]" : "text-muted hover:text-ink"}`}
+              >
+                {o.name}
+              </button>
+            ))}
+          </div>
+        )}
         {others.length > 0 && (
           <div className="flex flex-wrap items-center gap-1 px-3 pt-2 text-[12px]">
             <span className="text-faint mr-1">On</span>
@@ -198,16 +234,16 @@ export function TerminalLauncher() {
           ) : (
             <>
               <Command.Group heading="Recent" className={group}>
-                {recent.map((p) => row("recent", p, label(p)))}
+                {recent.map((p) => row("recent", p, folderLabel(p)))}
               </Command.Group>
               <Command.Group heading="Saved" className={group}>
-                {roots.data?.folders.map((p) => row("saved", p, label(p), undefined, () => forget(p)))}
+                {roots.data?.folders.map((p) => row("saved", p, folderLabel(p), undefined, () => forget(p)))}
               </Command.Group>
               <Command.Group heading="Worktrees" className={group}>
                 {roots.data?.worktrees.filter((w) => !w.node).map((w) => row("worktree", w.path, w.name, w.branch))}
               </Command.Group>
               <Command.Group heading="Projects" className={group}>
-                {roots.data?.projects.map((p) => row("project", p, label(p)))}
+                {roots.data?.projects.map((p) => row("project", p, folderLabel(p)))}
               </Command.Group>
             </>
           )}
