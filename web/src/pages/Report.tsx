@@ -27,7 +27,7 @@ interface SprintReport {
   scope: "me" | "team";
   people: Person[];
   elapsedShare: number;
-  totals: { scope: number; done: number; released: number; projected: number; daysLeft: number; daysTotal: number; lateScope?: number; byStatus: Record<string, number> };
+  totals: { scope: number; done: number; released: number; projected: number; daysLeft: number; daysTotal: number; byStatus: Record<string, number> };
   releasedStatuses: string[];
   statusOrder: string[];
 }
@@ -559,8 +559,7 @@ export function ReportPage() {
           <section className="bg-panel border border-line rounded-lg p-4">
             <h2 className="font-semibold">Sprint burndown</h2>
             <p className="text-[13px] text-muted">
-              {scope === "me" ? "Your" : "The team's"} points left to finish each day from what was committed at the start, against the even pace that ends at zero on the last day.
-              {r.totals.lateScope ? ` ${r.totals.lateScope} pt added after the start ${r.totals.lateScope === 1 ? "isn't" : "aren't"} counted here.` : ""}
+              {scope === "me" ? "Your" : "The team's"} points left to finish each day, from everything in the sprint now, against the even pace that ends at zero on the last day. A ticket burns down on the day it was done.
             </p>
             <Burndown data={r.burndown} />
           </section>

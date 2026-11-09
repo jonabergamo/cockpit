@@ -129,7 +129,22 @@ export interface StatusConfig {
 }
 
 // parent is the epic or story a ticket belongs to, with its title, status and type when the tracker gives them
-export type TrackerTicket = Ticket & { created?: string; parent?: string; parentSummary?: string; parentStatus?: string; parentType?: string; statusChangedAt?: string; resolvedAt?: string };
+export type TrackerTicket = Ticket & {
+  created?: string;
+  parent?: string;
+  parentSummary?: string;
+  parentStatus?: string;
+  parentType?: string;
+  statusChangedAt?: string;
+  resolvedAt?: string;
+  // a subtask; the sprint report leaves its points out, since they sit on its parent
+  subtask?: boolean;
+  // when the work was done by the tracker's own mark (a QA date field, say): set, the ticket counts as done
+  // whatever its status, and burns down on that day
+  doneAt?: string;
+  // a closed sprint's ticket as it was when the sprint closed, from the tracker's history; say/do counts this
+  atClose?: { points?: number; status: string; doneAt?: string };
+};
 export type TrackerSprint = Sprint & { state: string };
 
 // A work tracker, like Jira or Linear. Only myTickets and statusesOf are required; the rest light up more of

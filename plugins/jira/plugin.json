@@ -38,6 +38,12 @@
       "default": "customfield_10016"
     },
     {
+      "key": "doneDateField",
+      "label": "Done date field",
+      "type": "text",
+      "help": "Optional. A date field your team fills in when work is done, like a QA date, as its id (customfield_10175). A ticket with it set counts as done whatever its status, and burns down on that day"
+    },
+    {
       "key": "keyPattern",
       "label": "Ticket key pattern",
       "type": "text",

@@ -18,12 +18,46 @@ export function bucketOf(t: { status: string; statusCategory?: string }) {
   return /block|hold/i.test(t.status) ? "Blocked" : "In Progress";
 }
 
-export function distribution(tickets: { status: string; statusCategory?: string; points?: number }[]) {
+// --- what every chart counts ---------------------------------------------------
+// One population and one definition of done for the whole report: tickets with points, subtasks left out
+// (their points sit on the parent); done when the tracker's done date is set or the status is a done one.
+
+type Countable = { key?: string; status: string; points?: number; subtask?: boolean; doneAt?: string; resolvedAt?: string };
+export const counted = <T extends Countable>(tickets: T[]) => tickets.filter((t) => !t.subtask && (t.points ?? 0) > 0);
+export const isDone = (t: Countable, done = doneSet()) => (t.points ?? 0) > 0 && (!!t.doneAt || done.has(t.status));
+const sumPoints = (tickets: Countable[]) => +tickets.reduce((n, t) => n + (t.points ?? 0), 0).toFixed(1);
+const dayOf = (raw: string) => (raw.length <= 10 ? raw : day(new Date(raw)));
+
+// The day a done ticket burns down on: its done date, else when it was resolved, else the first day the
+// tracker's history has it in a done status, else today
+export function burnDay(t: Countable, historyDay?: string, today = day(new Date())) {
+  if (t.doneAt) return dayOf(t.doneAt);
+  if (t.resolvedAt) return dayOf(t.resolvedAt);
+  return historyDay ?? today;
+}
+
+// Points left each workday, from everything in the sprint now down to zero on the last day. The future stays empty.
+export function burndownOf(tickets: Countable[], days: string[], today = day(new Date()), firstDone = new Map<string, string>()) {
+  const list = counted(tickets);
+  const scope = sumPoints(list);
+  const burns = list.filter((t) => isDone(t)).map((t) => ({ on: burnDay(t, t.key ? firstDone.get(t.key) : undefined, today), points: t.points ?? 0 }));
+  const steps = days.length - 1;
+  return days.map((d, i) => ({
+    date: d,
+    ideal: steps > 0 ? Math.max(+(scope * (1 - i / steps)).toFixed(2), 0) : 0,
+    remaining: d > today ? null : Math.max(+(scope - burns.filter((b) => b.on <= d).reduce((n, b) => n + b.points, 0)).toFixed(2), 0),
+  }));
+}
+
+// the bucket done tickets go in: the one holding the done statuses, else "Done"
+const doneBucket = () => bucketList().find(([, statuses]) => statuses.some((s) => doneSet().has(s)))?.[0] ?? "Done";
+
+export function distribution(tickets: (Countable & { statusCategory?: string })[]) {
   const buckets = bucketList();
   const order = buckets.length ? buckets.map(([name]) => name) : ["Done", "Review", "In Progress", "To Do", "Blocked"];
   const out = new Map(order.map((name) => [name, { name, points: 0, count: 0 }]));
   for (const t of tickets) {
-    const b = bucketOf(t);
+    const b = isDone(t) ? doneBucket() : bucketOf(t);
     const row = out.get(b) ?? { name: b, points: 0, count: 0 };
     row.points += t.points ?? 0;
     row.count++;
@@ -32,30 +66,28 @@ export function distribution(tickets: { status: string; statusCategory?: string;
   return [...out.values()];
 }
 
-// Remaining points per day, counting down from the scope. The future stays empty.
-export function burndown(points: BurnPoint[]) {
-  const n = points.length;
-  return points.map((p, i) => ({
-    date: p.date,
-    ideal: n > 1 ? +(p.scope - (p.scope * i) / (n - 1)).toFixed(2) : 0,
-    remaining: Number.isNaN(p.released) ? null : +(p.scope - p.released).toFixed(2),
-  }));
-}
-
-// Committed is everything in the sprint, completed is what reached a done status before the sprint ended.
-// A sprint ends when it's closed, as the tracker's own sprint report counts it, which is often after its planned end.
+// Committed is every counted ticket in the sprint, completed is the done ones. A sprint ends when it's closed, as
+// the tracker's own sprint report counts it, which is often after its planned end.
 export const closedAt = (s: { end?: string; completed?: string }) => s.completed ?? s.end;
-// doneAtClose is what the tracker's history says sat in a done status when the sprint closed: a ticket in QA then
-// that reached its last status later still counts, as QA does in the active sprint
-export function sayDoOf(tickets: { key?: string; status: string; points?: number; resolvedAt?: string; statusChangedAt?: string }[], end?: string, active = false, doneAtClose?: Set<string>) {
-  const committed = tickets.reduce((n, t) => n + (t.points ?? 0), 0);
-  const completed = tickets.reduce((n, t) => {
-    if (t.key && doneAtClose?.has(t.key)) return n + (t.points ?? 0);
-    if (!doneSet().has(t.status)) return n;
-    const at = t.resolvedAt ?? t.statusChangedAt;
-    return active || !end || !at || at <= end ? n + (t.points ?? 0) : n;
-  }, 0);
-  return { committed: +committed.toFixed(1), completed: +completed.toFixed(1) };
+// A closed sprint's tickets count as they were when it closed (atClose, from the tracker's history) when the
+// tracker can say. Otherwise today's points stand in, and doneAtClose (what sat in a done status at the close)
+// or the done date decides; a ticket done after the close counts for the sprint it was finished in.
+export function sayDoOf(
+  tickets: (Countable & { statusChangedAt?: string; atClose?: { points?: number; status: string; doneAt?: string } })[],
+  end?: string,
+  active = false,
+  doneAtClose?: Set<string>,
+) {
+  const list = counted(tickets.map((t) => (t.atClose && !active ? { ...t, ...t.atClose } : t)));
+  const completed = list.filter((t) => {
+    if (active || t.atClose) return isDone(t);
+    if (t.key && doneAtClose?.has(t.key)) return true;
+    if (!isDone(t)) return false;
+    const at = t.doneAt ?? t.resolvedAt ?? t.statusChangedAt;
+    // a date-only done date on the closing day sorts before the close time, so it counts
+    return !end || !at || at <= end;
+  });
+  return { committed: sumPoints(list), completed: sumPoints(completed) };
 }
 
 export async function sayDo(count = 6, scope: Scope = "team") {
@@ -138,8 +170,8 @@ export function statusAt(history: Transition[], at: string) {
   return s;
 }
 
-// Counts down from what was committed when the sprint started; tickets added later stay out of it. A day the
-// tracker can answer for (`on`, keys finished by then) uses that; the rest come from the history cockpit kept.
+// Released points per day, out of everything in the sprint. A day the tracker can answer for (`on`, keys finished
+// by then) uses that; the rest come from the history cockpit kept.
 export function burnup(
   tickets: { key: string; points?: number }[],
   history: Map<string, Transition[]>,
@@ -147,15 +179,13 @@ export function burnup(
   today = day(new Date()),
   finished = releasedSet(),
   on = new Map<string, Set<string>>(),
-  late = new Set<string>(),
 ): BurnPoint[] {
-  const committed = tickets.filter((t) => !late.has(t.key));
-  const scope = committed.reduce((n, t) => n + (t.points ?? 0), 0);
+  const scope = tickets.reduce((n, t) => n + (t.points ?? 0), 0);
   return days.map((d, i) => {
     const end = `${d}T23:59:59.999Z`;
     const was = on.get(d);
     const isDone = (t: { key: string }) => (was ? was.has(t.key) : finished.has(statusAt(history.get(t.key) ?? [], end) ?? ""));
-    const done = d > today ? NaN : committed.reduce((n, t) => n + (isDone(t) ? (t.points ?? 0) : 0), 0);
+    const done = d > today ? NaN : tickets.reduce((n, t) => n + (isDone(t) ? (t.points ?? 0) : 0), 0);
     return { date: d, released: done, scope, ideal: days.length > 1 ? +((scope * i) / (days.length - 1)).toFixed(2) : scope };
   });
 }
@@ -179,13 +209,13 @@ function historyFor(keys: string[]) {
 }
 
 // Where each person is against the even pace. The ideal share is the part of the sprint's workdays already gone.
-export function people(tickets: { assignee?: string; status: string; points?: number }[]) {
+export function people(tickets: (Countable & { assignee?: string })[]) {
   const by = new Map<string, { name: string; me: boolean; scope: number; done: number; tickets: number }>();
-  for (const t of tickets) {
+  for (const t of counted(tickets)) {
     const name = t.assignee ?? "Unassigned";
     const row = by.get(name) ?? { name, me: !!t.assignee && isMine(t), scope: 0, done: 0, tickets: 0 };
     row.scope += t.points ?? 0;
-    if (doneSet().has(t.status)) row.done += t.points ?? 0;
+    if (isDone(t)) row.done += t.points ?? 0;
     row.tickets++;
     by.set(name, row);
   }
@@ -255,15 +285,17 @@ export async function sprintReport(sprintId?: number, scope: Scope = "team") {
     );
     return out;
   };
-  const late = new Set(addedLate);
+  const list = counted(tickets);
   const [releasedOn, doneOn] = await Promise.all([finishedOn(releasedSet()), finishedOn(doneSet())]);
-  const points = burnup(tickets, history, days, today, releasedSet(), releasedOn, late);
-  const devDone = burnup(tickets, history, days, today, doneSet(), doneOn, late);
+  const points = burnup(list, history, days, today, releasedSet(), releasedOn);
+  // the first past day the tracker's history has each ticket in a done status, for tickets with no done date
+  const firstDone = new Map<string, string>();
+  for (const d of [...doneOn.keys()].sort()) for (const key of doneOn.get(d) ?? []) if (!firstDone.has(key)) firstDone.set(key, d);
 
   const elapsed = Math.max(1, days.filter((d) => d <= today).length);
-  const doneNow = tickets.filter((t) => releasedSet().has(t.status)).reduce((n, t) => n + (t.points ?? 0), 0);
-  const finishedNow = tickets.filter((t) => doneSet().has(t.status)).reduce((n, t) => n + (t.points ?? 0), 0);
-  const scopePoints = tickets.reduce((n, t) => n + (t.points ?? 0), 0);
+  const doneNow = sumPoints(list.filter((t) => releasedSet().has(t.status)));
+  const finishedNow = sumPoints(list.filter((t) => isDone(t)));
+  const scopePoints = sumPoints(list);
   const velocity = finishedNow / elapsed;
 
   const sessions = listSessions({ limit: 5000 });
@@ -279,8 +311,8 @@ export async function sprintReport(sprintId?: number, scope: Scope = "team") {
       addedLate: addedLate.includes(t.key),
     })),
     burnup: points,
-    burndown: burndown(devDone),
-    distribution: distribution(tickets),
+    burndown: burndownOf(tickets, days, today, firstDone),
+    distribution: distribution(list),
     scope,
     people: people(team),
     elapsedShare: days.length ? +(days.filter((d) => d <= today).length / days.length).toFixed(3) : 0,
@@ -291,9 +323,7 @@ export async function sprintReport(sprintId?: number, scope: Scope = "team") {
       projected: +(velocity * days.length).toFixed(1),
       daysLeft: days.filter((d) => d > today).length,
       daysTotal: days.length,
-      // points added after the start, which the burndown leaves out
-      lateScope: tickets.filter((t) => late.has(t.key)).reduce((n, t) => n + (t.points ?? 0), 0),
-      byStatus: Object.fromEntries(statusConfig().statusOrder.map((s) => [s, tickets.filter((t) => t.status === s).reduce((n, t) => n + (t.points ?? 0), 0)])),
+      byStatus: Object.fromEntries(statusConfig().statusOrder.map((s) => [s, sumPoints(list.filter((t) => t.status === s))])),
     },
     releasedStatuses: statusConfig().releasedStatuses,
     doneStatuses: [...doneSet()],

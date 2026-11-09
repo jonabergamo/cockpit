@@ -4,7 +4,7 @@ import type { AskInfo, BoardCard, Entry, PullRequest, Session, Task, Ticket, Wor
 import { columnOf, matchWorker } from "./board.ts";
 import { paths } from "./config.ts";
 import { broadcast } from "./hub.ts";
-import { burndown, burnup, distribution, people, spans, workdays, type Transition } from "./report.ts";
+import { burnup, distribution, people, spans, workdays, type Transition } from "./report.ts";
 import { pluginScreens, pluginThemes } from "./plugins.ts";
 import { buildPipeline } from "./pipeline.ts";
 import { getSettings } from "./settings.ts";
@@ -174,6 +174,14 @@ const run: WorkflowRun = {
   totalTokens: 295_000,
   live: false,
 };
+
+// points left per day from a burnup of done points; the future stays empty
+const burndown = (points: ReturnType<typeof burnup>) =>
+  points.map((p, i) => ({
+    date: p.date,
+    ideal: points.length > 1 ? +(p.scope - (p.scope * i) / (points.length - 1)).toFixed(2) : 0,
+    remaining: Number.isNaN(p.released) ? null : +(p.scope - p.released).toFixed(2),
+  }));
 
 function report(scope: "me" | "team" = "team") {
   const days = workdays(sprintStart, sprintEnd);

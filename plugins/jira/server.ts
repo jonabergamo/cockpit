@@ -127,8 +127,52 @@ export default function setup(k: Cockpit) {
     return out;
   }
 
+  // Each ticket's points and status as they were when a sprint closed, rewound from today's values
+  // with the changelog. A ticket rolled over to the next sprint often has its points changed there, and today's
+  // values would credit or blame the wrong sprint for it.
+  async function withAtClose(issues: any[], tickets: TrackerTicket[], closed: string): Promise<TrackerTicket[]> {
+    const at = Date.parse(closed);
+    const ids = issues.map((i) => String(i.id));
+    const wanted = [points(), "status"];
+    const logs = new Map<string, { created: number; items: any[] }[]>();
+    for (let i = 0; i < ids.length; i += 1000) {
+      let nextPageToken: string | undefined;
+      do {
+        const page = await rest<{ issueChangeLogs?: { issueId: string; changeHistories?: any[] }[]; nextPageToken?: string }>("/rest/api/3/changelog/bulkfetch", { issueIdsOrKeys: ids.slice(i, i + 1000), fieldIds: wanted, maxResults: 1000, nextPageToken });
+        for (const l of page.issueChangeLogs ?? []) {
+          const list = logs.get(String(l.issueId)) ?? [];
+          for (const h of l.changeHistories ?? []) list.push({ created: typeof h.created === "number" ? h.created : Date.parse(h.created), items: h.items ?? [] });
+          logs.set(String(l.issueId), list);
+        }
+        nextPageToken = page.nextPageToken;
+      } while (nextPageToken);
+    }
+    const rewind = (now: unknown, history: { created: number; items: any[] }[], field: string) => {
+      let v = now;
+      for (const h of [...history].sort((a, b) => b.created - a.created)) {
+        if (h.created <= at) break;
+        for (const it of h.items) if (it.fieldId === field) v = field === points() ? it.fromString : (it.fromString ?? it.from);
+      }
+      return v;
+    };
+    return tickets.map((t, n) => {
+      const history = logs.get(ids[n]) ?? [];
+      const p = rewind(t.points, history, points());
+      return {
+        ...t,
+        atClose: {
+          points: p === null || p === undefined || p === "" ? undefined : Number(p),
+          status: String(rewind(t.status, history, "status") ?? t.status),
+          // a done date after the close belongs to the next sprint
+          doneAt: t.doneAt && t.doneAt.slice(0, 10) <= new Date(at).toISOString().slice(0, 10) ? t.doneAt : undefined,
+        },
+      };
+    });
+  }
+
   const points = () => s<string>("pointsField") || "customfield_10016";
-  const fields = () => `summary,status,issuetype,assignee,parent,created,resolutiondate,statuscategorychangedate,${points()}`;
+  const doneField = () => s<string>("doneDateField")?.trim() || "";
+  const fields = () => `summary,status,issuetype,assignee,parent,created,resolutiondate,statuscategorychangedate,${points()}${doneField() ? `,${doneField()}` : ""}`;
 
   function toTicket(raw: any, url: string, inSprint: boolean): TrackerTicket {
     const f = raw.fields ?? {};
@@ -150,6 +194,8 @@ export default function setup(k: Cockpit) {
       parentType: f.parent?.fields?.issuetype?.name,
       statusChangedAt: f.statuscategorychangedate,
       resolvedAt: f.resolutiondate ?? undefined,
+      subtask: f.issuetype?.subtask || undefined,
+      doneAt: (doneField() && f[doneField()]) || undefined,
     };
   }
 
@@ -320,23 +366,18 @@ export default function setup(k: Cockpit) {
     async sprintTickets(sprintId, force = false, maxAge = LONG) {
       const id = sprintId ?? (await activeSprint())?.id;
       if (!id) return [];
+      // v2: tickets carry subtask, doneAt and, in a closed sprint, atClose
       return k.cache(
-        `sprint:${id}`,
+        `sprint2:${id}`,
         maxAge,
         async () => {
           if (hasRest()) {
-            // the board's view of the sprint, as acli's list-workitems and Jira's sprint report count it
             const url = await site();
-            const issues: any[] = [];
-            const board = await boardId();
-            for (let startAt = 0; ; ) {
-              const page = await rest<{ issues?: any[]; total?: number }>(`/rest/agile/1.0/board/${board}/sprint/${id}/issue?fields=${fields()}&maxResults=100&startAt=${startAt}`);
-              const got = page.issues ?? [];
-              issues.push(...got);
-              startAt += got.length;
-              if (!got.length || startAt >= (page.total ?? 0)) break;
-            }
-            return issues.map((r) => toTicket(r, url, true));
+            const issues = await jql(`sprint = ${id}`, fields());
+            const tickets = issues.map((r) => toTicket(r, url, true));
+            const sprint = (await sprints()).find((x) => x.id === id);
+            const closed = sprint?.state === "closed" ? (sprint.completed ?? sprint.end) : undefined;
+            return closed ? withAtClose(issues, tickets, closed) : tickets;
           }
           const pages = await acliPages(["sprint", "list-workitems", "--board", String(await boardId()), "--sprint", String(id), "--paginate", "--fields", "key"]);
           const url = await site();

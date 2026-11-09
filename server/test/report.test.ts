@@ -31,7 +31,7 @@ describe("sprint maths", () => {
     expect(out[0].scope).toBe(5);
   });
 
-  it("trusts the tracker's answer for a day and leaves late tickets out", () => {
+  it("trusts the tracker's answer for a day", () => {
     const tickets = [
       { key: "A-1", points: 2 },
       { key: "A-2", points: 3 },
@@ -41,9 +41,9 @@ describe("sprint maths", () => {
     const history = new Map([["A-1", h("A-1", ["Done", "2026-10-15T10:00:00Z"])]]);
     const days = ["2026-10-14", "2026-10-15", "2026-10-16"];
     const on = new Map([["2026-10-14", new Set(["A-1"])]]);
-    const out = burnup(tickets, history, days, "2026-10-15", new Set(["Done"]), on, new Set(["A-3"]));
+    const out = burnup(tickets, history, days, "2026-10-15", new Set(["Done"]), on);
     expect(out.map((p) => p.released)).toEqual([2, 2, NaN]);
-    expect(out[0].scope).toBe(5);
+    expect(out[0].scope).toBe(6);
   });
 
   it("builds status spans, open ended only while not released", () => {
@@ -55,19 +55,50 @@ describe("sprint maths", () => {
   });
 });
 
-import { burndown, closedAt, distribution, sayDoOf } from "../src/report.ts";
+import { burnDay, burndownOf, closedAt, counted, distribution, isDone, sayDoOf } from "../src/report.ts";
+
+describe("what every chart counts", () => {
+  it("counts tickets with points and leaves subtasks out", () => {
+    const out = counted([
+      { key: "A-1", status: "Done", points: 2 },
+      { key: "A-2", status: "Done", points: 0 },
+      { key: "A-3", status: "Done" },
+      { key: "A-4", status: "Done", points: 1, subtask: true },
+    ]);
+    expect(out.map((t) => t.key)).toEqual(["A-1"]);
+  });
+
+  it("is done with a done date whatever the status, or in a done status", () => {
+    const done = new Set(["QA", "Done"]);
+    expect(isDone({ status: "Blocked", points: 3, doneAt: "2026-11-05" }, done)).toBe(true);
+    expect(isDone({ status: "QA", points: 1 }, done)).toBe(true);
+    expect(isDone({ status: "In Progress", points: 1 }, done)).toBe(false);
+    expect(isDone({ status: "Done", points: 0 }, done)).toBe(false);
+  });
+
+  it("burns on the done date, then the resolution date, then the history, then today", () => {
+    expect(burnDay({ status: "Done", doneAt: "2026-10-30", resolvedAt: "2026-11-02T10:00:00Z" }, "2026-10-29", "2026-11-09")).toBe("2026-10-30");
+    expect(burnDay({ status: "Done", resolvedAt: "2026-11-02T10:00:00Z" }, "2026-10-29", "2026-11-09")).toBe("2026-11-02");
+    expect(burnDay({ status: "QA" }, "2026-10-29", "2026-11-09")).toBe("2026-10-29");
+    expect(burnDay({ status: "QA" }, undefined, "2026-11-09")).toBe("2026-11-09");
+  });
+});
 
 describe("team style charts", () => {
-  it("counts down from the scope and leaves the future empty", () => {
-    const out = burndown([
-      { date: "a", released: 0, scope: 10, ideal: 0 },
-      { date: "b", released: 4, scope: 10, ideal: 5 },
-      { date: "c", released: NaN, scope: 10, ideal: 10 },
-    ]);
+  it("counts down from the whole scope on the days work was done, and leaves the future empty", () => {
+    const tickets = [
+      { key: "A-1", status: "Done", points: 4, doneAt: "2026-10-15" },
+      // done on a weekend day still burns by the next workday shown
+      { key: "A-2", status: "Done", points: 2, doneAt: "2026-10-17" },
+      { key: "A-3", status: "In Progress", points: 4 },
+      { key: "A-4", status: "Done", points: 3, subtask: true },
+    ];
+    const out = burndownOf(tickets, ["2026-10-14", "2026-10-15", "2026-10-19", "2026-10-20"], "2026-10-19");
     expect(out).toEqual([
-      { date: "a", ideal: 10, remaining: 10 },
-      { date: "b", ideal: 5, remaining: 6 },
-      { date: "c", ideal: 0, remaining: null },
+      { date: "2026-10-14", ideal: 10, remaining: 10 },
+      { date: "2026-10-15", ideal: 6.67, remaining: 6 },
+      { date: "2026-10-19", ideal: 3.33, remaining: 4 },
+      { date: "2026-10-20", ideal: 0, remaining: null },
     ]);
   });
 
@@ -108,6 +139,17 @@ describe("team style charts", () => {
       { key: "A-2", status: "Done", points: 3, resolvedAt: "2026-10-21T10:00:00.000Z" },
     ];
     expect(sayDoOf(tickets, "2026-10-15T12:00:00.000Z", false, new Set(["A-1"]))).toEqual({ committed: 5, completed: 2 });
+  });
+
+  it("counts a closed sprint as it was when it closed, when the tracker can say", () => {
+    const tickets = [
+      // rolled over: zeroed later, but committed with 3 and not done then
+      { key: "A-1", status: "To Do", points: 0, atClose: { points: 3, status: "In Progress" } },
+      // done by its done date, though its status then was Blocked
+      { key: "A-2", status: "Done", points: 2, atClose: { points: 2, status: "Blocked", doneAt: "2026-10-12" } },
+      { key: "A-3", status: "Done", points: 1, atClose: { points: 1, status: "Done" } },
+    ];
+    expect(sayDoOf(tickets, "2026-10-15T12:00:00.000Z")).toEqual({ committed: 6, completed: 3 });
   });
 });
 
