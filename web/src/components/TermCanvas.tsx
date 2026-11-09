@@ -31,7 +31,7 @@ import { useAgentName } from "../lib/agent";
 import { api } from "../lib/api";
 import { onFocusRequest, saveWorkspace, savedWorkspace, setCanvasSelected, tabId, useCanvases } from "../lib/canvas";
 import { ago, shortPath } from "../lib/format";
-import { launcher } from "../lib/launcher";
+import { agentTerm, launcher, modelName } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
 import { liveSrc, recording } from "../lib/liveRun";
 import { middleOf, openScreen, screenGroup, useScreens } from "../lib/screens";
@@ -1097,6 +1097,11 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
   // What to open beside a card: shown where a line from it was let go over empty canvas, or under its + button.
   // at: where the new card goes (beside the card when not said).
   const agent = useAgentName();
+  // the quick answers' local model, which the + menu offers a chat or a reviewer with once it's set
+  const quickSettings = useSettings().data?.settings.quick;
+  const quickModel = quickSettings?.model || undefined;
+  const quickUrl = quickSettings?.url;
+  const cfg = useAppConfig();
   const [spawning, setSpawning] = useState<{ from: string; x: number; y: number; at?: { x: number; y: number } }>();
   const spawnOptions = (fromId: string): SpawnOption[] => {
     const n = ws?.nodes.find((x) => x.id === fromId);
@@ -1110,9 +1115,20 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         { kind: "runs", label: "Runs card", hint: "Its tests, lint, e2e and CI as they run" },
       ];
     }
+    const local = quickModel ? modelName(quickModel) : undefined;
     return [
       { kind: "claude", label: `New ${agent}`, hint: "Linked to this terminal by a line" },
       { kind: "review", label: `${agent} to review its turns`, hint: "Each turn this one finishes goes there to review" },
+      { kind: "codex", label: "New Codex", hint: "Codex in the same folder, linked to this one" },
+      { kind: "codex-review", label: "Codex to review its turns", hint: "Each turn this one finishes goes to Codex, and its review comes back" },
+      { kind: "codex-changes", label: "Codex review of the changes", hint: "Read-only: the folder's uncommitted changes, or the branch against main" },
+      ...(local
+        ? ([
+            { kind: "local", label: `New ${local}`, hint: `A quick, free chat with ${quickModel} in the same folder` },
+            { kind: "local-review", label: `${local} to review its turns`, hint: "Each turn this one finishes gets a quick, free look. Its review stays there" },
+            { kind: "local-changes", label: `${local} review of the changes`, hint: "A quick first look at the uncommitted changes, or the branch against main" },
+          ] as SpawnOption[])
+        : []),
       { kind: "shell", label: "New shell", hint: "A plain terminal, linked to this one" },
       { kind: "changes", label: "Changes card", hint: "The branch it's on: files and commits" },
       { kind: "runs", label: "Runs card", hint: "The tests, lint and e2e it runs, as they go" },
@@ -1142,8 +1158,13 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     const cwd = now ?? t?.cwd ?? wt?.path;
     if (!cwd) return;
     const folder = shortPath(cwd).split("/").pop() ?? cwd;
+    // the local model or Codex: a chat, a reviewer on the line, or a one-off review of the folder's changes
+    const other = kind.startsWith("local") ? "local" : kind.startsWith("codex") ? "codex" : undefined;
+    const term = other ? agentTerm(other, { model: quickModel, url: quickUrl, base: cfg.data?.baseBranch, review: kind.endsWith("-changes") }) : undefined;
     const open = (dir: string) =>
-      kind === "shell"
+      term
+        ? api.post<{ id: string }>("/code/terms", { cwd: dir, title: `${kind.endsWith("-review") ? `${other === "local" ? modelName(quickModel ?? "") : "Codex"} review` : term.title} · ${folder}`, command: term.command, args: term.args, node })
+        : kind === "shell"
         ? api.post<{ id: string }>("/code/terms", { cwd: dir, title: `shell · ${folder}`, node })
         : api.post<{ id: string }>("/claude/launch", {
             cwd: dir,
@@ -1156,7 +1177,9 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     const card = await api.post<CanvasNode>(`/canvas/${cur.id}/terms`, { term: made.id, ...(at ?? { x: from.x + from.w + 40, y: from.y }), by: tabId });
     const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: fromId, target: card.id, by: tabId });
     // both ways: its turns go to the reviewer, and the review comes back to it to act on
-    if (kind === "review") await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "both", role: "review", limit: 4 }, by: tabId });
+    if (kind === "review" || kind === "codex-review") await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "both", role: "review", limit: 4 }, by: tabId });
+    // the local chat has no turns of its own to send back, so its line only goes one way
+    if (kind === "local-review") await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: "source", role: "review", limit: 4 }, by: tabId });
     await qc.invalidateQueries({ queryKey: ["terms"] });
     await refresh();
     show(card);

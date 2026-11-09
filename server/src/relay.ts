@@ -39,8 +39,9 @@ const seen = new Map<string, Session>();
 const held = new Map<string, { to: string; name: string; text: string }>();
 
 const sessionIn = (term: string) => [...seen.values()].find((s) => s.term === term && s.status !== "ended");
-// a terminal running an agent, by its command; a plain shell at the other end isn't typed into
-const AGENT = /^(?:\S*\/)?(?:claude|codex|gemini)(?:\s|$)/;
+// a terminal running an agent, by its command; a plain shell at the other end isn't typed into. cockpit's chat
+// with the local model (server/bin/chat.mjs) counts: it takes a pasted turn as one message
+const AGENT = /^(?:\S*\/)?(?:claude|codex|gemini)(?:\s|$)|\/server\/bin\/chat\.mjs(?:\s|$)/;
 const freshAgent = (term: string) => listTerms().some((t) => t.id === term && t.exited === undefined && t.state !== "exited" && AGENT.test(t.command));
 // pasted the way a terminal pastes, so the agent takes it as one message, then sent
 async function typeIn(term: string, text: string) {

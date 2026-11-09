@@ -6,7 +6,7 @@ import type { Machine, Session } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { shortPath } from "../lib/format";
 import { useSettings } from "../lib/cost";
-import { launch, launcher, MODES, recentOn, REVIEWS, useLauncher, type LaunchMode } from "../lib/launcher";
+import { launch, launcher, modelName, MODES, recentOn, REVIEWS, useLauncher, type LaunchMode } from "../lib/launcher";
 import { useAppConfig } from "../lib/queries";
 import { group, item } from "./CommandPalette";
 import { useRoots } from "./RootPicker";
@@ -29,11 +29,6 @@ export function useRecentFolders() {
 }
 
 const modeLabel: Record<LaunchMode, string> = { claude: "Agent", resume: "Resume", shell: "Shell", local: "Local model", codex: "Codex" };
-// the local model by its family, like Qwen for qwen2.5-coder:7b
-const modelName = (m: string) => {
-  const f = m.split(/[:/]/)[0].replace(/[\d.]+.*$/, "") || m;
-  return f.charAt(0).toUpperCase() + f.slice(1);
-};
 
 // Pick a folder, or type any path in your home, and start Claude, the resume picker or a shell there.
 export function TerminalLauncher() {

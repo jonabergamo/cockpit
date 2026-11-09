@@ -82,9 +82,15 @@ const rememberOn = (node: string, cwd: string) => write(nodeFolders(node), JSON.
 
 export const useLauncher = () => useSyncExternalStore(launcher.subscribe, launcher.get);
 
+// the local model by its family, like Qwen for qwen2.5-coder:7b
+export const modelName = (m: string) => {
+  const f = m.split(/[:/]/)[0].replace(/[\d.]+.*$/, "") || m;
+  return f.charAt(0).toUpperCase() + f.slice(1);
+};
+
 // the terminal for local and codex: cockpit's chat with the local model (each machine finds its own copy of the
 // script) or Codex, read-only when it's reviewing
-function agentTerm(mode: "local" | "codex", x: LaunchExtra): { command: string; args: string[]; title: string } {
+export function agentTerm(mode: "local" | "codex", x: LaunchExtra): { command: string; args: string[]; title: string } {
   const base = x.base || "main";
   if (mode === "local") {
     if (!x.model) throw new Error("No local model yet: set one in Settings → Automation → Quick answers");

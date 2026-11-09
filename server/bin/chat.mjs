@@ -106,20 +106,69 @@ if (review) {
 
 const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: `\n${bold("›")} ` });
 rl.prompt();
+
+// A paste (a turn the canvas passes on, say) comes as many lines: between the bracketed paste markers, or in a
+// burst too fast to be typed. Either way it's one message. What comes in while it answers waits its turn.
+const START = "\x1b[200~";
+const END = "\x1b[201~";
+const queue = [];
+let pending = [];
+let pasting = false;
+let flushing;
 let busy = false;
-rl.on("line", async (line) => {
-  const text = line.trim();
+
+async function drain() {
   if (busy) return;
-  if (!text) return rl.prompt();
-  if (text === "/exit" || text === "/quit") return rl.close();
-  if (text === "/clear") {
-    messages.splice(1);
-    console.log(dim("Forgotten. A fresh conversation."));
-    return rl.prompt();
-  }
   busy = true;
-  await ask(text);
+  while (queue.length) {
+    const text = queue.shift();
+    if (text === "/exit" || text === "/quit") return rl.close();
+    if (text === "/clear") {
+      messages.splice(1);
+      console.log(dim("Forgotten. A fresh conversation."));
+      continue;
+    }
+    await ask(text);
+  }
   busy = false;
   rl.prompt();
+}
+
+function flush() {
+  clearTimeout(flushing);
+  const text = pending.join("\n").trim();
+  pending = [];
+  if (text) queue.push(text);
+  if (queue.length) void drain();
+  else if (!busy) rl.prompt();
+}
+
+// readline swallows the markers, so they're watched for on the raw input, before readline turns it into lines
+let inPaste = false;
+let afterPaste = false;
+process.stdin.prependListener("data", (chunk) => {
+  const s = chunk.toString();
+  if (s.includes(START)) pasting = true;
+  inPaste = pasting || s.includes(END);
+  if (s.includes(END)) {
+    pasting = false;
+    afterPaste = true;
+  }
+  // readline makes its lines from this chunk right after this, in the same tick
+  setImmediate(() => (inPaste = false));
+});
+
+rl.on("line", (raw) => {
+  pending.push(raw.split(START).join("").split(END).join(""));
+  // lines inside a paste wait for the rest of it
+  if (inPaste) return;
+  clearTimeout(flushing);
+  // the paste's last line comes with the Enter after it
+  if (afterPaste) {
+    afterPaste = false;
+    return flush();
+  }
+  // lines in a burst too fast to type are a paste without markers
+  flushing = setTimeout(flush, 40);
 });
 rl.on("close", () => process.exit(0));

@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 
 // a terminal, or a card that watches the one it came from
-export type SpawnKind = "claude" | "review" | "shell" | "changes" | "runs" | "plan" | "setup";
+// local and codex are a chat with the local model or Codex; their -review kinds review this terminal's turns, and
+// -changes review the folder's changes once
+export type SpawnKind = "claude" | "review" | "shell" | "changes" | "runs" | "plan" | "setup" | "local" | "local-review" | "local-changes" | "codex" | "codex-review" | "codex-changes";
 export interface SpawnOption {
   kind: SpawnKind;
   label: string;
