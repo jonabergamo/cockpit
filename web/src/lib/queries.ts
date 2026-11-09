@@ -18,6 +18,8 @@ export interface AppConfig {
   // the plugins in use for these, null when none is on
   tracker: { plugin: string; name: string } | null;
   codeHost: { plugin: string; name: string } | null;
+  // other machines are set up (Settings → Machines)
+  machines?: boolean;
   verify: boolean;
   preview: boolean;
   openCommand?: string;

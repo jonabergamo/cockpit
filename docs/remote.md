@@ -28,7 +28,7 @@ The hub always connects to the node, never the other way round. This means a hub
 
 1. On the node, set `role = "node"` (or run `cockpit node --adopt`), then run `cockpit service install`. It starts now and at every login. On Linux, `loginctl enable-linger` makes it start at boot.
 2. On the hub, set `role = "hub"`, then run `cockpit service install`. On a Mac this installs a launchd agent.
-3. On the hub, open Settings → Machines and add the node with its address, for example `devbox` or `100.x.y.z:8771`. With the Tailscale plugin on, its Machines screen lists your tailnet and has an "Add as node" button.
+3. On the hub, open Settings → Machines and add the node with its address, for example `devbox` or `100.x.y.z:8771`. With the Tailscale plugin on, Settings → Plugins has a "Machines on your tailnet" page that lists your tailnet with an "Add as node" button. Once a node is added, the Machines screen in the sidebar shows each machine and what is running on it.
 4. The hub shows a pairing command. Run it on the node:
 
    ```sh

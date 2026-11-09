@@ -11,13 +11,14 @@ export default function setup(k: Cockpit) {
     },
   });
 
-  // the tailnet's machines, for adding one as a node from the Machines screen
+  // the tailnet's machines, for adding one as a node from its page in Settings
   k.route("GET", "/peers", async () => {
     const st = JSON.parse(await k.run("tailscale", ["status", "--json"])) as { Self?: Peer; Peer?: Record<string, Peer> };
     const view = (p: Peer, self = false) => ({ name: p.HostName, dns: (p.DNSName ?? "").replace(/\.$/, ""), ip: p.TailscaleIPs?.[0] ?? "", os: p.OS ?? "", online: self || !!p.Online, self });
     return [...(st.Self ? [view(st.Self, true)] : []), ...Object.values(st.Peer ?? {}).map((p) => view(p))];
   });
-  k.screen({ id: "machines", title: "Machines", page: "assets/machines.html" });
+  // setup, so it's a page in Settings; the Machines screen shows what's running on each one
+  k.screen({ id: "machines", title: "Machines on your tailnet", page: "assets/machines.html", settings: true });
 }
 
 interface Peer {

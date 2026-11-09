@@ -6,13 +6,15 @@ import { ago } from "../lib/format";
 import { useLive } from "../lib/live";
 import { Button, ErrorNote, inputClass, Tag } from "./ui";
 
-interface MachinesRes {
+export interface MachinesRes {
   hub: string;
   role: "all" | "hub" | "node";
+  // this machine, told the same way a node tells the hub about itself
+  here?: NonNullable<Machine["info"]>;
   machines: Machine[];
 }
 
-const LOOK: Record<
+export const LOOK: Record<
   Machine["state"],
   { tone: "green" | "amber" | "red" | "faint"; label: string }
 > = {
@@ -194,6 +196,8 @@ export function MachinesSection() {
       setName("");
       setAddress("");
       qc.invalidateQueries({ queryKey: ["machines"] });
+      // the Machines screen joins the sidebar with the first one
+      qc.invalidateQueries({ queryKey: ["config"] });
     },
   });
   const show = useMutation({
@@ -205,7 +209,10 @@ export function MachinesSection() {
   });
   const remove = useMutation({
     mutationFn: (id: string) => api.del(`/machines/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["machines"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["machines"] });
+      qc.invalidateQueries({ queryKey: ["config"] });
+    },
   });
   const retry = (id: string) => api.post(`/machines/${id}/retry`);
   const d = q.data;

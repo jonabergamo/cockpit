@@ -45,6 +45,7 @@ const routes = [
   createRoute({ getParentRoute: () => root, path: "/code", component: lazyRouteComponent(() => import("./pages/Code"), "CodePage"), validateSearch: (s): { root?: string; file?: string; diff?: boolean } => ({ root: str(s.root), file: str(s.file), diff: s.diff === true || s.diff === "1" || undefined }) }),
   createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("./pages/Terminals"), "TerminalsPage"), validateSearch: (s): { id?: string; resume?: string; pid?: number; view?: "tabs" | "canvas"; ticket?: string } => ({ id: str(s.id), resume: str(s.resume), pid: s.pid ? Number(s.pid) : undefined, view: s.view === "canvas" || s.view === "tabs" ? s.view : undefined, ticket: str(s.ticket) }) }),
   moved("/canvas", "/terminals", { view: "canvas" }),
+  createRoute({ getParentRoute: () => root, path: "/machines", component: lazyRouteComponent(() => import("./pages/Machines"), "MachinesPage") }),
   createRoute({ getParentRoute: () => root, path: "/memory", component: lazyRouteComponent(() => import("./pages/Memory"), "MemoryPage"), validateSearch: (s): { path?: string } => ({ path: str(s.path) }) }),
   createRoute({ getParentRoute: () => root, path: "/usage", component: lazyRouteComponent(() => import("./pages/Hubs"), "UsageScreen") }),
   createRoute({ getParentRoute: () => root, path: "/weekly", component: lazyRouteComponent(() => import("./pages/Hubs"), "WeekScreen"), validateSearch: (s): { week?: string } => ({ week: str(s.week) }) }),

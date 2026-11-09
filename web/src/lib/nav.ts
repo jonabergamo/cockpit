@@ -10,7 +10,7 @@ export interface NavItem {
   key: string;
   plugin?: string;
   // hidden while no plugin provides it
-  needs?: "tracker" | "codeHost";
+  needs?: "tracker" | "codeHost" | "machines";
   // other routes that light this entry up, like the screens that became its tabs
   also?: string[];
   // stays in ⌘K and on its g shortcut while it's out of the sidebar
@@ -26,6 +26,7 @@ export const coreNav: NavItem[] = [
   { to: "/sessions", label: "Sessions", key: "s", also: ["/workflows"] },
   { to: "/reviews", label: "Reviews", key: "v", needs: "codeHost" as const },
   { to: "/report", label: "Reports", key: "r", also: ["/weekly", "/usage"] },
+  { to: "/machines", label: "Machines", key: "h", needs: "machines" as const },
   // out of the sidebar unless Settings turns them on: Code opens from links, Memory from Settings and ⌘K
   { to: "/code", label: "Code", key: "c" },
   { to: "/memory", label: "Memory & skills", key: "m", palette: true },

@@ -8,7 +8,7 @@ import { forward, serveApi } from "./remote/forward.ts";
 import { placementView, pluginOn, type Cap } from "./placement/where.ts";
 import { startAutomations, startHostServices, startHubServices } from "./startup.ts";
 import { addMachine, hubId, listMachines, pairCommandOf, removeMachine, retryMachine, startMachines } from "./remote/machines.ts";
-import { startNodeServer } from "./remote/node.ts";
+import { nodeInfo, startNodeServer } from "./remote/node.ts";
 import { resendSettings } from "./remote/sync.ts";
 import { refreshPlugins } from "./remote/plugins.ts";
 import { config, demo, paths } from "./config.ts";
@@ -57,6 +57,8 @@ export const appConfig = () => ({
   // which plugins provide these, so screens that need one can hide
   tracker: activeTracker() ? { plugin: activeTracker()!.plugin, name: activeTracker()!.tracker.name } : null,
   codeHost: activeCodeHost() ? { plugin: activeCodeHost()!.plugin, name: activeCodeHost()!.codeHost.name } : null,
+  // whether other machines are set up, so the Machines screen only shows when there's more than this one
+  machines: listMachines().length > 0,
   demo,
   hidden: getSettings().hidden,
   screens: pluginScreens(),
@@ -129,7 +131,7 @@ const plugins = new Hono()
 
 // the nodes this hub works with
 const machines = new Hono()
-  .get("/", (c) => c.json({ hub: hubId(), role: config.role, machines: listMachines() }))
+  .get("/", (c) => c.json({ hub: hubId(), role: config.role, here: nodeInfo(), machines: listMachines() }))
   .post("/", async (c) => {
     try {
       const { name, address } = await c.req.json<{ name: string; address: string }>();
