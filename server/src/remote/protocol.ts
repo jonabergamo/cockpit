@@ -1,6 +1,7 @@
 // The link between a hub and a node: one WebSocket carrying requests with answers, events, and a heartbeat that
 // notices a dead link (a laptop that slept, a dropped network) within seconds instead of waiting on TCP.
 // Written against a small Wire so tests can run both ends in memory.
+import type { MachineLoad } from "@cockpit/shared";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 // both ends must speak the same major version; a mismatch is refused with a clear message instead of misbehaving
@@ -33,7 +34,11 @@ export interface NodeInfo {
   terminals: number;
   // an NVIDIA GPU, which makes Whisper much faster
   gpu?: boolean;
+  // how busy it is, asked for again while the link is up
+  load?: MachineLoad;
 }
+
+export type { MachineLoad };
 
 export class LinkDown extends Error {
   status = 503;

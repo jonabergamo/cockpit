@@ -28,6 +28,7 @@ import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, reopen
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
+import { machineLoad } from "./load.ts";
 import { gpuProbed, hasGpu } from "../placement/where.ts";
 import { headlessHere, type Headless } from "../placement/headless.ts";
 import { applyUpdate, updateStatus } from "../update.ts";
@@ -77,7 +78,7 @@ export function pair(hub: string, token: string, replace = false) {
   return p;
 }
 
-export const nodeInfo = (): NodeInfo => ({ hostname: hostname(), platform: `${process.platform}-${process.arch}`, version: VERSION, terminals: localHost.terminals.list().filter((t) => t.state === "running").length, gpu: hasGpu() });
+export const nodeInfo = (): NodeInfo => ({ hostname: hostname(), platform: `${process.platform}-${process.arch}`, version: VERSION, terminals: localHost.terminals.list().filter((t) => t.state === "running").length, gpu: hasGpu(), load: machineLoad() });
 
 // Tailscale's addresses are 100.64.0.0/10; with listen = tailscale only those and this machine may connect
 export function fromTailnet(addr = "") {

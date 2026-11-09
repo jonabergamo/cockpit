@@ -16,7 +16,7 @@ export const usd = (n?: number) => (n === undefined || n === null ? "" : n < 0.0
 
 export function bytes(n?: number) {
   if (!n) return "";
-  const u = ["B", "KB", "MB", "GB"];
+  const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
   while (n >= 1024 && i < u.length - 1) {
     n /= 1024;

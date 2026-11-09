@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { Machine, Session, TermInfo, Worktree } from "@cockpit/shared";
+import type { Machine, MachineLoad, Session, TermInfo, Worktree } from "@cockpit/shared";
 import { LOOK, type MachinesRes } from "../components/Machines";
 import { Button, Empty, ErrorNote, Loading, PageHeader, Tag } from "../components/ui";
 import { api } from "../lib/api";
-import { ago, shortPath } from "../lib/format";
+import { ago, bytes, shortPath } from "../lib/format";
 import { useLive, useLiveSessions } from "../lib/live";
 import { useWorktrees } from "../lib/queries";
 import { statusLook } from "../lib/status";
@@ -13,7 +13,8 @@ import { statusLook } from "../lib/status";
 // terminals, the sessions going on it and its worktrees. Adding, pairing and where work goes stay in Settings.
 export function MachinesPage() {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["machines"], queryFn: () => api.get<MachinesRes>("/machines") });
+  // the nodes' load comes with the live machines event; this machine's own is asked for again
+  const q = useQuery({ queryKey: ["machines"], queryFn: () => api.get<MachinesRes>("/machines"), refetchInterval: 30_000 });
   useLive((ev) => ev.type === "machines" && qc.setQueryData<MachinesRes>(["machines"], (d) => d && { ...d, machines: ev.machines }), [qc]);
   const terms = useQuery({ queryKey: ["terms"], queryFn: () => api.get<TermInfo[]>("/code/terms"), refetchInterval: 15_000 });
   const worktrees = useWorktrees();
@@ -101,6 +102,8 @@ function MachineCard({
         )}
       </header>
 
+      {info?.load && state === "up" && <LoadBars load={info.load} />}
+
       <div className="grid grid-cols-3 border-y border-line text-center">
         <Stat to="/terminals" value={running.length} label={running.length === 1 ? "terminal" : "terminals"} />
         <Stat to="/sessions" value={live.length} label="working" note={waiting ? `${waiting} waiting for you` : undefined} />
@@ -135,6 +138,35 @@ function MachineCard({
         )}
       </div>
     </section>
+  );
+}
+
+// CPU, memory and disk as bars that turn amber past 80% and red past 90%
+function LoadBars({ load }: { load: MachineLoad }) {
+  const mem = load.memUsed !== undefined ? load.memUsed / load.memTotal : undefined;
+  const disk = load.diskTotal && load.diskFree !== undefined ? 1 - load.diskFree / load.diskTotal : undefined;
+  return (
+    <div className="grid grid-cols-3 gap-3 px-4 pb-3">
+      <Bar label="CPU" share={load.cpu === undefined ? undefined : load.cpu / 100} text={load.cpu === undefined ? "" : `${load.cpu}%`} />
+      <Bar label="Memory" share={mem} text={mem === undefined ? bytes(load.memTotal) : `${bytes(load.memUsed)} of ${bytes(load.memTotal)}`} />
+      <Bar label="Disk" share={disk} text={load.diskFree === undefined ? "" : `${bytes(load.diskFree)} free`} title={load.diskTotal ? `${bytes(load.diskTotal)} in all, on the disk the repo is on` : undefined} />
+    </div>
+  );
+}
+
+function Bar({ label, share, text, title }: { label: string; share?: number; text: string; title?: string }) {
+  const pct = share === undefined ? 0 : Math.min(100, Math.max(0, Math.round(share * 100)));
+  const tone = pct >= 90 ? "bg-red" : pct >= 80 ? "bg-amber" : "bg-cobalt";
+  return (
+    <div className="min-w-0" title={title}>
+      <div className="flex items-baseline gap-1 text-[12px]">
+        <span className="text-muted">{label}</span>
+        <span className={`ml-auto truncate tabular-nums ${pct >= 90 ? "text-red" : pct >= 80 ? "text-amber" : "text-faint"}`}>{text}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-line mt-1 overflow-hidden" role="meter" aria-label={label} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        {share !== undefined && <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />}
+      </div>
+    </div>
   );
 }
 

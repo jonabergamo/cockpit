@@ -418,7 +418,17 @@ export interface Machine {
   node?: string;
   rtt?: number;
   error?: string;
-  info?: { hostname: string; platform: string; version: string; terminals: number; gpu?: boolean };
+  info?: { hostname: string; platform: string; version: string; terminals: number; gpu?: boolean; load?: MachineLoad };
+}
+
+// How busy a machine is: cpu as a percentage of all its cores, memory and disk in bytes (the disk the repo is on)
+export interface MachineLoad {
+  cpu?: number;
+  memUsed?: number;
+  memTotal: number;
+  diskFree?: number;
+  diskTotal?: number;
+  at: number;
 }
 
 // A sidebar entry's indicator. live pulses while something runs, attention and failed are what needs you,

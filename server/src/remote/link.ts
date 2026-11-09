@@ -179,8 +179,20 @@ export class RemoteLink {
         this.set({ state: "up", node, info, error: undefined, rtt: undefined });
         const rtt = setInterval(() => channel.rtt !== undefined && channel.rtt !== this.status.rtt && this.set({ rtt: channel.rtt }), 10_000);
         rtt.unref?.();
+        // its terminals and how busy it is change, so ask again now and then; a node too old to say keeps what it said
+        const reinfo = setInterval(
+          () =>
+            channel.up &&
+            channel.request<NodeInfo>("info", undefined, 5000).then(
+              (i) => this.channel === channel && this.set({ info: i }),
+              () => undefined,
+            ),
+          30_000,
+        );
+        reinfo.unref?.();
         channel.onClose((why) => {
           clearInterval(rtt);
+          clearInterval(reinfo);
           // one that was replaced says nothing about the link
           if (this.channel !== channel) return;
           this.channel = undefined;
