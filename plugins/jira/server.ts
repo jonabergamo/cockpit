@@ -95,6 +95,38 @@ export default function setup(k: Cockpit) {
       return key;
     });
 
+  // With an email and API token set, reads go straight to Jira's REST API: one request returns a whole sprint
+  // with its points, where acli needs a view per ticket (and its views can hang for minutes). Without them,
+  // everything goes through acli as before. Writes (create, assign) stay on acli either way.
+  const hasRest = () => !!(s<string>("email")?.trim() && s<string>("apiToken")?.trim());
+  async function rest<T = any>(path: string, body?: unknown): Promise<T> {
+    const base = await site();
+    if (!base) throw new Error("couldn't tell the Jira site; log acli in with acli jira auth login");
+    const auth = Buffer.from(`${s<string>("email").trim()}:${s<string>("apiToken").trim()}`).toString("base64");
+    const res = await fetch(base + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { Authorization: `Basic ${auth}`, Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      const hint = res.status === 401 ? "; check the email and API token in Settings → Plugins → Jira" : res.status === 429 ? `; Jira is rate limiting, try again in ${res.headers.get("retry-after") ?? "a few"} seconds` : "";
+      throw new Error(`Jira ${res.status} on ${path.split("?")[0]}${hint}`);
+    }
+    return res.json() as Promise<T>;
+  }
+  // every issue a JQL query matches, a page at a time
+  async function jql(query: string, fieldList: string): Promise<any[]> {
+    const out: any[] = [];
+    let nextPageToken: string | undefined;
+    do {
+      const page = await rest<{ issues?: any[]; nextPageToken?: string }>("/rest/api/3/search/jql", { jql: query, fields: fieldList.split(","), maxResults: 100, nextPageToken });
+      out.push(...(page.issues ?? []));
+      nextPageToken = page.nextPageToken;
+    } while (nextPageToken && out.length < 2000);
+    return out;
+  }
+
   const points = () => s<string>("pointsField") || "customfield_10016";
   const fields = () => `summary,status,issuetype,assignee,parent,created,resolutiondate,statuscategorychangedate,${points()}`;
 
@@ -173,8 +205,12 @@ export default function setup(k: Cockpit) {
     return out;
   }
 
-  async function search(jql: string, inSprint: boolean, extra = "") {
-    const res = await acli(["workitem", "search", "--jql", jql, "--fields", LIST_FIELDS + extra, "--limit", "100"]);
+  async function search(query: string, inSprint: boolean, extra = "") {
+    if (hasRest()) {
+      const url = await site();
+      return (await jql(query, `${LIST_FIELDS}${extra},parent`)).map((i) => toTicket(i, url, inSprint));
+    }
+    const res = await acli(["workitem", "search", "--jql", query, "--fields", LIST_FIELDS + extra, "--limit", "100"]);
     const items: any[] = Array.isArray(res) ? res : (res.issues ?? []);
     const url = await site();
     return items.map((i) => toTicket(i, url, inSprint));
@@ -183,6 +219,8 @@ export default function setup(k: Cockpit) {
   // Search can't return the parent field, so each ticket's epic comes from its own view, kept a day per ticket
   // since a ticket rarely changes epics, even on a forced refresh. The epic's status can be a day old here.
   async function withParents(list: TrackerTicket[]): Promise<TrackerTicket[]> {
+    // the REST search already brought each ticket's parent
+    if (hasRest()) return list;
     const queue = list.filter((t) => !t.parent).map((t) => t.key);
     const found = new Map<string, any>();
     await Promise.all(
@@ -236,6 +274,15 @@ export default function setup(k: Cockpit) {
     // searches can't return custom fields, so each ticket is viewed for its points, kept a few hours
     async pointsOf(keys, force = false) {
       const out: Record<string, number | null> = {};
+      if (hasRest()) {
+        const all = [...new Set(keys)];
+        for (let i = 0; i < all.length; i += 100) {
+          const batch = all.slice(i, i + 100);
+          const found = await k.cache(`points-rest:${keysKey(batch)}:${points()}`, 6 * 3600_000, () => jql(`key in (${batch.join(",")})`, points()), force);
+          for (const it of found) out[it.key] = typeof it.fields?.[points()] === "number" ? it.fields[points()] : null;
+        }
+        return out;
+      }
       const queue = [...new Set(keys)];
       await Promise.all(
         Array.from({ length: 3 }, async () => {
@@ -264,6 +311,7 @@ export default function setup(k: Cockpit) {
       const list = statuses.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(", ");
       const past = day < new Date().toISOString().slice(0, 10);
       return k.cache(`was:${sprintId}:${day}:${statuses.join("|")}`, past ? 30 * 24 * 3600_000 : 10 * 60_000, async () => {
+        if (hasRest()) return (await jql(`sprint = ${sprintId} AND status WAS IN (${list}) ON "${day} 23:59"`, "summary")).map((i) => i.key as string);
         const res = await acli(["workitem", "search", "--jql", `sprint = ${sprintId} AND status WAS IN (${list}) ON "${day} 23:59"`, "--fields", "summary", "--limit", "500"]);
         const items: any[] = Array.isArray(res) ? res : (res.issues ?? []);
         return items.map((i) => i.key as string);
@@ -276,6 +324,20 @@ export default function setup(k: Cockpit) {
         `sprint:${id}`,
         maxAge,
         async () => {
+          if (hasRest()) {
+            // the board's view of the sprint, as acli's list-workitems and Jira's sprint report count it
+            const url = await site();
+            const issues: any[] = [];
+            const board = await boardId();
+            for (let startAt = 0; ; ) {
+              const page = await rest<{ issues?: any[]; total?: number }>(`/rest/agile/1.0/board/${board}/sprint/${id}/issue?fields=${fields()}&maxResults=100&startAt=${startAt}`);
+              const got = page.issues ?? [];
+              issues.push(...got);
+              startAt += got.length;
+              if (!got.length || startAt >= (page.total ?? 0)) break;
+            }
+            return issues.map((r) => toTicket(r, url, true));
+          }
           const pages = await acliPages(["sprint", "list-workitems", "--board", String(await boardId()), "--sprint", String(id), "--paginate", "--fields", "key"]);
           const url = await site();
           return (await viewMany(pages.flatMap((p) => p.issues ?? []).map((i: any) => i.key))).map((r) => toTicket(r, url, true));
@@ -342,7 +404,7 @@ export default function setup(k: Cockpit) {
       return made ?? { key, summary: t.summary, status: "To Do", inSprint: !!sprintId };
     },
     async epicInfo(key) {
-      const raw = await acli(["workitem", "view", key, "--fields", "summary,issuetype"]);
+      const raw = hasRest() ? await rest(`/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,issuetype`) : await acli(["workitem", "view", key, "--fields", "summary,issuetype"]);
       return { key: raw.key as string, summary: (raw.fields?.summary ?? "") as string, isEpic: raw.fields?.issuetype?.name === "Epic" };
     },
   });

@@ -3,7 +3,7 @@
   "name": "Jira",
   "version": "1.0.0",
   "api": 1,
-  "description": "Tickets, sprints and epics from Jira, through Atlassian's acli. Feeds Tickets, the Sprint report, Today and the worktree cleaner.",
+  "description": "Tickets, sprints and epics from Jira, through Atlassian's acli, or straight from Jira's API with an API token, which is much faster. Feeds Tickets, the Sprint report, Today and the worktree cleaner.",
   "author": "cockpit",
   "defaultOn": false,
   "settings": [
@@ -18,6 +18,18 @@
       "label": "Your name in Jira",
       "type": "text",
       "help": "Only these tickets count as yours in the sprint report"
+    },
+    {
+      "key": "email",
+      "label": "Atlassian email",
+      "type": "text",
+      "help": "With an API token, reads go straight to Jira's API instead of through acli, which is much faster for sprints"
+    },
+    {
+      "key": "apiToken",
+      "label": "API token",
+      "type": "secret",
+      "help": "Made at id.atlassian.com → Security → API tokens. Empty reads through acli"
     },
     {
       "key": "pointsField",
