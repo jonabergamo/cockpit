@@ -191,7 +191,11 @@ const machines = new Hono()
       const runs = placementView().map((p) => p.id).filter((cap) => (resolve(cap).machine ?? "local") === id);
       // a node only learns the quick model from the first question this hub sends it
       const model = getSettings().quick.model;
-      if (g.ollama && !g.ollama.quick && model && runs.includes("quick")) g.ollama.quick = { model, loaded: g.ollama.loaded.some((m) => m.name === model || m.name === `${model}:latest`) };
+      if (model && runs.includes("quick")) {
+        // quick answers go to a machine whose Ollama doesn't answer: that's worth a red line
+        if (!g.ollama) g.ollama = { up: false, url: getSettings().quick.url, loaded: [] };
+        if (!g.ollama.quick) g.ollama.quick = { model, loaded: g.ollama.loaded.some((m) => m.name === model || m.name === `${model}:latest`) };
+      }
       return c.json({ ...g, runs });
     } catch (e) {
       return fail(e);

@@ -121,8 +121,8 @@ async function models(g: Gear) {
   const ps = await quiet(
     fetch(`${url}/api/ps`, { signal: AbortSignal.timeout(2000) }).then((r) => (r.ok ? (r.json() as Promise<{ models?: { name: string; size: number; size_vram?: number; expires_at?: string }[] }>) : undefined)),
   );
-  // nothing to say on a machine without Ollama and without a quick model
-  if (!ps && !model) return;
+  // a machine without Ollama has nothing to say here; the hub says it's down if quick answers are sent to it
+  if (!ps) return;
   const loaded = (ps?.models ?? []).map((m) => ({ name: m.name, size: m.size, vram: m.size_vram ?? 0, until: m.expires_at }));
   g.ollama = {
     up: !!ps,
