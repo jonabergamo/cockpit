@@ -330,6 +330,9 @@ export interface Cockpit {
   readonly id: string;
   readonly dataDir: string;
   readonly assetsDir: string;
+  // what this machine is: the hub, one of its nodes, or both in one (a single machine on its own). A plugin with
+  // nodes: true runs on both, and listens for outside triggers only where it isn't a node.
+  readonly role: "all" | "hub" | "node";
   setting<T = string>(key: string): T;
   log(...args: unknown[]): void;
   store: { get<T>(key: string): T | undefined; set(key: string, value: unknown): void };
@@ -342,7 +345,8 @@ export interface Cockpit {
   theme(t: Theme): void;
   on(event: PluginEvent, fn: (data: unknown) => void): void;
   // runs a command with the plugin's env settings set (tokens and the like)
-  run(cmd: string, args: string[], opts?: { cwd?: string; input?: string }): Promise<string>;
+  // timeout is in ms, a minute when left out
+  run(cmd: string, args: string[], opts?: { cwd?: string; input?: string; timeout?: number }): Promise<string>;
   // session ties the terminal to a Claude session it resumes; run records what it runs as a run, with its output
   // and exit code, and the run's id comes back as runId. It opens as a split beside the Claude terminal of the same
   // folder when there is one; beside: false makes it a tab of its own

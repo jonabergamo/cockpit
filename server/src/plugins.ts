@@ -260,6 +260,7 @@ function makeApi(p: Plugin): Cockpit {
     id,
     dataDir,
     assetsDir: join(p.dir, "assets"),
+    role: config.role,
     setting: <T>(key: string) => settingValue(p, key) as T,
     log: (...a) => say(p, ...a),
     store: {

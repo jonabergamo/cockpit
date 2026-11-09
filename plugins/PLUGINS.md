@@ -98,6 +98,7 @@ What `k` offers:
 | | |
 |---|---|
 | `k.id`, `k.dataDir`, `k.assetsDir` | Your id. A folder for your files, kept out of your plugin folder. Your `assets/` folder. |
+| `k.role` | `"hub"`, `"node"` or `"all"` (one machine on its own). A plugin with `nodes: true` runs on both, so listen for outside triggers only where it isn't `"node"`. |
 | `k.setting(key)` | A setting's value, or its default. |
 | `k.log(...)` | A line in your log, shown in Settings. The last 200 lines are kept. |
 | `k.store.get(key)` / `k.store.set(key, value)` | Small JSON values kept in cockpit's database. |
@@ -105,7 +106,7 @@ What `k` offers:
 | `k.screen({ id, title, page, settings })` | Adds a screen to the sidebar and ⌘K, at `/p/<id>/<screen>`. `page` is a file in your folder. With `settings: true` it's a page of settings instead: it's listed on the Settings page, not in the sidebar, and ⌘K still finds it. |
 | `k.theme(theme)` | Adds a theme from code, for themes you generate. Static ones go in `themes/`. |
 | `k.on(event, fn)` | `session.started`, `session.waiting` (Claude asked you something: a question, a permission prompt, a dialog), `session.idle` (it finished its turn), `session.ended`, `session.stuck`, `worktree.created`, `worktree.removed`, `terminal.opened`, `terminal.exited` (`{ id, code, run }`), `notify`, `task.started`, `task.done`, `autopilot.acted`, `verify.done`, `run.started` and `run.done` (each with the run). |
-| `k.run(cmd, args, { cwd, input })` | Runs a command and resolves with its output, with your `env` settings set. |
+| `k.run(cmd, args, { cwd, input, timeout })` | Runs a command and resolves with its output, with your `env` settings set. `timeout` is in ms, a minute by default. |
 | `k.terminal({ cwd, title, command, args, run })` | Opens a cockpit terminal. With `run: { kind, name, ticket }`, its command is recorded as a run with its output and exit code, and the result has the run's id as `runId`. |
 | `k.claude({ cwd, prompt, title })` | Opens the main agent in a terminal with the prompt: Claude Code, or the agent picked in Settings → Board and automation. For another agent, a prompt that calls a skill as `/name ...` becomes "Use the name skill. ...", which is how those agents find skills. |
 | `k.notify({ title, body, link, urgent })` | Shows a cockpit notification. `urgent` marks the second nudge for a session left waiting, and autopilot giving up. |
