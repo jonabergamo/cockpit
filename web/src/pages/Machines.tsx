@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { Machine, MachineLoad, Session, TermInfo, Worktree } from "@cockpit/shared";
+import { Bar, GearCards } from "../components/MachineGear";
 import { LOOK, type MachinesRes } from "../components/Machines";
 import { Button, Empty, ErrorNote, Loading, PageHeader, Tag } from "../components/ui";
 import { api } from "../lib/api";
@@ -44,6 +45,11 @@ export function MachinesPage() {
           />
           {d.machines.map((m) => (
             <MachineCard key={m.id} machine={m} name={m.name} role="node" info={m.info} terms={on(terms.data, m.id)} sessions={on(sessions, m.id)} worktrees={on(worktrees.data, m.id)} />
+          ))}
+          {/* simulators and devices, the GPU and local models: a card each, for the machines that have them */}
+          <GearCards id="local" name={d.here?.hostname ?? "This machine"} up />
+          {d.machines.map((m) => (
+            <GearCards key={m.id} id={m.id} name={m.name} up={m.state === "up"} />
           ))}
         </div>
       )}
@@ -150,22 +156,6 @@ function LoadBars({ load }: { load: MachineLoad }) {
       <Bar label="CPU" share={load.cpu === undefined ? undefined : load.cpu / 100} text={load.cpu === undefined ? "" : `${load.cpu}%`} />
       <Bar label="Memory" share={mem} text={mem === undefined ? bytes(load.memTotal) : `${bytes(load.memUsed)} of ${bytes(load.memTotal)}`} />
       <Bar label="Disk" share={disk} text={load.diskFree === undefined ? "" : `${bytes(load.diskFree)} free`} title={load.diskTotal ? `${bytes(load.diskTotal)} in all, on the disk the repo is on` : undefined} />
-    </div>
-  );
-}
-
-function Bar({ label, share, text, title }: { label: string; share?: number; text: string; title?: string }) {
-  const pct = share === undefined ? 0 : Math.min(100, Math.max(0, Math.round(share * 100)));
-  const tone = pct >= 90 ? "bg-red" : pct >= 80 ? "bg-amber" : "bg-cobalt";
-  return (
-    <div className="min-w-0" title={title}>
-      <div className="flex items-baseline gap-1 text-[12px]">
-        <span className="text-muted">{label}</span>
-        <span className={`ml-auto truncate tabular-nums ${pct >= 90 ? "text-red" : pct >= 80 ? "text-amber" : "text-faint"}`}>{text}</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-line mt-1 overflow-hidden" role="meter" aria-label={label} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-        {share !== undefined && <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />}
-      </div>
     </div>
   );
 }

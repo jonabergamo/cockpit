@@ -15,17 +15,39 @@ export interface QuickAsk {
 
 export const quickOn = () => !!getSettings().quick.model;
 
+// how the quick answers went on this machine, for the Machines screen: the last few times, and failures since start
+const stats = { times: [] as number[], at: undefined as number | undefined, failed: 0, model: undefined as string | undefined, url: undefined as string | undefined };
+export const quickStatsHere = () => ({
+  model: stats.model,
+  url: stats.url,
+  at: stats.at,
+  failed: stats.failed,
+  lastMs: stats.times.at(-1),
+  avgMs: stats.times.length ? Math.round(stats.times.reduce((a, b) => a + b, 0) / stats.times.length) : undefined,
+});
+
 // on this machine; a node answers its hub's with this too
 export async function quickHere(q: QuickAsk, timeoutMs = 60_000): Promise<string> {
-  const res = await fetch(`${q.url.replace(/\/$/, "")}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: q.model, prompt: q.prompt, stream: false, options: { temperature: 0, num_predict: q.max } }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Ollama said ${res.status}`);
-  const d = (await res.json()) as { response?: string };
-  return (d.response ?? "").trim();
+  const start = Date.now();
+  stats.model = q.model;
+  stats.url = q.url;
+  try {
+    const res = await fetch(`${q.url.replace(/\/$/, "")}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: q.model, prompt: q.prompt, stream: false, options: { temperature: 0, num_predict: q.max } }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`Ollama said ${res.status}`);
+    const d = (await res.json()) as { response?: string };
+    stats.times = [...stats.times, Date.now() - start].slice(-20);
+    return (d.response ?? "").trim();
+  } catch (e) {
+    stats.failed++;
+    throw e;
+  } finally {
+    stats.at = Date.now();
+  }
 }
 
 // The answer, or undefined. A model that isn't loaded yet can take half a minute, so callers in a hurry give a

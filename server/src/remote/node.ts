@@ -29,6 +29,8 @@ import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
 import { machineLoad } from "./load.ts";
+import { gearAct, gearHere } from "./gear.ts";
+import type { GearAction } from "@cockpit/shared";
 import { gpuProbed, hasGpu } from "../placement/where.ts";
 import { headlessHere, type Headless } from "../placement/headless.ts";
 import { applyUpdate, updateStatus } from "../update.ts";
@@ -133,6 +135,8 @@ export const wsWire = (ws: WebSocket): Wire => ({
 // what a node answers once a hub is in: about itself, and its terminals, which the hub shows as its own
 export function serve(c: Channel) {
   c.handle("info", () => nodeInfo());
+  c.handle("gear", () => gearHere());
+  c.handle("gear.act", (a) => gearAct(a as GearAction));
   c.handle("term.list", async () => (await reopened(), localTerms()));
   c.handle("term.spawn", (o: SpawnOpts) => spawnTerm(o));
   c.handle("term.kill", ({ id }: { id: string }) => kill(id));

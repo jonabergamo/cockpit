@@ -421,6 +421,45 @@ export interface Machine {
   info?: { hostname: string; platform: string; version: string; terminals: number; gpu?: boolean; load?: MachineLoad };
 }
 
+// What a machine has plugged in or running for testing apps and for local models. Each part is there only when
+// the machine has the tools for it: simulators with Xcode, emulators with the Android SDK, gpu with nvidia-smi.
+export interface Gear {
+  // iOS simulators that can run, booted ones first
+  sims?: { udid: string; name: string; runtime: string; booted: boolean }[];
+  // Android virtual devices, with the adb serial of the running emulator
+  avds?: { name: string; serial?: string }[];
+  // real phones: Android over adb, iPhones paired with this Mac
+  phones?: { id: string; name: string; kind: "android" | "ios"; connected: boolean }[];
+  gpu?: {
+    name: string;
+    util: number;
+    memUsed: number;
+    memTotal: number;
+    temp?: number;
+    // what holds GPU memory, with what it is to cockpit when it can tell
+    apps: { pid: number; name: string; mem: number; what?: "ollama" | "whisper" }[];
+  };
+  ollama?: {
+    up: boolean;
+    url: string;
+    // models in memory, and how much of each is on the GPU
+    loaded: { name: string; size: number; vram: number; until?: string }[];
+    // the quick answers' model and how long its last answers took here
+    quick?: { model: string; loaded: boolean; lastMs?: number; avgMs?: number; at?: number; failed?: number };
+  };
+  whisper?: { installed: boolean; running: boolean };
+  // the kinds of work Settings → Machines sends to this machine
+  runs?: ("whisper" | "quick" | "headless" | "automations")[];
+  at: number;
+}
+
+export type GearAction =
+  | { do: "sim.boot" | "sim.shutdown"; udid: string }
+  | { do: "sim.install"; udid: string; path: string }
+  | { do: "avd.start"; name: string }
+  | { do: "avd.stop"; serial: string }
+  | { do: "apk.install"; serial: string; path: string };
+
 // How busy a machine is: cpu as a percentage of all its cores, memory and disk in bytes (the disk the repo is on)
 export interface MachineLoad {
   cpu?: number;

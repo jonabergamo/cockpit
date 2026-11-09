@@ -5,7 +5,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { auth } from "./auth.ts";
 import { forward, serveApi } from "./remote/forward.ts";
-import { placementView, pluginOn, type Cap } from "./placement/where.ts";
+import { placementView, pluginOn, resolve, type Cap } from "./placement/where.ts";
+import { gearAct, gearHere } from "./remote/gear.ts";
 import { startAutomations, startHostServices, startHubServices } from "./startup.ts";
 import { addMachine, hubId, listMachines, pairCommandOf, removeMachine, retryMachine, startMachines } from "./remote/machines.ts";
 import { nodeInfo, startNodeServer } from "./remote/node.ts";
@@ -21,7 +22,7 @@ import { detectBilling, getSettings, putSettings } from "./settings.ts";
 import { repoState } from "./worktrees.ts";
 import { nodesUp, repoNode, requestWork } from "./remote/work.ts";
 import { applyUpdate, changesBetween, currentCommit, updateStatus } from "./update.ts";
-import type { UpdateStatus } from "@cockpit/shared";
+import type { Gear, GearAction, UpdateStatus } from "@cockpit/shared";
 import { install as installPlugin, preview as installPreview, uninstall, updatePreview } from "./pluginInstall.ts";
 import { tasks } from "./routes/tasks.ts";
 import { agents } from "./routes/agents.ts";
@@ -182,6 +183,29 @@ const machines = new Hono()
     }
   })
   .post("/:id/retry", (c) => c.json((retryMachine(c.req.param("id")), { ok: true })))
+  // simulators, phones, the GPU and local models on a machine ("local" for this one), and what to do with them
+  .get("/:id/gear", async (c) => {
+    const id = c.req.param("id");
+    try {
+      const g = id === "local" ? await gearHere() : await requestWork<Gear>(id, "gear", undefined, 20_000);
+      const runs = placementView().map((p) => p.id).filter((cap) => (resolve(cap).machine ?? "local") === id);
+      // a node only learns the quick model from the first question this hub sends it
+      const model = getSettings().quick.model;
+      if (g.ollama && !g.ollama.quick && model && runs.includes("quick")) g.ollama.quick = { model, loaded: g.ollama.loaded.some((m) => m.name === model || m.name === `${model}:latest`) };
+      return c.json({ ...g, runs });
+    } catch (e) {
+      return fail(e);
+    }
+  })
+  .post("/:id/gear", async (c) => {
+    const id = c.req.param("id");
+    try {
+      const a = await c.req.json<GearAction>();
+      return c.json(id === "local" ? await gearAct(a) : await requestWork<Gear>(id, "gear.act", a, 200_000));
+    } catch (e) {
+      return fail(e);
+    }
+  })
   .delete("/:id", (c) => {
     try {
       removeMachine(c.req.param("id"));
