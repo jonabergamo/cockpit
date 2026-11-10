@@ -3,7 +3,12 @@ import { listSessions } from "../claude/sessions.ts";
 import { tracker } from "../providers.ts";
 import { DEFAULT_NOTES_PROMPT, generateNotes, savedNotes, sprintBrief } from "../notes.ts";
 import { activity, dailyText, sayDo, sprintReport, takeSnapshot, weekly } from "../report.ts";
+import { waitsEverywhere } from "../remote/sessions.ts";
 import { day } from "../util.ts";
+import { waitTotals } from "../waits.ts";
+
+// a day runs until this hour the next morning, so a late night stays on the day it began
+const ROLLOVER_H = 5;
 
 export const report = new Hono()
   .get("/sprint", async (c) => {
@@ -44,12 +49,21 @@ export const report = new Hono()
       return c.json({ error: (e as Error).message }, 404);
     }
   })
-  // sessions that overlap a given day, for the "my day" timeline
+  // sessions that overlap a given day, for the "my day" timeline, and how long they waited on you in it
   .get("/day", async (c) => {
-    const date = c.req.query("date") ?? day(new Date());
-    const start = new Date(`${date}T00:00:00`).getTime();
-    const end = start + 864e5;
-    const sessions = listSessions({ limit: 5000 }).filter((s) => s.startedAt < end && s.updatedAt >= start);
-    const [act] = await activity(date, date);
-    return c.json({ ...act, date, sessions, costBySession: act.sessions });
+    const date = c.req.query("date") ?? day(Date.now() - ROLLOVER_H * 3600_000);
+    const start = new Date(`${date}T00:00:00`);
+    start.setHours(ROLLOVER_H);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    const [from, to] = [start.getTime(), end.getTime()];
+    const all = listSessions({ limit: 5000 });
+    const sessions = all.filter((s) => s.startedAt < to && s.updatedAt >= from);
+    const [[next, act], found] = await Promise.all([activity(date, day(end)), waitsEverywhere(from, to)]);
+    // the commits of the small hours belong to the night before
+    const commits = [...act.commits, ...next.commits].filter((x) => Date.parse(x.at) >= from && Date.parse(x.at) < to).sort((a, b) => a.at.localeCompare(b.at));
+    const byId = new Map(all.map((s) => [s.id, s]));
+    const waits = found.map((w) => ({ ...w, title: byId.get(w.session)?.title ?? byId.get(w.session)?.name, ticket: byId.get(w.session)?.ticket }));
+    const { ms, longest } = waitTotals(waits, from, to);
+    return c.json({ ...act, commits, date, from, to, sessions, costBySession: act.sessions, waits, waited: { ms, longest } });
   });

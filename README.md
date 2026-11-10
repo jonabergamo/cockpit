@@ -70,7 +70,7 @@ Cockpit puts all of that behind one port. It's a server you run yourself, and no
 - **Review before the PR.** Read a worker's diff, leave notes on its lines and send them all to its session as one message.
 - **Runs.** Tests, lint, typechecks, audits, E2E runs and their videos, verify and CI checks in one list, each linked to its ticket and worktree, with its output, steps and videos. They come from a Claude Code hook, the `cockpit run` wrapper, terminals and plugins. A failed run can be sent to the Claude session that ran it, or run again in a terminal. The Flaky tab lists the checks that passed and failed on the same commit, or fail about half the time; a failed run of one is marked flaky, and autopilot runs a PR's flaky checks again once before handing it to Claude.
 - **Previews.** With `repo.devCommand` set, the Board starts a worktree's dev server on a free port and shows it.
-- **While you were away.** After a break, Today lists what finished, failed or waited for you. The Phone push plugin sends notifications to ntfy or Pushover, plus a second, urgent one for a session left waiting. Focus mode, from the header or ⌘K for 25, 50 or 90 minutes or until you end it, holds the "Claude finished" notifications (on screen and pushed) in a Ready for you list on Today and sends one summary when it ends; a session waiting on you, a failure or a stuck one still comes through.
+- **While you were away.** After a break, Today lists what finished, failed or waited for you. The Phone push plugin sends notifications to ntfy or Pushover, plus a second, urgent one for a session left waiting. Focus mode, from the header or ⌘K for 25, 50 or 90 minutes or until you end it, holds the "Claude finished" notifications (on screen and pushed) in a Ready for you list on Today and sends one summary when it ends; a session waiting on you, a failure or a stuck one still comes through. Every stretch a session waits on you is kept: My day on Today draws them in amber, says how long the agents waited on you and which wait was longest, and the Week tab adds up the week.
 - **Transcripts.** Any session in full, with tool calls, subagents and cost, updating as it runs. Full-text search covers everything said in every session.
 - **Browser terminals.** They run in tmux, so they survive a page reload or a server restart. After a reboot, cockpit opens them again: Claude Code and Codex sessions resume where they were, and plain shells open in the same folder. You get split shells next to Claude, search, copy on select and clickable links, and you can paste or drop images straight into Claude.
 - **Review lines on the canvas.** A line between two terminals passes each finished turn of one agent to the other. On a review line the reviewer gets the turn's git diff along with what the agent said, with lock and binary files named only. You can turn the diff off per line.
@@ -200,7 +200,7 @@ Your tickets on their way to done, each with the step that moves it on, and the 
 
 ### Today
 
-How much of your work is in each column on Work, the first things that need you, the sprint and your day on a timeline.
+How much of your work is in each column on Work, the first things that need you, the sprint and your day on a timeline that runs from your first activity to your last, past midnight on a late night.
 
 <img src="docs/today.webp" alt="Today page with tickets in flight, sessions waiting for you and a timeline of the day">
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { Ticket } from "@cockpit/shared";
 import { api, qs } from "../lib/api";
 import { useCost } from "../lib/cost";
-import { today, usd } from "../lib/format";
+import { duration, today, usd } from "../lib/format";
 import { Button, copy, ErrorNote, inputClass, Loading, PageHeader, Tag } from "../components/ui";
 import { useAgentName } from "../lib/agent";
 
@@ -13,6 +13,7 @@ interface Weekly {
   to: string;
   shipped: { prs: { number: number; title: string; url: string; ticket?: string; at: string }[]; tickets: { key: string; summary: string; status: string; url?: string }[] };
   stuck: { title: string; ticket?: string; why: string; days: number; card: string }[];
+  waited?: { ms: number; count: number; longest?: { ms: number; title?: string; ticket?: string } };
   usage: { tokens: number; output: number; lastWeek: number; costUSD?: number; sessions: number; perDay: { date: string; tokens: number }[] };
   top: { sessions: { id: string; title: string; ticket?: string; tokens: number; costUSD?: number }[]; tickets: { ticket: string; tokens: number; costUSD?: number; sessions: number }[] };
 }
@@ -101,6 +102,7 @@ export function WeeklyPage() {
             <Days days={d.usage.perDay} />
             <p className="px-4 py-2 text-[12px] text-faint">
               Input, output and cache writes across {d.usage.sessions} sessions{!cost.hidden && d.usage.costUSD !== undefined ? `, ${usd(d.usage.costUSD)} as ${cost.label.toLowerCase()}` : ""}.
+              {d.waited?.ms ? ` Agents waited ${duration(d.waited.ms)} on you across ${d.waited.count} ${d.waited.count === 1 ? "wait" : "waits"}${d.waited.longest ? `, the longest ${duration(d.waited.longest.ms)} on ${d.waited.longest.ticket ?? d.waited.longest.title ?? "a session"}` : ""}.` : ""}
             </p>
           </Section>
 

@@ -493,7 +493,12 @@ export function mountDemo(app: Hono) {
     },
     "/api/report/daily": () => new Response(daily),
     "/api/report/weekly": ok({ from: day(now - 6 * 24 * H), to: day(now), released: tickets.filter((t) => ["Done", "Ready to release"].includes(t.status)), prsMerged: prs.mine.filter((p) => p.mergedAt), prsOpened: [], commits: 38, costUSD: 44.6, sessions: 12 }),
-    "/api/report/day": ok({ date: day(now), sessions: sessions.filter((s) => s.status !== "ended"), commits: [1.5, 2.6, 4.1].map((h, i) => ({ sha: `c${i}`, subject: "feat: saved cards", at: iso(now - h * H) })), costUSD: 13.28, transitions: [], prsOpened: [], prsMerged: [] }),
+    "/api/report/day": (() => {
+      const live = sessions.filter((s) => s.status !== "ended");
+      const waits = live.slice(0, 2).map((s, i) => ({ session: s.id, from: now - (2.2 - i) * H, to: now - (1.6 - i * 0.9) * H, what: i ? "asks whether to keep the old API" : "wants to run pnpm db:reset", title: s.title, ticket: s.ticket }));
+      const longest = waits.map((w) => ({ ...w, ms: w.to - w.from })).sort((x, y) => y.ms - x.ms)[0];
+      return ok({ date: day(now), sessions: live, commits: [1.5, 2.6, 4.1].map((h, i) => ({ sha: `c${i}`, subject: "feat: saved cards", at: iso(now - h * H) })), costUSD: 13.28, transitions: [], prsOpened: [], prsMerged: [], waits, waited: { ms: waits.reduce((n, w) => n + w.to - w.from, 0), longest } });
+    })(),
   };
 
   app.use("/api/*", async (c, next) => {

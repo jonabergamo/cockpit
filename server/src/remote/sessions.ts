@@ -6,6 +6,7 @@ import { searchSessions } from "../claude/search.ts";
 import { getSession, listSessions, useRemoteSessions } from "../claude/sessions.ts";
 import { broadcast } from "../hub.ts";
 import type { RemoteLink } from "./link.ts";
+import { waitsBetween, type Wait } from "../waits.ts";
 
 const REFRESH_MS = 60_000;
 const LIMIT = 500;
@@ -71,6 +72,14 @@ export function addSessionLink(machine: string, link: RemoteLink) {
   // refresh() does nothing while the link is down, so this runs for as long as the machine is here
   n.timer = setInterval(() => void refresh(machine), REFRESH_MS);
   n.timer.unref?.();
+}
+
+// this machine's waits and each connected node's, for the sessions that ran there; a node that's away adds none
+export async function waitsEverywhere(from: number, to: number): Promise<Wait[]> {
+  const theirs = await Promise.all(
+    [...nodes.values()].filter((n) => n.link.status.state === "up").map((n) => n.link.request<Wait[]>("sessions.waits", { from, to }, 10_000).catch(() => [] as Wait[])),
+  );
+  return [...waitsBetween(from, to), ...theirs.flat()];
 }
 
 export function removeSessionLink(machine: string) {

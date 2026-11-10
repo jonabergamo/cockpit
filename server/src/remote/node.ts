@@ -26,6 +26,7 @@ import { templateFor } from "../templates.ts";
 import { cleanChecked, createWorktree, deleteChecked, listWorktrees, repoState } from "../worktrees.ts";
 import { slugify } from "../util.ts";
 import { markTree, turnChanges } from "../turndiff.ts";
+import { waitsBetween } from "../waits.ts";
 import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, onTermTurn, reopened, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
@@ -170,6 +171,7 @@ export function serve(c: Channel) {
   // a reply typed in on the hub is kept here, where the session and its settings are
   c.handle("session.send", ({ id, text }: { id: string; text: string }) => answering(id, { text }, () => sendText(id, text)));
   c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => answering(id, { keys }, () => sendKeys(id, keys)));
+  c.handle("sessions.waits", ({ from, to }: { from: number; to: number }) => waitsBetween(from, to));
   c.handle("sessions.search", ({ q, limit, any }: { q: string; limit?: number; any?: boolean }) => searchSessions(q, limit, any));
   // its repo: worktrees, the folders the code view opens and what's in them, and the jobs that change them
   c.handle("worktrees.list", async ({ status }: { status?: boolean }) => ({ state: repoState(), worktrees: await listWorktrees(!!status) }));

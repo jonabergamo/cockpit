@@ -9,7 +9,7 @@ import { SetupBanner } from "../components/SetupSection";
 import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { ErrorNote, Loading } from "../components/ui";
 import { api } from "../lib/api";
-import { shortPath, time, today, usd } from "../lib/format";
+import { duration, shortPath, time, today, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
 import { useAppConfig, usePrs } from "../lib/queries";
 import { useBoard } from "./Board";
@@ -21,6 +21,20 @@ interface DayRes {
   sessions: Session[];
   commits: { sha: string; subject: string; at: string; ticket?: string }[];
   costUSD: number;
+  // the day's span, from its morning to the small hours of the next
+  from?: number;
+  to?: number;
+  waits?: Wait[];
+  waited?: { ms: number; longest?: Wait & { ms: number } };
+}
+
+interface Wait {
+  session: string;
+  from: number;
+  to?: number;
+  what?: string;
+  title?: string;
+  ticket?: string;
 }
 
 interface ReportLite {
@@ -28,33 +42,78 @@ interface ReportLite {
   sprint: { name: string };
 }
 
-// Hours 7 to 21 laid out left to right, with each session as a bar and commits as ticks.
+const HOUR = 3600_000;
+const MIN_SPAN = 8 * HOUR;
+
+// From a little before the day's first activity to a little after its last, on the hour, at least MIN_SPAN wide and
+// never outside the day (which runs on past midnight to the small hours of the next morning).
+function dayRange(times: number[], from: number, to: number) {
+  const inDay = times.filter((t) => t >= from && t <= to);
+  const first = inDay.length ? Math.min(...inDay) : from + 4 * HOUR;
+  const last = inDay.length ? Math.max(...inDay) : first;
+  const onHour = (t: number, up: boolean) => {
+    const d = new Date(t);
+    const exact = d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0;
+    d.setMinutes(0, 0, 0);
+    return up && !exact ? d.getTime() + HOUR : d.getTime();
+  };
+  let start = Math.max(from, onHour(first - HOUR / 2, false));
+  let end = Math.min(to, onHour(last + HOUR / 2, true));
+  if (end - start < MIN_SPAN) {
+    end = Math.min(to, start + MIN_SPAN);
+    start = Math.max(from, end - MIN_SPAN);
+  }
+  return { start, end };
+}
+
+// The day's span laid out left to right, with each session as a bar, the stretches it waited on you in amber on
+// it, and commits as ticks.
 function DayStrip({ day }: { day: DayRes }) {
-  const start = new Date(`${day.date}T07:00:00`).getTime();
-  const end = new Date(`${day.date}T21:00:00`).getTime();
+  const now = Date.now();
+  const from = day.from ?? new Date(`${day.date}T05:00:00`).getTime();
+  const to = day.to ?? from + 24 * HOUR;
+  const waits = day.waits ?? [];
+  const sessions = day.sessions.filter((s) => s.updatedAt - s.startedAt > 60_000 || waits.some((w) => w.session === s.id)).slice(0, 12);
+  const endOf = (s: Session) => (s.status === "waiting" ? now : s.updatedAt);
+  const { start, end } = dayRange(
+    [...sessions.flatMap((s) => [Math.max(s.startedAt, from), Math.min(endOf(s), to)]), ...day.commits.map((c) => Date.parse(c.at)), ...waits.flatMap((w) => [w.from, w.to ?? now])],
+    from,
+    to,
+  );
   const pct = (t: number) => Math.min(100, Math.max(0, ((t - start) / (end - start)) * 100));
-  const hours = Array.from({ length: 8 }, (_, i) => 7 + i * 2);
-  const sessions = day.sessions.filter((s) => s.updatedAt - s.startedAt > 60_000).slice(0, 12);
+  const step = Math.ceil((end - start) / HOUR / 8) * HOUR;
+  const hours = Array.from({ length: Math.floor((end - start) / step) + 1 }, (_, i) => start + i * step);
 
   return (
     <div>
+      <WaitedLine day={day} />
       <div className="relative h-5 text-[11px] text-faint">
-        {hours.map((h) => (
-          <span key={h} className="absolute -translate-x-1/2" style={{ left: `${((h - 7) / 14) * 100}%` }}>
-            {h}:00
+        {hours.map((h, i) => (
+          <span key={h} className={`absolute ${i === 0 ? "" : i === hours.length - 1 && pct(h) === 100 ? "-translate-x-full" : "-translate-x-1/2"}`} style={{ left: `${pct(h)}%` }}>
+            {new Date(h).getHours()}:00
           </span>
         ))}
       </div>
       <div className="space-y-1">
         {sessions.map((s) => {
           const l = pct(s.startedAt);
-          const w = Math.max(pct(s.updatedAt) - l, 0.8);
+          const w = Math.max(pct(endOf(s)) - l, 0.8);
           return (
             <Link key={s.id} to="/sessions/$id" params={{ id: s.id }} className="relative block h-5 bg-ground rounded group" title={`${s.title ?? s.id}\n${time(s.startedAt)} to ${time(s.updatedAt)}`}>
-              <span
-                className={`absolute top-0 bottom-0 rounded-[4px] ${s.status === "busy" ? "bg-cobalt" : s.status === "waiting" ? "bg-amber" : "bg-cobalt/45"} group-hover:brightness-110`}
-                style={{ left: `${l}%`, width: `${w}%` }}
-              />
+              <span className={`absolute top-0 bottom-0 rounded-[4px] ${s.status === "busy" ? "bg-cobalt" : "bg-cobalt/45"} group-hover:brightness-110`} style={{ left: `${l}%`, width: `${w}%` }} />
+              {waits
+                .filter((x) => x.session === s.id)
+                .map((x) => {
+                  const wl = pct(x.from);
+                  return (
+                    <span
+                      key={x.from}
+                      title={`${x.what ? `Wanted: ${x.what}` : "Waited on you"}\n${duration((x.to ?? now) - x.from) || "under a minute"}${x.to ? "" : " so far"}, ${time(x.from)} to ${x.to ? time(x.to) : "now"}`}
+                      className="absolute top-0 bottom-0 rounded-[3px] bg-amber"
+                      style={{ left: `${wl}%`, width: `${Math.max(pct(x.to ?? now) - wl, 0.5)}%` }}
+                    />
+                  );
+                })}
               <span className="absolute inset-y-0 left-1.5 flex items-center text-[11px] text-ink/80 truncate max-w-[60%] pointer-events-none">{s.title ?? shortPath(s.cwd)}</span>
             </Link>
           );
@@ -67,6 +126,29 @@ function DayStrip({ day }: { day: DayRes }) {
       </div>
       {!sessions.length && !day.commits.length && <div className="text-muted text-[13px]">Nothing yet today.</div>}
     </div>
+  );
+}
+
+// "Agents waited 1h 40m on you today · longest: Fix login, 38m"
+function WaitedLine({ day }: { day: DayRes }) {
+  const w = day.waited;
+  if (!w?.ms) return null;
+  const l = w.longest;
+  const name = l && (l.ticket && l.title ? `${l.ticket} ${l.title}` : (l.ticket ?? l.title ?? "a session"));
+  return (
+    <p className="text-[13px] text-muted mb-2">
+      <span className="inline-block size-2 rounded-full bg-amber mr-1.5" />
+      Agents waited <span className="text-ink font-medium">{duration(w.ms)}</span> on you today
+      {l && l.ms > 0 && (
+        <>
+          {" · longest: "}
+          <Link to="/sessions/$id" params={{ id: l.session }} className="hover:underline" title={l.what}>
+            {name}
+          </Link>
+          , {duration(l.ms)}
+        </>
+      )}
+    </p>
   );
 }
 

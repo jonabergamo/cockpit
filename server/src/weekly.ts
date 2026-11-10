@@ -7,6 +7,7 @@ import { notify } from "./notify.ts";
 import { doneSet, myPrs, sprintTickets } from "./providers.ts";
 import { getSettings, readRow, writeRow } from "./settings.ts";
 import { day } from "./util.ts";
+import { waitsBetween, waitTotals } from "./waits.ts";
 
 // Monday 00:00 local of the week that holds this date
 export function weekStart(d = new Date()) {
@@ -77,8 +78,14 @@ export async function weekly(start = weekStart()) {
     byTicket.set(r.ticket, t);
   }
 
+  // how long the agents run here waited on you
+  const waits = waitsBetween(from, to);
+  const { ms, longest } = waitTotals(waits, from, to);
+  const ls = longest && sessions.get(longest.session);
+
   return {
     from: day(from),
+    waited: { ms, count: waits.length, longest: longest && { ms: longest.ms, title: ls?.title ?? ls?.name, ticket: ls?.ticket, what: longest.what } },
     to: day(to - DAY),
     shipped,
     stuck,

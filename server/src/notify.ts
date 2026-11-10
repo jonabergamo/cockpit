@@ -9,6 +9,7 @@ import { enqueue } from "./remote/outbox.ts";
 import { capture } from "./agents.ts";
 import { oneLine, quick, quickOn } from "./quick.ts";
 import { FINISHED, hold, holding } from "./focus.ts";
+import { describeWait, touchWaits, trackWaits } from "./waits.ts";
 
 // a node has nobody looking at it: what it would show goes to its hub, which shows it once it has it
 const relay = config.role === "node";
@@ -43,6 +44,7 @@ const last = new Map<string, string>();
 export function sessionsChanged(sessions: Session[]) {
   const seen = new Set<string>();
   const terms = listTerms();
+  trackWaits(sessions);
   for (const s of sessions) {
     seen.add(s.id);
     const before = last.get(s.id);
@@ -56,7 +58,7 @@ export function sessionsChanged(sessions: Session[]) {
     const body = s.title ?? shortPath(s.cwd);
     if (s.status === "waiting" && before !== "waiting" && (before !== undefined || fresh)) {
       const send = (what?: string) => {
-        if (what) wants.set(s.id, what);
+        if (what) wants.set(s.id, what), describeWait(s.id, what);
         const why = what ?? s.waitingFor;
         notify({ title: s.waitingFor === "input needed" ? "Claude needs your input" : "Claude is waiting for you", body: why ? `${body} · ${why}` : body, link });
       };
@@ -97,6 +99,7 @@ async function whatItWants(sessionId: string) {
 const waitingSince = new Map<string, { at: number; nudged: boolean }>();
 export function escalate(sessions: Session[]) {
   const minutes = getSettings().alerts.escalateMinutes;
+  touchWaits();
   for (const s of sessions) {
     if (s.status !== "waiting") {
       waitingSince.delete(s.id);
