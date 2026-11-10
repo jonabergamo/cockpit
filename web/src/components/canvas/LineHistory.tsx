@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { RelayLogEntry } from "@cockpit/shared";
+import type { PanelPart, RelayLogEntry } from "@cockpit/shared";
 import { api } from "../../lib/api";
 import { ago } from "../../lib/format";
 
@@ -19,7 +19,9 @@ const KIND: Record<RelayLogEntry["kind"], string> = {
   held: "held back",
   "skipped-ack": "only acknowledged",
   "skipped-limit": "past the limit",
+  panel: "panel review",
 };
+const PART: Record<PanelPart["outcome"], string> = { answered: "", acknowledged: "only acknowledged", silent: "didn't answer" };
 
 const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -51,6 +53,7 @@ function Message({ text }: { text: string }) {
 function Entry({ e, name, terms, by }: { e: RelayLogEntry; name: (card: string) => string; terms: { id: string; name: string }[]; by: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [each, setEach] = useState(false);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
@@ -85,17 +88,40 @@ function Entry({ e, name, terms, by }: { e: RelayLogEntry; name: (card: string) 
         </span>
       </div>
       {e.note && e.outcome !== "delivered" && <div className={`text-[11px] leading-snug ${e.outcome === "failed" ? "text-red" : "text-muted"}`}>{e.note}</div>}
-      {open ? <Message text={e.text} /> : <div className="mt-1 text-[12px] text-muted line-clamp-2">{first}</div>}
+      {e.text && (open ? <Message text={e.text} /> : <div className="mt-1 text-[12px] text-muted line-clamp-2">{first}</div>)}
+      {e.parts && each && (
+        <ol className="mt-1.5 space-y-1.5 border-l-2 border-line pl-2" data-panel-parts={e.id}>
+          {e.parts.map((p, i) => (
+            <li key={i}>
+              <div className="text-[11px] text-faint">
+                <span className="font-medium text-muted">{p.name}</span> {PART[p.outcome]}
+              </div>
+              {p.text && <Message text={p.text} />}
+            </li>
+          ))}
+        </ol>
+      )}
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-        <button type="button" onClick={() => setOpen(!open)} className="h-6 px-1.5 rounded text-muted hover:text-ink hover:bg-ground">
-          {open ? "Collapse" : "Read it all"}
-        </button>
-        <button type="button" disabled={busy} onClick={() => again()} className={btn} title={`Send this message to ${name(e.to)} again. It doesn't count against the line's hops`}>
-          {busy ? "Sending" : "Send again"}
-        </button>
-        <button type="button" disabled={busy || !terms.length} onClick={() => setPicking(!picking)} className={btn} title="Send this message to another terminal on this workspace">
-          Send to…
-        </button>
+        {e.text && (
+          <button type="button" onClick={() => setOpen(!open)} className="h-6 px-1.5 rounded text-muted hover:text-ink hover:bg-ground">
+            {open ? "Collapse" : "Read it all"}
+          </button>
+        )}
+        {e.parts && (
+          <button type="button" onClick={() => setEach(!each)} className="h-6 px-1.5 rounded text-muted hover:text-ink hover:bg-ground" title="What each reviewer of the panel said, before it was merged">
+            {each ? "Hide each review" : `Each review (${e.parts.filter((p) => p.outcome !== "silent").length} of ${e.parts.length})`}
+          </button>
+        )}
+        {e.text && (
+          <>
+            <button type="button" disabled={busy} onClick={() => again()} className={btn} title={`Send this message to ${name(e.to)} again. It doesn't count against the line's hops`}>
+              {busy ? "Sending" : "Send again"}
+            </button>
+            <button type="button" disabled={busy || !terms.length} onClick={() => setPicking(!picking)} className={btn} title="Send this message to another terminal on this workspace">
+              Send to…
+            </button>
+          </>
+        )}
       </div>
       {picking && (
         <div className="mt-1 flex flex-col rounded border border-line bg-ground max-h-40 overflow-y-auto" role="menu">

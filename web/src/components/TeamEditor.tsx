@@ -124,6 +124,12 @@ export function TeamEditor({ team, fallback, onChange }: { team?: KitTeam; fallb
                 </select>
                 <input type="number" min={1} max={30} value={l.limit} onChange={(e) => line(i, { limit: Math.max(1, Math.min(30, Number(e.target.value) || 1)) })} className={`${small} w-14`} aria-label="Hops" title="How many times it passes on before it stops for you" />
                 <span className="text-faint">hops</span>
+                {l.role === "review" && t.lines.some((o, j) => j !== i && o.role === "review" && o.from === l.from) && (
+                  <label className="flex items-center gap-1 text-muted" title="Review lines from the same terminal that review together: each gets its turn, and their reviews come back to it merged into one">
+                    <input type="checkbox" checked={!!l.panel} onChange={(e) => line(i, { panel: e.target.checked ? "panel" : undefined })} aria-label="Review together" />
+                    together
+                  </label>
+                )}
                 <button type="button" className="ml-auto text-muted hover:text-red" onClick={() => set({ lines: t.lines.filter((_, j) => j !== i) })} aria-label="Remove this line">
                   ×
                 </button>

@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, RelayLogEntry, RelayStatus, TermInfo } from "@cockpit/shared";
+import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, PanelPart, RelayLogEntry, RelayStatus, TermInfo } from "@cockpit/shared";
 import { paths } from "./config.ts";
 import { db } from "./db.ts";
 
@@ -58,6 +58,8 @@ db.exec(`
   );
   create index if not exists canvas_relay_log_edge on canvas_relay_log (edge, id);
 `);
+// a panel's entry keeps each reviewer's own review beside the merged one
+if (!db.prepare<[], { name: string }>("pragma table_info(canvas_relay_log)").all().some((c) => c.name === "parts")) db.exec("alter table canvas_relay_log add column parts text");
 // lines between terminals can relay turns: how, and how many hops so far
 for (const [col, type] of [
   ["relay", "text"],
@@ -105,7 +107,7 @@ export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) =>
 // a message carries a diff at most; the history keeps it whole up to this, and only so many per line
 export const LOG_TEXT = 60_000;
 export const LOG_KEEP = 200;
-type LogRow = { id: number; edge: string; hop: number; hop_limit: number | null; from_node: string; to_node: string; kind: RelayLogEntry["kind"]; text: string; at: number; outcome: RelayLogEntry["outcome"]; note: string | null; replay: number | null };
+type LogRow = { id: number; edge: string; hop: number; hop_limit: number | null; from_node: string; to_node: string; kind: RelayLogEntry["kind"]; text: string; at: number; outcome: RelayLogEntry["outcome"]; note: string | null; replay: number | null; parts?: string | null };
 const toLog = (r: LogRow): RelayLogEntry => ({
   id: r.id,
   edge: r.edge,
@@ -119,13 +121,14 @@ const toLog = (r: LogRow): RelayLogEntry => ({
   outcome: r.outcome,
   ...(r.note ? { note: r.note } : {}),
   ...(r.replay != null ? { replay: r.replay } : {}),
+  ...(r.parts ? { parts: JSON.parse(r.parts) as PanelPart[] } : {}),
 });
 export function logRelay(e: Omit<RelayLogEntry, "id" | "at"> & { at?: number }) {
   const text = e.text.length > LOG_TEXT ? `${e.text.slice(0, LOG_TEXT)}\n\n(cut short at ${LOG_TEXT / 1000}k characters in the line's history)` : e.text;
   const id = Number(
     db
-      .prepare("insert into canvas_relay_log (edge, hop, hop_limit, from_node, to_node, kind, text, at, outcome, note, replay) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(e.edge, e.hop, e.limit ?? null, e.from, e.to, e.kind, text, e.at ?? Date.now(), e.outcome, e.note ?? null, e.replay ?? null).lastInsertRowid,
+      .prepare("insert into canvas_relay_log (edge, hop, hop_limit, from_node, to_node, kind, text, at, outcome, note, replay, parts) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(e.edge, e.hop, e.limit ?? null, e.from, e.to, e.kind, text, e.at ?? Date.now(), e.outcome, e.note ?? null, e.replay ?? null, e.parts ? JSON.stringify(e.parts.map((p) => ({ ...p, ...(p.text ? { text: p.text.slice(0, LOG_TEXT / 4) } : {}) }))) : null).lastInsertRowid,
   );
   db.prepare("delete from canvas_relay_log where edge = ? and id <= coalesce((select id from canvas_relay_log where edge = ? order by id desc limit 1 offset ?), -1)").run(e.edge, e.edge, LOG_KEEP);
   return id;
@@ -418,11 +421,22 @@ export function setRelay(id: string, relay: CanvasRelay | null) {
     if (!FROM.has(relay.from) || !ROLES.has(relay.role)) throw new Error("That isn't a way to relay");
     if (relay.role === "custom" && !relay.prompt?.trim()) throw new Error("Say what the other end should do with it");
     const limit = Math.min(Math.max(Math.round(Number(relay.limit) || 3), 1), 20);
-    relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}), ...(relay.when === "passing" || relay.when === "failing" ? { when: relay.when } : {}), ...(relay.role === "review" && relay.withDiff === false ? { withDiff: false } : {}) };
+    relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}), ...(relay.when === "passing" || relay.when === "failing" ? { when: relay.when } : {}), ...(relay.role === "review" && relay.withDiff === false ? { withDiff: false } : {}), ...(relay.role === "review" ? panelOf(relay.panel) : {}) };
   }
   // set up again, it starts with nothing to report
   db.prepare("update canvas_edges set relay = ?, hops = 0, status = null where id = ?").run(relay ? JSON.stringify(relay) : null, id);
   return true;
+}
+
+const panelOf = (p: unknown) => (typeof p === "string" && /^[\w-]{1,40}$/.test(p.trim()) ? { panel: p.trim() } : {});
+
+// a review line joins a panel, or leaves it (undefined), keeping its count
+export function setPanel(id: string, panel: string | undefined) {
+  const e = db.prepare<[string], { relay: string | null }>("select relay from canvas_edges where id = ?").get(id);
+  const relay = e?.relay ? (JSON.parse(e.relay) as CanvasRelay) : undefined;
+  if (relay?.role !== "review") throw new Error("Only a review line can review together with another");
+  const { panel: _, ...rest } = relay;
+  db.prepare("update canvas_edges set relay = ? where id = ?").run(JSON.stringify({ ...rest, ...panelOf(panel) }), id);
 }
 
 // The relays a finished turn in this terminal goes along: the terminal at the other end, and how
@@ -449,6 +463,10 @@ export function relaysFrom(term: string) {
     });
 }
 
+export const edgeById = (id: string) => {
+  const e = db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where id = ?").get(id);
+  return e && toEdge(e);
+};
 // a line's two cards, by card id
 export const edgeCards = (edge: string) => db.prepare<[string], { source: string; target: string; canvas: string; hops: number }>("select source, target, canvas, hops from canvas_edges where id = ?").get(edge);
 // the terminal on a terminal card

@@ -26,6 +26,8 @@ export interface Actions {
   spawn: (node: string, anchor: DOMRect) => void;
   // a line between two terminals relaying turns, or not (null)
   setRelay: (edge: string, relay: CanvasRelay | null) => void;
+  // a review line reviews together with another from the same terminal, or leaves its panel (null)
+  joinPanel: (edge: string, other: string | null) => void;
   // what the agent at one end said last, handed to the one at the other, with what to do with it
   handOff: (edge: string, from: "source" | "target", ask: string) => Promise<void>;
   // everything a line carried, in a panel beside the canvas, to read or send again
@@ -61,4 +63,9 @@ export interface LinkData extends Record<string, unknown> {
   hops?: number;
   status?: RelayStatus;
   names?: [string, string];
+  // a review line in a panel: the panel's letter, the same on all its lines
+  panel?: string;
+  // the other review lines from the same author: the reviewer each goes to, its panel's letter, and whether it's
+  // in this line's panel
+  peers?: { id: string; name: string; panel?: string; same: boolean }[];
 }

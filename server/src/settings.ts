@@ -99,6 +99,8 @@ const schema = z.object({
   away: z.object({ minutes: z.number().int().min(5).max(24 * 60).default(30) }).prefault({}),
   // the wrap-up's "pick up where you left off" on Today: how many days a line stays before it's hidden
   handoff: z.object({ keepDays: z.number().int().min(1).max(30).default(3) }).prefault({}),
+  // a panel of reviewers on the canvas: how long their reviews of a turn are waited for before the ones in hand go
+  panels: z.object({ waitMinutes: z.number().int().min(1).max(120).default(10) }).prefault({}),
   // the Claude cockpit starts in a terminal: its status line on the card (model, context, cost...) and none in the
   // terminal, or Claude Code's own in the terminal as you set it up
   // voiceSend: what you say to a terminal is sent once it's settled, rather than left for you to read and send
@@ -144,6 +146,8 @@ const schema = z.object({
                   both: z.boolean().default(false),
                   limit: z.number().int().min(1).max(30).default(4),
                   when: z.enum(["passing", "failing"]).optional(),
+                  // review lines from one terminal with the same panel review together
+                  panel: z.string().regex(/^[\w-]{1,40}$/).optional(),
                 }),
               )
               .max(15)

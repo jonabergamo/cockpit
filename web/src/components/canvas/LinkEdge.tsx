@@ -107,9 +107,40 @@ function HandOff({ id, names, status, relayed }: { id: string; names: [string, s
   );
 }
 
+// A review line reviewing together with others from the same author: each gets its turn, and their reviews go back
+// to it merged into one
+function Panel({ id, panel, peers }: { id: string; panel?: string; peers: NonNullable<LinkData["peers"]> }) {
+  const a = useActions();
+  const others = peers.filter((p) => p.same).map((p) => p.name);
+  if (panel)
+    return (
+      <div className="flex items-center gap-1.5 text-muted" data-panel={panel}>
+        <span className="h-4 px-1 rounded bg-cobalt text-on-accent text-[10px] font-medium leading-4">{panel}</span>
+        <span className="truncate max-w-48" title="Each gets its turn, and their reviews come back merged into one">
+          Reviews together with {others.join(", ")}
+        </span>
+        <button type="button" onClick={() => a.joinPanel(id, null)} className="ml-auto h-6 px-1.5 rounded text-muted hover:text-ink hover:bg-ground">
+          Leave
+        </button>
+      </div>
+    );
+  if (!peers.length) return null;
+  return (
+    <select value="" onChange={(e) => e.target.value && a.joinPanel(id, e.target.value)} className="h-6 rounded bg-ground border border-line px-1 text-[11px] text-ink" aria-label="Review together with" title="Each gets its turn, and their reviews come back merged into one">
+      <option value="">Review together with…</option>
+      {peers.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name}
+          {p.panel ? ` (panel ${p.panel})` : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // What a line between two terminals passes on: whose finished turns, what the other end does with them, how many
 // hops before it stops for you. Changing any of it starts the count again.
-function RelayControls({ id, relay, hops, status, names }: { id: string; relay?: CanvasRelay; hops?: number; status?: RelayStatus; names: [string, string] }) {
+function RelayControls({ id, relay, hops, status, names, panel, peers }: { id: string; relay?: CanvasRelay; hops?: number; status?: RelayStatus; names: [string, string]; panel?: string; peers?: LinkData["peers"] }) {
   const a = useActions();
   const [prompt, setPrompt] = useState(relay?.prompt ?? "");
   if (!relay)
@@ -158,6 +189,7 @@ function RelayControls({ id, relay, hops, status, names }: { id: string; relay?:
           with the turn's diff
         </label>
       )}
+      {relay.role === "review" && <Panel id={id} panel={panel} peers={peers ?? []} />}
       <div className="flex items-center gap-1.5">
         <span className={(hops ?? 0) >= relay.limit ? "text-amber font-medium" : "text-muted"}>
           {(hops ?? 0) >= relay.limit ? `Stopped at ${relay.limit}: type into either to carry on` : `${hops ?? 0} of`}
@@ -218,7 +250,7 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
               </button>
             )}
             {kind === "talk" && data?.names && <HandOff id={id} names={data.names} status={data.status} relayed={!!relay} />}
-            {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} status={data.status} names={data.names} />}
+            {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} status={data.status} names={data.names} panel={data.panel} peers={data.peers} />}
           </div>
         ) : (
           relay && (
@@ -228,10 +260,15 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
               className={`nodrag nopan absolute rounded-full border px-1.5 h-5 flex items-center gap-1 whitespace-nowrap text-[11px] tabular-nums ${status?.state === "failed" ? LOOK.failed.pill : stopped ? "border-amber bg-amber-soft text-amber" : "border-cobalt/50 bg-raised text-cobalt"}`}
               style={at}
               data-relay-pill={status?.state ?? (stopped ? "stopped" : "ok")}
-              title={`${status ? `${status.text} (${ago(status.at)})` : stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}. Click for the line's history, the line for its settings.`}
+              title={`${status ? `${status.text} (${ago(status.at)})` : stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}.${data?.panel ? ` Reviews together with the other lines marked ${data.panel}.` : ""} Click for the line's history, the line for its settings.`}
             >
               {status ? LOOK[status.state].mark : "↻"} {data?.hops ?? 0}/{relay.limit}
               {status && LOOK[status.state].word && <span>· {LOOK[status.state].word}</span>}
+              {data?.panel && (
+                <span className="h-3.5 px-1 rounded bg-cobalt text-on-accent text-[10px] font-medium leading-[14px]" data-panel-badge={data.panel}>
+                  {data.panel}
+                </span>
+              )}
             </button>
           )
         )}

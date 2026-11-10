@@ -222,7 +222,7 @@ server.registerTool(
   "link",
   {
     description:
-      "Draw a line between two cards on the same workspace, and with a role make it pass each finished turn of `from` on to `to`. A review line goes both ways (the review comes back) and hands the reviewer the turn's git diff unless with_diff is false. when: passing only passes turns after which its checks pass, failing only ones where something fails. limit: hops before it stops until someone types into either end (keep it low, 2-4).",
+      "Draw a line between two cards on the same workspace, and with a role make it pass each finished turn of `from` on to `to`. A review line goes both ways (the review comes back) and hands the reviewer the turn's git diff unless with_diff is false. when: passing only passes turns after which its checks pass, failing only ones where something fails. limit: hops before it stops until someone types into either end (keep it low, 2-4). panel: give two or more review lines from the same worker the same panel name and they review together: each reviewer gets the turn, and their reviews come back merged into one.",
     inputSchema: {
       from: z.string().describe(WHO),
       to: z.string().describe(WHO),
@@ -232,16 +232,17 @@ server.registerTool(
       when: z.enum(["every", "passing", "failing"]).optional(),
       limit: z.number().int().min(1).max(20).optional().describe("3 when left out"),
       with_diff: z.boolean().optional(),
+      panel: z.string().regex(/^[\w-]{1,40}$/).optional().describe("Review lines from the same worker with the same panel review together (review role only)"),
     },
   },
-  wrap(async (a: { from: string; to: string; role?: "review" | "plan" | "build" | "custom"; prompt?: string; both?: boolean; when?: string; limit?: number; with_diff?: boolean }) => {
+  wrap(async (a: { from: string; to: string; role?: "review" | "plan" | "build" | "custom"; prompt?: string; both?: boolean; when?: string; limit?: number; with_diff?: boolean; panel?: string }) => {
     const [from, to] = await Promise.all([find(a.from), find(a.to)]);
     if (from.canvas !== to.canvas) throw new Error(`They're on different workspaces (${from.workspace} and ${to.workspace}); a line can only join cards on one`);
     const line = (await call("POST", `/canvas/${from.canvas}/edges`, { source: from.node.id, target: to.node.id })) as { id: string; source: string };
     if (!a.role) return { line: line.id, relay: "none" };
     // a line already drawn the other way round keeps its ends, so the turns go from `from` all the same
     const both = a.both ?? a.role === "review";
-    const relay = { from: both ? "both" : line.source === from.node.id ? "source" : "target", role: a.role, prompt: a.prompt, when: a.when === "every" ? undefined : a.when, limit: a.limit ?? 3, withDiff: a.with_diff };
+    const relay = { from: both ? "both" : line.source === from.node.id ? "source" : "target", role: a.role, prompt: a.prompt, when: a.when === "every" ? undefined : a.when, limit: a.limit ?? 3, withDiff: a.with_diff, panel: a.panel };
     await call("PATCH", `/canvas/edges/${line.id}`, { relay });
     return { line: line.id, ...relay };
   }),

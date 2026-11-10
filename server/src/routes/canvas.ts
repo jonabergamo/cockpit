@@ -6,7 +6,7 @@ import { currentCwd, listTerms, onTermsChanged, spawnTerm } from "../pty.ts";
 import { allWorktrees } from "../remote/work.ts";
 import { away } from "../away.ts";
 import { isReviewTerm } from "../reviews.ts";
-import { handOff, replay } from "../relay.ts";
+import { handOff, joinPanel, replay } from "../relay.ts";
 import { canvasView, findCard, openBeside, type BesideAgent, type BesideAs, type FindCtx } from "../canvasTools.ts";
 import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
@@ -251,6 +251,18 @@ export const canvasRoutes = new Hono()
     }
     changed(b.by);
     return c.json({ ok: true });
+  })
+  // a review line reviews together with another from the same terminal (with), or leaves its panel (null)
+  .post("/edges/:edge/panel", async (c) => {
+    const b = await c.req.json<{ with?: string | null; by?: string }>();
+    try {
+      if (!canvas.edgeById(c.req.param("edge"))) return c.json({ error: "No such line" }, 404);
+      joinPanel(c.req.param("edge"), typeof b.with === "string" ? b.with : null);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+    changed(b.by);
+    return c.json({ ok: true, relay: canvas.edgeById(c.req.param("edge"))?.relay });
   })
   .delete("/edges/:edge", (c) => {
     if (!canvas.removeEdge(c.req.param("edge"))) return c.json({ error: "No such line" }, 404);

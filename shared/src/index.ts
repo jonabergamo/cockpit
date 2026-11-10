@@ -175,7 +175,8 @@ export interface RelayStatus {
 // One thing a line carried, or held back, in order, for the line's history: from and to are card ids. kind:
 // forward (a finished turn), back (a review coming back to the one whose work it was), handoff (a last answer handed
 // over once), held (held back by its checks gate), skipped-ack (it only acknowledged), skipped-limit (the line was
-// at its hop limit). replay: the entry it sent again; a replay doesn't count against the hop limit.
+// at its hop limit), panel (the reviews of a panel of reviewers merged into one for the author, with each review
+// in parts). replay: the entry it sent again; a replay doesn't count against the hop limit.
 export interface RelayLogEntry {
   id: number;
   edge: string;
@@ -183,13 +184,21 @@ export interface RelayLogEntry {
   limit?: number;
   from: string;
   to: string;
-  kind: "forward" | "back" | "handoff" | "held" | "skipped-ack" | "skipped-limit";
+  kind: "forward" | "back" | "handoff" | "held" | "skipped-ack" | "skipped-limit" | "panel";
   text: string;
   at: number;
   outcome: "pending" | "delivered" | "held" | "failed" | "stopped-ack" | "limit";
   // why it failed or was held
   note?: string;
   replay?: number;
+  // a panel's: what each reviewer said (card id and name), or that it didn't answer in time
+  parts?: PanelPart[];
+}
+export interface PanelPart {
+  from: string;
+  name: string;
+  outcome: "answered" | "acknowledged" | "silent";
+  text?: string;
 }
 
 // from: whose finished turns go along the line (its source's, its target's, or both ways). role: what the one
@@ -217,6 +226,8 @@ export interface KitLine {
   both: boolean;
   limit: number;
   when?: "passing" | "failing";
+  // review lines from the same terminal with the same panel review it together: one merged review comes back
+  panel?: string;
 }
 // what GET /api/claude/kits says: the kinds and their teams, the one a ticket matches, and the team with no kind
 export interface KitsRes {
@@ -241,6 +252,9 @@ export interface CanvasRelay {
   limit: number;
   // a review line hands the reviewer what the turn changed in git along with what the agent said; false: only what it said
   withDiff?: boolean;
+  // a panel of reviewers: review lines leaving the same author with the same panel each get its turn, and their
+  // reviews come back to it merged into one
+  panel?: string;
 }
 
 export interface CanvasInfo {

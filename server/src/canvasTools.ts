@@ -125,6 +125,8 @@ export function canvasView(canvases: CanvasInfo[], terms: TermInfo[], noteText: 
               hops: `${e.hops ?? 0} of ${e.relay.limit}`,
               withDiff: e.relay.role === "review" ? e.relay.withDiff !== false : undefined,
               prompt: e.relay.prompt,
+              // review lines from one worker with the same panel review together, merged into one review
+              panel: e.relay.panel,
             }
           : { role: "plain line" }),
         last: e.status ? `${e.status.state}: ${e.status.text}` : undefined,

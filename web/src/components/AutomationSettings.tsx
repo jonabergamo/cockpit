@@ -311,6 +311,7 @@ export function AutomationSettings() {
         <Toggle label="Hold “finished” notifications in focus mode" help="Focus from the header or ⌘K. They wait on Today and go out as one summary when it ends; waiting sessions and failures still come through" on={s.alerts.holdFinished} onChange={(v) => put("alerts", { holdFinished: v })} />
         <Num label="Show “While you were away” after" value={s.away.minutes} min={5} max={1440} unit="minutes" onSave={(n) => put("away", { minutes: n })} />
         <Num label="Keep “Pick up where you left off” for" help="The next steps from Wrap up the day, on Today" value={s.handoff.keepDays} min={1} max={30} unit="days" onSave={(n) => put("handoff", { keepDays: n })} />
+        <Num label="Wait for a panel of reviewers" help="On the canvas, review lines that review together: after this, the reviews in hand go back merged and the rest are noted as not answering" value={s.panels.waitMinutes} min={1} max={120} unit="minutes" onSave={(n) => put("panels", { waitMinutes: n })} />
         <Toggle label="Weekly digest notification" help="What shipped, what's stuck and where the tokens went, on Your week" on={s.weekly.on} onChange={(v) => put("weekly", { on: v })} />
         {s.weekly.on && (
           <label className="flex items-center gap-3 text-[13px]">

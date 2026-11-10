@@ -5,6 +5,7 @@
 // so two agents never talk to each other for ever. An agent just opened and not asked anything yet has no session
 // to send to: it's sitting at its prompt, so the message is typed into its terminal. A review line also hands the
 // reviewer what the turn changed in git, so it reviews the code and not only the agent's account of it.
+import { randomUUID } from "node:crypto";
 import type { CanvasEdge, CanvasRelay, RelayLogEntry, Run, Session } from "@cockpit/shared";
 import { lastWords, sendText } from "./agents.ts";
 import * as canvas from "./canvas.ts";
@@ -13,7 +14,12 @@ import { listTerms, onTermInput, onTermTurn, typeInto } from "./pty.ts";
 import { requestApi } from "./remote/forward.ts";
 import { onNode } from "./remote/sessions.ts";
 import { listRuns, settledFail } from "./runs.ts";
+import { getSettings } from "./settings.ts";
 import { markTree, turnChanges } from "./turndiff.ts";
+import { onlyAcknowledges } from "./ack.ts";
+import { Gather, mergeReviews, partsOf, type Gathered, type Member } from "./panel.ts";
+
+export { onlyAcknowledges };
 
 const ASK: Record<Exclude<CanvasRelay["role"], "custom">, string> = {
   review: "Review this work. Say briefly what's wrong, risky or missing, and what to change. If it's good, say so.",
@@ -40,21 +46,11 @@ export function relayMessage(from: string, text: string, relay: CanvasRelay, hop
 // on by default for a review line
 export const withDiff = (relay: CanvasRelay) => relay.role === "review" && relay.withDiff !== false;
 
-// A turn that only says it heard ("Understood. Moving on.", "Thanks, looks good"): short, with no list, code or file
-// in it, and nothing that turns it into a point ("Good catch, but the limit is still wrong"). Passing it on would only
-// get one back, so a line stops there instead of spending a hop on it.
-const ACK = /^(?:ok(?:ay)?|understood|got it|noted|thanks?(?: you)?|sounds good|great|good|perfect|alright|all right|will do|sure|agreed|makes sense|acknowledged|entendido|beleza|certo|combinado|valeu|obrigad[oa]|perfeito|blz)\b/i;
-const POINT = /\b(?:but|however|though|although|still|except|unless|should|shouldn't|need|needs|must|missing|wrong|bug|broken|breaks|fails?|fix|issue|problem|instead|mas|por[eé]m|contudo|ainda|falta|faltou|errad[oa]|precisa|deveria|problema|quebr\w*)\b|\?/i;
-export const onlyAcknowledges = (text: string) => {
-  const t = text.trim();
-  return t.length <= 240 && ACK.test(t) && !POINT.test(t) && !/```|`[^`]+`|^\s*(?:[-*•]|\d+[.)])\s/m.test(t) && !/\b[\w-]+\.[a-z]{1,5}(?::\d+)?\b/i.test(t);
-};
-
 // what each live session was last seen doing, from the sessions the app is told about
 const seen = new Map<string, Session>();
-// a message held for a session until it's idle, by the line it came along (or the history entry sent again), and
-// its entry in the line's history
-type Held = { edge: string; to: string; name: string; text: string; log: number };
+// a message held for a session until it's idle, by the line it came along (or the history entry sent again, or the
+// panel), and its entry in the line's history: a panel's goes back along each of its lines
+type Held = { edge: string | string[]; to: string; name: string; text: string; log: number | number[] };
 const held = new Map<string, Held>();
 
 const sessionIn = (term: string) => [...seen.values()].find((s) => s.term === term && s.status !== "ended");
@@ -107,35 +103,40 @@ const wantsDiff = (term: string) => open(term).some(({ edge, toEnd }) => withDif
 
 const send = (session: string, text: string) => onNode(session, (n) => n.request<boolean>("session.send", { id: session, text }), () => sendText(session, text));
 
-// what happened to a turn on its way along a line, shown on the line and kept in its history
-function deliver(edge: string, name: string, go: () => Promise<boolean | void>, log?: number) {
+// what happened to a turn on its way along a line, shown on the line and kept in its history. True when it got there.
+function deliver(edge: string | string[], name: string, go: () => Promise<boolean | void>, log?: number | number[]) {
+  const edges = [edge].flat();
+  const logs = log === undefined ? [] : [log].flat();
   const failed = (text: string) => {
-    canvas.setRelayStatus(edge, { state: "failed", text });
-    if (log !== undefined) canvas.setLogOutcome(log, "failed", text);
+    for (const e of edges) canvas.setRelayStatus(e, { state: "failed", text });
+    for (const l of logs) canvas.setLogOutcome(l, "failed", text);
+    return false;
   };
   return go().then(
     (ok) => {
       if (ok === false) return failed(`Couldn't reach ${name}'s terminal to type it in`);
-      canvas.setRelayStatus(edge, { state: "sent", text: `Passed on to ${name}` });
-      if (log !== undefined) canvas.setLogOutcome(log, "delivered");
+      for (const e of edges) canvas.setRelayStatus(e, { state: "sent", text: `Passed on to ${name}` });
+      for (const l of logs) canvas.setLogOutcome(l, "delivered");
+      return true;
     },
     (e) => {
       console.error("relay", e);
-      failed(`Couldn't pass it on to ${name}: ${why(e)}`);
+      return failed(`Couldn't pass it on to ${name}: ${why(e)}`);
     },
   );
 }
 
-// sent now when the agent at the other end is free (or typed in when it's only just opened), else held until it is
-async function sendOrHold(key: string, edge: string, to: string, message: string, log: number) {
+// sent now when the agent at the other end is free (or typed in when it's only just opened), else held until it is:
+// true when it got there, undefined while it's held
+async function sendOrHold(key: string, edge: string | string[], to: string, message: string, log: number | number[]): Promise<boolean | undefined> {
   const target = sessionIn(to);
   const name = nameOf(to);
   if (!target) return deliver(edge, name, () => typeIn(to, message), log);
   if (target.status === "idle") return deliver(edge, name, () => send(target.id, message), log);
   held.set(key, { edge, to: target.id, name, text: message, log });
   const text = `Held for ${name}, which is ${target.status === "waiting" ? "waiting on you" : "busy"}: it goes once it's free`;
-  canvas.setRelayStatus(edge, { state: "held", text });
-  canvas.setLogOutcome(log, "held", text);
+  for (const e of [edge].flat()) canvas.setRelayStatus(e, { state: "held", text });
+  for (const l of [log].flat()) canvas.setLogOutcome(l, "held", text);
 }
 
 // A line set to pass on only passing work holds a turn back while any of its checks is failing: the runs the session
@@ -183,7 +184,11 @@ async function finished(s: Session, from: Promise<string | undefined> | undefine
   if (text?.trim()) logStopped(limited, titleOf(s), text);
   if (!relays.length) return limited.length ? changed() : undefined;
   if (!text?.trim()) {
-    for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
+    for (const r of relays) {
+      canvas.setRelayStatus(r.edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
+      // a panel waiting on this review won't get it
+      if (isBack(r) && r.edge.relay!.panel) gathers.get(panelKey(cardsOf(r).to, r.edge.relay!.panel))?.drop(r.edge.id);
+    }
     return changed();
   }
   await passOn(relays, titleOf(s), text, failing, changes);
@@ -200,6 +205,12 @@ async function chatFinished(term: string, text: string) {
 
 async function passOn(relays: Relays, from: string, text: string, failing: Run[], changes?: string) {
   const ack = onlyAcknowledges(text);
+  // the review lines out of here that review together, by panel: the turn goes to each, and those it reached (with a
+  // hop left for their review to come back) are waited on
+  const panels = new Map<string, Relays>();
+  for (const r of relays) if (!isBack(r) && r.edge.relay!.role === "review" && r.edge.relay!.panel) panels.set(r.edge.relay!.panel, [...(panels.get(r.edge.relay!.panel) ?? []), r]);
+  for (const [p, rs] of panels) if (rs.length < 2) panels.delete(p);
+  const waiting = new Map<string, Member[]>();
   for (const r of relays) {
     const { edge, to } = r;
     const name = nameOf(to);
@@ -207,6 +218,14 @@ async function passOn(relays: Relays, from: string, text: string, failing: Run[]
     const back = isBack(r);
     const message = relayMessage(from, text.trim(), edge.relay!, hop, back, changes);
     const entry = { edge: edge.id, limit: edge.relay!.limit, ...cardsOf(r), text: message };
+    // a review for a panel that's gathering them: kept until the rest are in, and goes back with theirs as one
+    const gather = back && edge.relay!.panel ? gathers.get(panelKey(entry.to, edge.relay!.panel)) : undefined;
+    if (gather?.waits(edge.id)) {
+      panelLogs.set(edge.id, canvas.logRelay({ ...entry, text: text.trim(), hop: hop - 1, kind: "back", outcome: "held", note: "Kept for the panel: it goes back with the other reviews, as one" }));
+      canvas.setRelayStatus(edge.id, { state: "held", text: "Kept for the panel until the other reviews are in" });
+      gather.add(edge.id, text);
+      continue;
+    }
     // not passed on: kept in the line's history as it would have gone, and said on the line
     const skip = (kind: RelayLogEntry["kind"], outcome: RelayLogEntry["outcome"], text: string, state: "held" | "failed" = "held") => {
       canvas.logRelay({ ...entry, hop: hop - 1, kind, outcome, note: text });
@@ -232,16 +251,118 @@ async function passOn(relays: Relays, from: string, text: string, failing: Run[]
     }
     canvas.countHop(edge.id);
     const log = canvas.logRelay({ ...entry, hop, kind: back ? "back" : "forward", outcome: "pending" });
-    await sendOrHold(edge.id, edge.id, to, message, log);
+    const went = await sendOrHold(edge.id, edge.id, to, message, log);
+    const p = edge.relay!.panel;
+    if (p && panels.has(p) && went !== false && hop < edge.relay!.limit) waiting.set(p, [...(waiting.get(p) ?? []), { edge: edge.id, card: entry.to, term: to, name }]);
   }
+  for (const [p, members] of waiting) if (members.length > 1) gatherFor(panelKey(cardsOf(panels.get(p)![0]).from, p), members);
   changed();
+}
+
+// The panels gathering reviews, by the author's card and panel, and each review kept for one by its line
+const gathers = new Map<string, Gather>();
+const panelLogs = new Map<string, number>();
+const panelKey = (author: string, panel: string) => `${author}|${panel}`;
+// how long a panel's reviews are waited for; a test sets its own
+export const panelWait = { ms: () => getSettings().panels.waitMinutes * 60_000 };
+const minutes = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`);
+
+function gatherFor(key: string, members: Member[]) {
+  // a turn of the author's before the last one's reviews were all in: those in hand go now
+  gathers.get(key)?.finish();
+  const wait = panelWait.ms();
+  const g = new Gather(members, wait, (done) => {
+    if (gathers.get(key) === g) gathers.delete(key);
+    void panelDone(key.slice(0, key.indexOf("|")), done, minutes(wait))
+      .catch((e) => console.error("relay panel", e))
+      .then(changed);
+  });
+  gathers.set(key, g);
+}
+
+const panelMessage = (names: string[], text: string, hop: number, limit: number) =>
+  `From the review panel (${names.join(", ")}), which just reviewed your last turn:\n\n${text}\n\n${ANSWER}\n\n(Passed on by cockpit's canvas, ${hop} of ${limit}.)`;
+
+// The panel's reviews of a turn, in: merged into one, sent back once along its lines (a hop on each), and kept in
+// each one's history with every review as it came
+async function panelDone(author: string, g: Gathered, wait: string) {
+  const parts = partsOf(g);
+  for (const m of g.members) {
+    const log = panelLogs.get(m.edge);
+    panelLogs.delete(m.edge);
+    if (log !== undefined) canvas.setLogOutcome(log, "delivered", "Gathered into the panel's review");
+  }
+  const lines = g.members.flatMap((m) => {
+    const e = canvas.edgeById(m.edge);
+    return e?.relay ? [{ m, hops: e.hops ?? 0, relay: e.relay }] : [];
+  });
+  const authorTerm = canvas.termOfCard(author)?.term;
+  if (!lines.length || !authorTerm) return;
+  const merged = await mergeReviews(parts, g.timedOut ? wait : "");
+  const entry = (l: (typeof lines)[number], hop: number, text: string, outcome: RelayLogEntry["outcome"], note?: string) =>
+    canvas.logRelay({ edge: l.m.edge, hop, limit: l.relay.limit, from: l.m.card, to: author, kind: "panel", text, outcome, parts, ...(note ? { note } : {}) });
+  const stop = (text: string, state: "held" | "failed", outcome: RelayLogEntry["outcome"]) => {
+    for (const l of lines) {
+      entry(l, l.hops, "", outcome, text);
+      canvas.setRelayStatus(l.m.edge, { state, text });
+    }
+  };
+  if (!merged) {
+    if (parts.every((p) => p.outcome === "silent")) return stop(`None of the panel answered${g.timedOut ? ` within ${wait}` : ""}, so nothing went back`, "failed", "failed");
+    return stop("Stopped: the panel only acknowledged, so there was nothing to pass back", "held", "stopped-ack");
+  }
+  if (!sessionIn(authorTerm) && !freshAgent(authorTerm)) return stop(`${nameOf(authorTerm)} isn't running an agent, so there was no one to hand the panel's review to`, "failed", "failed");
+  const names = g.members.map((m) => m.name);
+  const note = merged.merged ? undefined : "Put under each reviewer's name: no local model merged them";
+  const logs = lines.map((l) => {
+    canvas.countHop(l.m.edge);
+    return entry(l, l.hops + 1, panelMessage(names, merged.text, l.hops + 1, l.relay.limit), "pending", note);
+  });
+  await sendOrHold(`panel:${author}|${lines[0].relay.panel}`, lines.map((l) => l.m.edge), authorTerm, panelMessage(names, merged.text, lines[0].hops + 1, lines[0].relay.limit), logs);
+}
+
+// the review lines out of an author's terminal, to their reviewers
+const reviewsFrom = (term: string) => canvas.relaysFrom(term).filter((r) => r.edge.relay!.role === "review" && r.toEnd === reviewerOf(r.edge));
+const authorOf = (edge: string) => {
+  const e = canvas.edgeById(edge);
+  if (e?.relay?.role !== "review") throw new Error("Only a review line can review together with another");
+  const term = canvas.termOfCard(reviewerOf(e) === "target" ? e.source : e.target)?.term;
+  if (!term) throw new Error("The line's author isn't a terminal");
+  return { e, term };
+};
+// a panel left with one line in it is a plain review line again
+function tidyPanel(term: string, panel: string) {
+  const left = reviewsFrom(term).filter((r) => r.edge.relay!.panel === panel);
+  if (left.length === 1) canvas.setPanel(left[0].edge.id, undefined);
+}
+
+// A review line joins another from the same author to review its turns together, or leaves its panel (null)
+export function joinPanel(edge: string, other: string | null) {
+  const { e, term } = authorOf(edge);
+  const was = e.relay!.panel;
+  if (!other) {
+    canvas.setPanel(edge, undefined);
+    if (was) tidyPanel(term, was);
+    return;
+  }
+  if (other === edge) throw new Error("Pick another review line");
+  const o = authorOf(other);
+  if (o.term !== term) throw new Error("Both lines have to review the same terminal's turns");
+  const panel = o.e.relay!.panel ?? was ?? randomUUID().slice(0, 8);
+  canvas.setPanel(edge, panel);
+  canvas.setPanel(other, panel);
+  if (was && was !== panel) tidyPanel(term, was);
 }
 
 function update(s: Session) {
   const was = seen.get(s.id)?.status;
   seen.set(s.id, s);
   if (s.status === "busy" && s.term && s.cwd && !marks.has(s.id) && wantsDiff(s.term)) marks.set(s.id, mark(s));
-  if (s.status === "ended") marks.delete(s.id);
+  if (s.status === "ended") {
+    marks.delete(s.id);
+    // a reviewer that's gone won't answer its panel
+    if (s.term) for (const g of gathers.values()) for (const m of g.members) if (m.term === s.term) g.drop(m.edge);
+  }
   if (s.status !== "idle") return;
   const from = marks.get(s.id);
   marks.delete(s.id);
@@ -282,13 +403,14 @@ export async function handOff(edge: string, from: "source" | "target", ask?: str
 export async function replay(id: number, toCard?: string) {
   const was = canvas.logEntry(id);
   if (!was) throw new Error("That message isn't in the line's history any more");
+  if (!was.text.trim()) throw new Error("Nothing went with that one, so there's nothing to send again");
   const line = canvas.edgeCards(was.edge);
   if (!line) throw new Error("That line has gone");
   const card = toCard || was.to;
   const end = canvas.termOfCard(card);
   if (!end || end.canvas !== line.canvas) throw new Error("Send it to a terminal on the same workspace");
   if (!sessionIn(end.term) && !freshAgent(end.term)) throw new Error(`${nameOf(end.term)} isn't running an agent, so there's no one to send it to`);
-  const kind = was.kind === "back" || was.kind === "handoff" ? was.kind : "forward";
+  const kind = was.kind === "back" || was.kind === "handoff" || was.kind === "panel" ? was.kind : "forward";
   const log = canvas.logRelay({ edge: was.edge, hop: line.hops, ...(was.limit ? { limit: was.limit } : {}), from: was.from, to: card, kind, text: was.text, outcome: "pending", replay: was.id });
   await sendOrHold(`replay:${log}`, was.edge, end.term, was.text, log);
   changed();

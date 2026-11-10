@@ -85,6 +85,8 @@ type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode |
 type LinkEdgeT = Edge<LinkData, "link">;
 
 const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
+// cockpit's chat with the local model, as the server's relay knows it
+const CHAT = /\/server\/bin\/chat\.mjs(?:\s|$)/;
 
 // xterm turns a mouse position into a cell from the distance to its screen's corner, in unscaled pixels. Under the
 // canvas zoom that distance is scaled too, so selection would land on the wrong cell; this scales it back. A drag
@@ -491,12 +493,42 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     };
     // a relaying line points the way turns go
     const arrow = { type: MarkerType.ArrowClosed, color: "var(--cobalt)", width: 16, height: 16 };
+    // a review line's author and reviewer cards, as the server tells them apart: cockpit's chat at one end of a line
+    // both ways is the reviewer, whichever way it was drawn
+    const isChat = (id: string) => {
+      const n = cards.get(id);
+      return n?.kind === "term" && CHAT.test(byId.get(n.ref)?.command ?? "");
+    };
+    const reviewEnds = (e: CanvasInfo["edges"][number]) => {
+      if (e.relay?.role !== "review") return;
+      const chatAt = e.relay.from === "both" && isChat(e.source) !== isChat(e.target) ? (isChat(e.source) ? "source" : "target") : undefined;
+      const reviewer = chatAt ?? (e.relay.from === "target" ? "source" : "target");
+      return reviewer === "target" ? { author: e.source, reviewer: e.target } : { author: e.target, reviewer: e.source };
+    };
+    // panels, lettered in the order they're first met, so the lines of one carry the same badge
+    const letters = new Map<string, string>();
+    for (const e of ws.edges) {
+      const r = reviewEnds(e);
+      if (r && e.relay?.panel && !letters.has(`${r.author}|${e.relay.panel}`)) letters.set(`${r.author}|${e.relay.panel}`, String.fromCharCode(65 + (letters.size % 26)));
+    }
+    const peersOf = (e: CanvasInfo["edges"][number]) => {
+      const r = reviewEnds(e);
+      if (!r) return [];
+      return ws.edges.flatMap((o) => {
+        const ro = o.id !== e.id && shown(o.source) && shown(o.target) ? reviewEnds(o) : undefined;
+        return ro?.author === r.author ? [{ id: o.id, name: nameOf(ro.reviewer) ?? "a terminal", panel: o.relay?.panel ? letters.get(`${r.author}|${o.relay.panel}`) : undefined, same: !!e.relay?.panel && o.relay?.panel === e.relay.panel }] : [];
+      });
+    };
     const out: LinkEdgeT[] = ws.edges
       .filter((e) => shown(e.source) && shown(e.target))
       .map((e) => {
         const a = nameOf(e.source);
         const b = nameOf(e.target);
         const from = e.relay?.from;
+        const ends = reviewEnds(e);
+        const peers = peersOf(e);
+        // a panel of one is only a review line
+        const panel = ends && e.relay?.panel && peers.some((p) => p.same) ? letters.get(`${ends.author}|${e.relay.panel}`) : undefined;
         return {
           id: e.id,
           source: e.source,
@@ -504,7 +536,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
           type: "link",
           markerEnd: from === "source" || from === "both" ? arrow : undefined,
           markerStart: from === "target" || from === "both" ? arrow : undefined,
-          data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target), relay: e.relay, hops: e.hops, status: e.status, names: a && b ? [a, b] : undefined },
+          data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target), relay: e.relay, hops: e.hops, status: e.status, names: a && b ? [a, b] : undefined, panel, peers },
         };
       });
     const drawn = new Set(out.flatMap((e) => [`${e.source}|${e.target}`, `${e.target}|${e.source}`]));
@@ -1258,7 +1290,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       const b = cards.get(l.to);
       if (!a || !b) continue;
       const edge = await api.post<{ id: string }>(`/canvas/${cur.id}/edges`, { source: a.id, target: b.id, by: tabId });
-      await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: l.both ? "both" : "source", role: l.role, limit: l.limit, ...(l.when ? { when: l.when } : {}), ...(l.prompt ? { prompt: l.prompt } : {}) }, by: tabId });
+      await api.patch(`/canvas/edges/${edge.id}`, { relay: { from: l.both ? "both" : "source", role: l.role, limit: l.limit, ...(l.when ? { when: l.when } : {}), ...(l.prompt ? { prompt: l.prompt } : {}), ...(l.panel ? { panel: l.panel } : {}) }, by: tabId });
     }
     await qc.invalidateQueries({ queryKey: ["terms"] });
     await refresh();
@@ -1364,6 +1396,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.map((e) => (e.id === edge ? { ...e, relay: relay ?? undefined, hops: 0 } : e)) })));
       guard(api.patch(`/canvas/edges/${edge}`, { relay, by: tabId }).catch((e) => (refresh(), Promise.reject(e))));
     },
+    joinPanel: (edge, other) => guard(api.post(`/canvas/edges/${edge}/panel`, { with: other, by: tabId }).then(refresh)),
     removeEdge: (edge) => {
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.filter((e) => e.id !== edge) })));
       guard(api.del(`/canvas/edges/${edge}?by=${tabId}`));
