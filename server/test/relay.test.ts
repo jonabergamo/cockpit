@@ -135,7 +135,7 @@ describe("relays", () => {
 
   it("stops at a turn that only acknowledges, without spending a hop", async () => {
     for (const ack of ["Understood. Moving on to the next item.", "Thanks, looks good!", "OK", "Entendido, vou seguir.", "Got it, I'll proceed with the changes mentioned in the review."]) expect(onlyAcknowledges(ack)).toBe(true);
-    for (const real of ["Good work! A few adjustments:\n\n1. Zero it everywhere.", "OK but `cash()` double counts the box.", "Understood, though relay.ts:121 still flips the reviewer.", "The export button breaks on empty lists.", "Thanks. ".repeat(40)]) expect(onlyAcknowledges(real)).toBe(false);
+    for (const real of ["Good work! A few adjustments:\n\n1. Zero it everywhere.", "OK but `cash()` double counts the box.", "Understood, though relay.ts:121 still flips the reviewer.", "The export button breaks on empty lists.", "Thanks. ".repeat(40), "Good catch, but the hop limit is still wrong.", "Thanks, though it fails when the list is empty.", "OK, falta tratar o saldo zerado.", "Entendido, mas ainda conta duas vezes.", "Sure, should it also stop on Done?"]) expect(onlyAcknowledges(real)).toBe(false);
     const chat = { ...term("builder"), command: "/usr/bin/node /opt/cockpit/server/bin/chat.mjs --model qwen --turns /x/builder.json" };
     open.push(chat);
     try {
