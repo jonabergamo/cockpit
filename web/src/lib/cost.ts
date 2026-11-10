@@ -20,7 +20,7 @@ export interface SettingsRes {
     updates: { auto: boolean };
     quick: { model: string; url: string };
     pipeline: { openPrompt: string; reviewPrompt: string; noCodePattern: string; mainBranches: string };
-    alerts: { stuckMinutes: number; escalateMinutes: number };
+    alerts: { stuckMinutes: number; escalateMinutes: number; holdFinished: boolean };
     away: { minutes: number };
     terminals: { statusLine: "card" | "claude"; voiceSend: boolean };
     budget: { perTicketUSD: number; perTicketMTokens: number; warnPct: number };

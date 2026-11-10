@@ -8,6 +8,7 @@ import { config } from "./config.ts";
 import { enqueue } from "./remote/outbox.ts";
 import { capture } from "./agents.ts";
 import { oneLine, quick, quickOn } from "./quick.ts";
+import { FINISHED, hold, holding } from "./focus.ts";
 
 // a node has nobody looking at it: what it would show goes to its hub, which shows it once it has it
 const relay = config.role === "node";
@@ -25,8 +26,12 @@ let seq = 0;
 // urgent ones are a second nudge for something that has waited a long time; push plugins send them loudly
 // node is the machine it happened on, when that's not this one
 export function notify(n: { title: string; body: string; link: string; urgent?: boolean; kind?: string; node?: string }) {
+  // in focus mode a "finished" is logged and stacked, not shown or pushed. A node goes by the focus its hub synced
+  // to it, so a push plugin there holds back too; the hub stacks it once the row arrives.
+  const held = holding(n);
   // a plugin put here (a phone push, say) still hears it, so it can go out while the hub sleeps
-  if (relay) return enqueue("notify", n), emit("notify", n);
+  if (relay) return enqueue("notify", n), held || emit("notify", n);
+  if (held) return hold(n), logEvent(n.kind ?? "notify", n.title, n.body, n.link);
   broadcast({ type: "notify", id: ++seq, title: n.title, body: n.node ? `${n.body} · on ${n.node}` : n.body, link: n.link });
   emit("notify", n);
   logEvent(n.kind ?? "notify", n.title, n.body, n.link);
@@ -62,7 +67,7 @@ export function sessionsChanged(sessions: Session[]) {
     if (s.status !== "idle" || !(before === "busy" || fresh)) continue;
     const term = terms.find((t) => t.session === s.id || (!!s.pid && t.pid === s.pid));
     const what = term?.title.startsWith("review #") ? `${term.title.replace(/^review/, "Review")} is ready` : "Claude finished";
-    notify({ title: what, body, link });
+    notify({ title: what, body, link, kind: FINISHED });
   }
   for (const id of last.keys()) {
     if (seen.has(id)) continue;

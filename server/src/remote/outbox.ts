@@ -4,6 +4,7 @@
 // applied is stored in the same transaction as what it wrote), then tells the node it can let them go.
 import { db } from "../db.ts";
 import { readRow, writeRow } from "../settings.ts";
+import { hold, holding } from "../focus.ts";
 import type { RemoteLink } from "./link.ts";
 
 db.exec(`
@@ -101,9 +102,11 @@ export function addInboxLink(machine: string, link: RemoteLink, apply: Apply) {
         await link.request("outbox.ack", { seq: lastApplied(machine) }).catch(() => {});
         if (rows.length < PAGE && !again) break;
       }
-      if (stale.length) {
-        const titles = [...new Set(stale.map((r) => r.data.title as string))].slice(0, 3).join(", ");
-        apply.notify({ title: `While you were away, on ${machine}`, body: `${stale.length} ${stale.length === 1 ? "thing" : "things"}: ${titles}${stale.length > 3 ? "…" : ""}`, link: "/", kind: "away" });
+      // what focus mode holds goes on its stack (it's logged already) rather than in this summary
+      const told = stale.filter((r) => !holding(r.data) || (hold({ ...r.data, node: machine }, r.at), false));
+      if (told.length) {
+        const titles = [...new Set(told.map((r) => r.data.title as string))].slice(0, 3).join(", ");
+        apply.notify({ title: `While you were away, on ${machine}`, body: `${told.length} ${told.length === 1 ? "thing" : "things"}: ${titles}${told.length > 3 ? "…" : ""}`, link: "/", kind: "away" });
       }
     })()
       .catch((e) => console.error(`outbox from ${machine}:`, (e as Error).message))

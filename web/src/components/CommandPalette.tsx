@@ -12,6 +12,7 @@ import { runSomething } from "./RunSomething";
 import { useAppConfig } from "../lib/queries";
 import { askCockpit } from "./AskPanel";
 import { themeStore, useThemes } from "../lib/theme";
+import { FOCUS_LENGTHS, useFocus, useFocusActions } from "../lib/focus";
 
 interface NavItem {
   id: string;
@@ -33,6 +34,8 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
   const said = useSaid(open && visible("/sessions") && deferred.length >= 3 ? deferred : "");
   const navigate = useNavigate();
   const themes = useThemes();
+  const focus = useFocus().data;
+  const focusAct = useFocusActions();
 
   useEffect(() => {
     let pendingG = 0;
@@ -166,6 +169,21 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
               ))}
             </Command.Group>
           )}
+          <Command.Group heading="Focus" className={group}>
+            {focus?.on && (
+              <Command.Item value="end focus mode stop" className={item} onSelect={() => go(() => void focusAct.end())}>
+                End focus
+              </Command.Item>
+            )}
+            {FOCUS_LENGTHS.map((m) => (
+              <Command.Item key={m} value={`focus mode ${m} minutes hold finished notifications quiet`} className={item} onSelect={() => go(() => void focusAct.start(m))}>
+                Focus for {m} minutes
+              </Command.Item>
+            ))}
+            <Command.Item value="focus mode until off hold finished notifications quiet" className={item} onSelect={() => go(() => void focusAct.start(null))}>
+              Focus until I turn it off
+            </Command.Item>
+          </Command.Group>
           <Command.Group heading="Theme" className={group}>
             <Command.Item value="theme auto system" className={item} onSelect={() => go(() => themeStore.choose("auto"))}>
               Theme: Auto

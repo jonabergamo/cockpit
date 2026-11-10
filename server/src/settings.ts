@@ -79,8 +79,13 @@ const schema = z.object({
       stuckMinutes: z.number().int().min(5).max(240).default(20),
       // waiting this long sends a second, urgent notification
       escalateMinutes: z.number().int().min(0).max(240).default(15),
+      // while focus mode is on, "finished" notifications wait in a stack and go out as one summary when it ends
+      holdFinished: z.boolean().default(true),
     })
     .prefault({}),
+  // focus mode, kept here so it outlives a restart and reaches the nodes, whose phone push plugins hold back too.
+  // until 0 is until it's turned off; since is when it started, so the summary counts only this block
+  focus: z.object({ on: z.boolean().default(false), since: z.number().default(0), until: z.number().default(0) }).prefault({}),
   away: z.object({ minutes: z.number().int().min(5).max(24 * 60).default(30) }).prefault({}),
   // the Claude cockpit starts in a terminal: its status line on the card (model, context, cost...) and none in the
   // terminal, or Claude Code's own in the terminal as you set it up

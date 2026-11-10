@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
+import { clearHeld, endFocus, focusState, startFocus } from "../focus.ts";
+import { notify } from "../notify.ts";
 import { fixPlan } from "../fix.ts";
 import { activeSprint, createOptions, releasedSet, createTicket, deploys, epicInfo, myPrs, myTickets, requestReview, reviewQueue, sprints, statusesOf, worktreeEpics } from "../providers.ts";
 import type { Epic, NewTicket, TrackerTicket } from "@cockpit/shared";
@@ -191,6 +193,22 @@ export const work = new Hono()
     const since = Number(c.req.query("since")) || Date.now() - 3600_000;
     return c.json(db.prepare("select at, kind, title, body, link from events_log where at > ? order by at desc limit 80").all(since));
   })
+  // focus mode: minutes, or none for until it's turned off; off ends it and sends the summary
+  .get("/focus", (c) => c.json(focusState()))
+  .post("/focus", async (c) => {
+    const b = await c.req.json<{ minutes?: number | null; off?: boolean }>().catch(() => ({}) as { minutes?: number; off?: boolean });
+    try {
+      if (b.off) {
+        const n = endFocus();
+        if (n) notify(n);
+        return c.json(focusState());
+      }
+      return c.json(startFocus(b.minutes));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  })
+  .delete("/focus/held", (c) => (clearHeld(), c.json(focusState())))
   .post("/board/archive", async (c) => {
     const { id, on } = await c.req.json<{ id: string; on?: boolean }>();
     archive(id, on !== false);

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { BoardCard, Session } from "@cockpit/shared";
 import { AwayDigest } from "../components/AwayDigest";
+import { ReadyForYou } from "../components/Focus";
 import { Overnight } from "../components/Overnight";
 import { SetupBanner } from "../components/SetupSection";
 import { RefreshButton, useRefreshing } from "../components/RefreshButton";
@@ -167,6 +168,7 @@ export function TodayPage() {
     <div className="max-w-[1200px] space-y-5">
       <SetupBanner />
       <AwayDigest />
+      <ReadyForYou />
       <Overnight />
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex-1">

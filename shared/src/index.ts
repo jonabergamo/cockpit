@@ -393,6 +393,8 @@ export type ServerEvent =
   // a schedule was added, changed or ran
   | { type: "schedules" }
   | { type: "notify"; id: number; title: string; body: string; link: string }
+  // focus mode started or ended, or a "finished" was held for later
+  | { type: "focus" }
   // the plugin list, screens or themes changed
   | { type: "plugins" }
   // something on the Board changed: tasks, verify results, autopilot
@@ -637,6 +639,24 @@ export interface Task {
   startedAt?: number;
   finishedAt?: number;
   error?: string;
+}
+
+// Focus mode: while it's on, "finished" notifications are held in a stack instead of going off, and one summary
+// goes out when it ends. until 0 is until it's turned off.
+export interface FocusState {
+  on: boolean;
+  since: number;
+  until: number;
+  holdFinished: boolean;
+  held: HeldNote[];
+}
+export interface HeldNote {
+  id: number;
+  at: number;
+  title: string;
+  body: string;
+  link: string;
+  node?: string;
 }
 
 export interface DigestItem {

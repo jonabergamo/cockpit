@@ -288,6 +288,7 @@ export function AutomationSettings() {
         <Toggle label="Run the repo's checks when a session finishes" help="In its worktree, with repo.verifyCommand" on={s.verify.auto} onChange={(v) => put("verify", { auto: v })} />
         <Num label="Call a busy session stuck after" help="With nothing new in its transcript" value={s.alerts.stuckMinutes} min={5} max={240} unit="minutes" onSave={(n) => put("alerts", { stuckMinutes: n })} />
         <Num label="Nudge again when a session waits" help="A second, urgent notification. 0 turns it off" value={s.alerts.escalateMinutes} min={0} max={240} unit="minutes" onSave={(n) => put("alerts", { escalateMinutes: n })} />
+        <Toggle label="Hold “finished” notifications in focus mode" help="Focus from the header or ⌘K. They wait on Today and go out as one summary when it ends; waiting sessions and failures still come through" on={s.alerts.holdFinished} onChange={(v) => put("alerts", { holdFinished: v })} />
         <Num label="Show “While you were away” after" value={s.away.minutes} min={5} max={1440} unit="minutes" onSave={(n) => put("away", { minutes: n })} />
         <Toggle label="Weekly digest notification" help="What shipped, what's stuck and where the tokens went, on Your week" on={s.weekly.on} onChange={(v) => put("weekly", { on: v })} />
         {s.weekly.on && (

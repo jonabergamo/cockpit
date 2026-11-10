@@ -228,7 +228,8 @@ function finished(id: string, r: { ok?: boolean; last?: string; error?: string }
   update(id, { status: "idle", error: r.ok ? null : r.error ?? null });
   const name = agentProvider(row.agent)?.name ?? row.agent;
   emit("session.idle", getSession(id));
-  notify({ title: r.ok === false || r.error ? `${name} stopped with an error` : `${name} finished`, body: r.error ?? r.last?.slice(0, 200) ?? row.title ?? row.cwd, link: `/sessions/${id}`, kind: "session" });
+  const failed = r.ok === false || !!r.error;
+  notify({ title: failed ? `${name} stopped with an error` : `${name} finished`, body: r.error ?? r.last?.slice(0, 200) ?? row.title ?? row.cwd, link: `/sessions/${id}`, kind: failed ? "session" : "finished" });
 }
 
 // turns cut off by a restart: their sessions are left idle, ready for the next prompt

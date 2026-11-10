@@ -18,6 +18,7 @@ import { SessionStrip } from "./SessionStrip";
 import { ThemePicker } from "./ThemePicker";
 import { notifyStore, useNotifyMode, type NotifyMode } from "../lib/notifications";
 import { NavBadge } from "./NavBadge";
+import { FocusButton } from "./Focus";
 import { Kbd } from "./ui";
 
 
@@ -168,6 +169,7 @@ export function Layout() {
               {calling && <span className="absolute -top-0.5 -right-1.5 size-2 rounded-full bg-amber ring-2 ring-panel" aria-hidden />}
             </span>
           </button>
+          <FocusButton />
           <div className="flex-1 min-w-0">
             <SessionStrip />
           </div>
