@@ -6,7 +6,7 @@ import { currentCwd, listTerms, onTermsChanged, spawnTerm } from "../pty.ts";
 import { allWorktrees } from "../remote/work.ts";
 import { away } from "../away.ts";
 import { isReviewTerm } from "../reviews.ts";
-import { handOff, joinPanel, replay } from "../relay.ts";
+import { handOff, joinPanel, replay, sendSpec } from "../relay.ts";
 import { canvasView, findCard, openBeside, type BesideAgent, type BesideAs, type FindCtx } from "../canvasTools.ts";
 import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
@@ -263,6 +263,40 @@ export const canvasRoutes = new Hono()
     }
     changed(b.by);
     return c.json({ ok: true, relay: canvas.edgeById(c.req.param("edge"))?.relay });
+  })
+  // a line between a note and a terminal makes the note that terminal's spec, or stops it being one
+  .patch("/edges/:edge/spec", async (c) => {
+    const b = await c.req.json<{ spec?: boolean; by?: string }>();
+    try {
+      if (!canvas.setEdgeSpec(c.req.param("edge"), b.spec !== false)) return c.json({ error: "No such line" }, 404);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+    changed(b.by);
+    return c.json({ ok: true });
+  })
+  // the terminals a note is the spec of, all at once (lines are drawn to the new ones)
+  .put("/nodes/:node/spec", async (c) => {
+    const b = await c.req.json<{ cards?: string[]; by?: string }>();
+    if (!Array.isArray(b.cards) || !b.cards.every((x) => typeof x === "string")) return c.json({ error: "cards is a list of terminal card ids" }, 400);
+    try {
+      const ends = canvas.setSpec(c.req.param("node"), b.cards);
+      changed(b.by);
+      return c.json({ ends });
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
+  // the note's spec sent once to every terminal it's the spec of, to start from
+  .post("/nodes/:node/spec/send", async (c) => {
+    const b = await c.req.json<{ by?: string }>().catch(() => ({}) as { by?: string });
+    try {
+      const out = await sendSpec(c.req.param("node"));
+      changed(b.by);
+      return c.json(out);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
   })
   .delete("/edges/:edge", (c) => {
     if (!canvas.removeEdge(c.req.param("edge"))) return c.json({ error: "No such line" }, 404);

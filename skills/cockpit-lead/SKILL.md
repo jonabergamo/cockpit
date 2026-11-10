@@ -27,6 +27,7 @@ Every worker's terminal is a card on the Terminals canvas. Lines between cards c
 - To link two workers yourself, use `link(from, to, role, when?, limit?)`. Set `when: "passing"` for a reviewer, so it only sees turns whose checks pass and doesn't review broken code. Use `when: "failing"` for a line that hands failures to a fixer.
 - Keep `limit` low: 2 to 4 hops. Two agents with a high limit can trade the same points back and forth. When a line runs out, read both screens and decide yourself, or tell the user.
 - `hand_off(line, from, ask)` passes one agent's last answer along a line once, for example a plan to the worker that builds it. `add_note(text, near)` pins a note beside a worker for the user to see. `unlink(line)` removes a line you added; `keep: true` keeps it as a plain line.
+- For spec-first work, write the spec as a note: `add_note(text, near: worker, spec: true)` makes it the spec of that worker's relay lines, so each turn carries it and a reviewer judges the change against it. Add `send_spec: true` to send it to the worker now. `link(note, worker, spec: true)` makes an existing note the spec of another worker, such as the test writer.
 
 ## How to work
 

@@ -233,12 +233,18 @@ server.registerTool(
       limit: z.number().int().min(1).max(20).optional().describe("3 when left out"),
       with_diff: z.boolean().optional(),
       panel: z.string().regex(/^[\w-]{1,40}$/).optional().describe("Review lines from the same worker with the same panel review together (review role only)"),
+      spec: z.boolean().optional().describe("Between a note and a terminal: the note becomes the spec of every relay line at that terminal, its text sent with each turn (no role)"),
     },
   },
-  wrap(async (a: { from: string; to: string; role?: "review" | "plan" | "build" | "custom"; prompt?: string; both?: boolean; when?: string; limit?: number; with_diff?: boolean; panel?: string }) => {
+  wrap(async (a: { from: string; to: string; role?: "review" | "plan" | "build" | "custom"; prompt?: string; both?: boolean; when?: string; limit?: number; with_diff?: boolean; panel?: string; spec?: boolean }) => {
     const [from, to] = await Promise.all([find(a.from), find(a.to)]);
     if (from.canvas !== to.canvas) throw new Error(`They're on different workspaces (${from.workspace} and ${to.workspace}); a line can only join cards on one`);
+    if (a.spec && a.role) throw new Error("A spec line joins a note to a terminal and passes nothing on: leave out role");
     const line = (await call("POST", `/canvas/${from.canvas}/edges`, { source: from.node.id, target: to.node.id })) as { id: string; source: string };
+    if (a.spec) {
+      await call("PATCH", `/canvas/edges/${line.id}/spec`, { spec: true });
+      return { line: line.id, spec: true };
+    }
     if (!a.role) return { line: line.id, relay: "none" };
     // a line already drawn the other way round keeps its ends, so the turns go from `from` all the same
     const both = a.both ?? a.role === "review";
@@ -283,15 +289,27 @@ server.registerTool(
 server.registerTool(
   "add_note",
   {
-    description: "Put a markdown note on the canvas: beside a card and linked to it when near is given, else on the workspace named (or the first one).",
-    inputSchema: { text: z.string().min(1), near: z.string().optional().describe(WHO), workspace: z.string().optional().describe("By name or id, when near isn't given") },
+    description:
+      "Put a markdown note on the canvas: beside a card and linked to it when near is given, else on the workspace named (or the first one). spec: near is a worker's terminal and the note becomes the spec of its relay lines, its text sent along with each turn (a reviewer judges the change against it). send_spec also sends it to that terminal now, to start from.",
+    inputSchema: {
+      text: z.string().min(1),
+      near: z.string().optional().describe(WHO),
+      workspace: z.string().optional().describe("By name or id, when near isn't given"),
+      spec: z.boolean().optional().describe("Make the note the spec of the terminal it's put beside (needs near)"),
+      send_spec: z.boolean().optional().describe("With spec: send the spec to the terminal now, once"),
+    },
   },
-  wrap(async ({ text, near, workspace }: { text: string; near?: string; workspace?: string }) => {
+  wrap(async ({ text, near, workspace, spec, send_spec }: { text: string; near?: string; workspace?: string; spec?: boolean; send_spec?: boolean }) => {
+    if (spec && !near) throw new Error("A spec note goes beside the terminal it's the spec of: give near");
     if (near) {
       const f = await find(near);
+      if (spec && f.node.kind !== "term") throw new Error(`That's a ${f.node.kind} card: a note can only be the spec of a terminal`);
       const note = (await call("POST", `/canvas/${f.canvas}/notes`, { text, x: f.node.x + f.node.w + 40, y: f.node.y })) as { id: string };
-      await call("POST", `/canvas/${f.canvas}/edges`, { source: f.node.id, target: note.id });
-      return { note: note.id, workspace: f.workspace, linkedTo: f.node.id };
+      const line = (await call("POST", `/canvas/${f.canvas}/edges`, { source: f.node.id, target: note.id })) as { id: string };
+      if (!spec) return { note: note.id, workspace: f.workspace, linkedTo: f.node.id };
+      await call("PATCH", `/canvas/edges/${line.id}/spec`, { spec: true });
+      const sent = send_spec ? ((await call("POST", `/canvas/nodes/${note.id}/spec/send`, {})) as { sent: string[] }).sent : undefined;
+      return { note: note.id, workspace: f.workspace, linkedTo: f.node.id, specFor: f.node.id, ...(sent ? { sentTo: sent } : {}) };
     }
     const all = (await call("GET", "/canvas")) as { id: string; name: string }[];
     const ws = workspace ? all.find((c) => c.id === workspace || c.name.toLowerCase() === workspace.trim().toLowerCase()) : all[0];

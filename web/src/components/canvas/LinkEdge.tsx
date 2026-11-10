@@ -232,18 +232,23 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
   const at = { transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`, pointerEvents: "all" as const };
   return (
     <>
-      <BaseEdge id={id} path={path} interactionWidth={18} markerEnd={markerEnd} markerStart={markerStart} className={`canvas-link canvas-link-${kind} ${relay ? "canvas-link-relay" : ""} ${data?.live && !stopped ? "canvas-link-live" : ""} ${selected ? "canvas-link-selected" : ""}`} />
+      <BaseEdge id={id} path={path} interactionWidth={18} markerEnd={markerEnd} markerStart={markerStart} className={`canvas-link canvas-link-${kind} ${relay ? "canvas-link-relay" : ""} ${data?.spec ? "canvas-link-spec" : ""} ${data?.live && !stopped ? "canvas-link-live" : ""} ${selected ? "canvas-link-selected" : ""}`} />
       <EdgeLabelRenderer>
         {selected ? (
           <div className="nodrag nopan absolute rounded-2xl border border-line bg-raised shadow px-2 py-1 text-[11px] text-muted" style={at}>
             <div className="flex items-center gap-1 h-5">
-              <span>{data?.auto ? "runs in its worktree" : relay ? "relays turns" : what[kind]}</span>
+              <span>{data?.auto ? "runs in its worktree" : relay ? "relays turns" : data?.spec ? "📌 the note is its spec" : what[kind]}</span>
               {!data?.auto && (
                 <button type="button" onClick={() => a.removeEdge(id)} className="ml-auto size-4 grid place-items-center rounded-full hover:bg-red-soft hover:text-red" aria-label="Remove this link">
                   ×
                 </button>
               )}
             </div>
+            {relay && !!data?.specs?.length && (
+              <div className="mb-1 max-w-72 truncate text-muted" data-line-spec={id} title="Each turn goes with the spec's text; a reviewer judges the change against it">
+                📌 Works to the spec: {data.specs.join(", ")}
+              </div>
+            )}
             {kind === "talk" && data?.names && (
               <button type="button" onClick={() => a.history(id)} className="mb-1 h-6 px-2 rounded-full border border-line bg-ground hover:border-cobalt hover:text-cobalt" data-line-history-open={id}>
                 History
@@ -252,6 +257,10 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
             {kind === "talk" && data?.names && <HandOff id={id} names={data.names} status={data.status} relayed={!!relay} />}
             {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} status={data.status} names={data.names} panel={data.panel} peers={data.peers} />}
           </div>
+        ) : data?.spec ? (
+          <span className="nodrag nopan absolute rounded-full border border-cobalt/50 bg-raised px-1 h-4 text-[10px] leading-4 text-cobalt" style={at} data-spec-line={id} title="The note is the spec of this terminal's relay lines">
+            📌 spec
+          </span>
         ) : (
           relay && (
             <button
@@ -260,10 +269,15 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
               className={`nodrag nopan absolute rounded-full border px-1.5 h-5 flex items-center gap-1 whitespace-nowrap text-[11px] tabular-nums ${status?.state === "failed" ? LOOK.failed.pill : stopped ? "border-amber bg-amber-soft text-amber" : "border-cobalt/50 bg-raised text-cobalt"}`}
               style={at}
               data-relay-pill={status?.state ?? (stopped ? "stopped" : "ok")}
-              title={`${status ? `${status.text} (${ago(status.at)})` : stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}.${data?.panel ? ` Reviews together with the other lines marked ${data.panel}.` : ""} Click for the line's history, the line for its settings.`}
+              title={`${status ? `${status.text} (${ago(status.at)})` : stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}.${data?.specs?.length ? ` Works to the spec: ${data.specs.join(", ")}.` : ""}${data?.panel ? ` Reviews together with the other lines marked ${data.panel}.` : ""} Click for the line's history, the line for its settings.`}
             >
               {status ? LOOK[status.state].mark : "↻"} {data?.hops ?? 0}/{relay.limit}
               {status && LOOK[status.state].word && <span>· {LOOK[status.state].word}</span>}
+              {!!data?.specs?.length && (
+                <span data-spec-marker={id} title={`Works to the spec: ${data.specs.join(", ")}`}>
+                  📌
+                </span>
+              )}
               {data?.panel && (
                 <span className="h-3.5 px-1 rounded bg-cobalt text-on-accent text-[10px] font-medium leading-[14px]" data-panel-badge={data.panel}>
                   {data.panel}

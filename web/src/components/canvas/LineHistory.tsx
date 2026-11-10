@@ -20,6 +20,7 @@ const KIND: Record<RelayLogEntry["kind"], string> = {
   "skipped-ack": "only acknowledged",
   "skipped-limit": "past the limit",
   panel: "panel review",
+  spec: "spec sent",
 };
 const PART: Record<PanelPart["outcome"], string> = { answered: "", acknowledged: "only acknowledged", silent: "didn't answer" };
 
@@ -86,6 +87,11 @@ function Entry({ e, name, terms, by }: { e: RelayLogEntry; name: (card: string) 
         <span className={o.look} title={e.note}>
           {o.word}
         </span>
+        {!!e.spec?.length && (
+          <span className="text-cobalt" data-log-spec={e.id} title="The spec's note went with it, under its own heading (its text isn't kept here, it's in the note)">
+            📌 with the spec
+          </span>
+        )}
       </div>
       {e.note && e.outcome !== "delivered" && <div className={`text-[11px] leading-snug ${e.outcome === "failed" ? "text-red" : "text-muted"}`}>{e.note}</div>}
       {e.text && (open ? <Message text={e.text} /> : <div className="mt-1 text-[12px] text-muted line-clamp-2">{first}</div>)}

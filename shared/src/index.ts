@@ -163,6 +163,8 @@ export interface CanvasEdge {
   hops?: number;
   // what happened to the last turn it had to pass on, so one that went nowhere doesn't go unnoticed
   status?: RelayStatus;
+  // between a note and a terminal: the note is the spec every relay line at that terminal works to
+  spec?: boolean;
 }
 
 // sent: it reached the other end; held: waiting for the other end to be free; failed: it couldn't go, and why
@@ -176,7 +178,7 @@ export interface RelayStatus {
 // forward (a finished turn), back (a review coming back to the one whose work it was), handoff (a last answer handed
 // over once), held (held back by its checks gate), skipped-ack (it only acknowledged), skipped-limit (the line was
 // at its hop limit), panel (the reviews of a panel of reviewers merged into one for the author, with each review
-// in parts). replay: the entry it sent again; a replay doesn't count against the hop limit.
+// in parts), spec (a note's spec sent to a terminal it's the spec of, to start from). replay: the entry it sent again; a replay doesn't count against the hop limit.
 export interface RelayLogEntry {
   id: number;
   edge: string;
@@ -184,7 +186,7 @@ export interface RelayLogEntry {
   limit?: number;
   from: string;
   to: string;
-  kind: "forward" | "back" | "handoff" | "held" | "skipped-ack" | "skipped-limit" | "panel";
+  kind: "forward" | "back" | "handoff" | "held" | "skipped-ack" | "skipped-limit" | "panel" | "spec";
   text: string;
   at: number;
   outcome: "pending" | "delivered" | "held" | "failed" | "stopped-ack" | "limit";
@@ -193,6 +195,8 @@ export interface RelayLogEntry {
   replay?: number;
   // a panel's: what each reviewer said (card id and name), or that it didn't answer in time
   parts?: PanelPart[];
+  // the note cards whose text went with it as the spec, kept by id rather than copied into every entry
+  spec?: string[];
 }
 export interface PanelPart {
   from: string;

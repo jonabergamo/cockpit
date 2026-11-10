@@ -340,6 +340,11 @@ body {
 .cockpit-canvas .canvas-link-note {
   stroke-dasharray: 2 5;
 }
+/* a note that's a terminal's spec */
+.cockpit-canvas .canvas-link-spec {
+  stroke: var(--cobalt);
+  stroke-width: 2;
+}
 /* the terminal at one end is working: the line flows */
 .cockpit-canvas .canvas-link-live {
   stroke-dasharray: 8 6;

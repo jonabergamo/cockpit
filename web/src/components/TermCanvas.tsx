@@ -78,7 +78,8 @@ const RUNS_H = 320;
 // status: what its agent is doing, when an agent runs in it (busy, waiting on you, idle)
 // archived: since when it's been put away, and what's folded into it
 type TermData = { term: TermInfo; title: string; status?: SessionStatus; session?: string; cost?: number; archived?: number; folded?: string[] };
-type NoteData = { fresh: boolean; fit?: boolean };
+// specs: the terminals on its workspace it can be the spec of, whether it is, and how many relay lines each has
+type NoteData = { fresh: boolean; fit?: boolean; specs: { card: string; name: string; on: boolean; relays: number }[] };
 type TermCardNode = Node<TermData, "term">;
 type NoteCardNode = Node<NoteData, "note">;
 type CardNode = TermCardNode | NoteCardNode | TicketCardNode | ChangesCardNode | RunsCardNode | PlanCardNode | ScreenCardNode;
@@ -293,6 +294,44 @@ function OpenTermCard({ id, data, selected }: NodeProps<TermCardNode>) {
   );
 }
 
+// Use as spec for…: the terminals a note is the spec of. Every relay line at one carries the note's text with each turn
+// (a reviewer judges the change against it); Send spec hands it to each of them once, to start from.
+function SpecMenu({ note, specs }: { note: string; specs: NoteData["specs"] }) {
+  const a = useActions();
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<{ ok: boolean; text: string }>();
+  const on = specs.filter((s) => s.on).map((s) => s.card);
+  const toggle = (card: string, yes: boolean) => a.setSpec(note, yes ? [...on, card] : on.filter((c) => c !== card));
+  const send = () => {
+    setBusy(true);
+    setSaid(undefined);
+    a.sendSpec(note)
+      .then((r) => setSaid({ ok: true, text: `Sent to ${r.sent.join(", ")}${r.left.length ? `. Left out: ${r.left.join("; ")}` : ""}` }))
+      .catch((e) => setSaid({ ok: false, text: e instanceof Error ? e.message : String(e) }))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="nodrag nowheel border-b border-line bg-ground/60 px-2.5 py-2 text-[12px] flex flex-col gap-1.5" data-spec-menu={note}>
+      <span className="text-faint">Use as spec for…</span>
+      {specs.length ? (
+        specs.map((s) => (
+          <label key={s.card} className="flex items-center gap-1.5 text-muted">
+            <input type="checkbox" checked={s.on} onChange={(e) => toggle(s.card, e.target.checked)} className="accent-[var(--cobalt)]" aria-label={`Spec for ${s.name}`} />
+            <span className="truncate">{s.name}</span>
+            <span className="ml-auto shrink-0 text-faint">{s.relays ? `${s.relays} relay line${s.relays === 1 ? "" : "s"}` : "no relay lines"}</span>
+          </label>
+        ))
+      ) : (
+        <span className="text-muted">No terminals on this workspace.</span>
+      )}
+      <button type="button" disabled={busy || !on.length} onClick={send} className="self-start h-6 px-2 rounded-full border border-line bg-raised hover:border-cobalt hover:text-cobalt disabled:opacity-50" title="Send the spec to each of these terminals once, to start from">
+        {busy ? "Sending" : "Send spec"}
+      </button>
+      {said && <div className={`leading-snug ${said.ok ? "text-muted" : "text-red"}`}>{said.ok ? said.text : `⚠ ${said.text}`}</div>}
+    </div>
+  );
+}
+
 function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   const a = useActions();
   const qc = useQueryClient();
@@ -325,13 +364,23 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
   );
   const heading = value.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") || "Note";
   const fit = useFit({ id, selected, fit: data.fit, max: 560, minWidth: 200, minHeight: 100 });
+  const [specOpen, setSpecOpen] = useState(false);
+  const governs = data.specs.filter((s) => s.on);
   return (
     <div className={`w-full flex flex-col rounded-lg border bg-raised shadow-md overflow-hidden ${selected ? "border-cobalt" : "border-line"}`} style={fit.style} data-note={id}>
       {fit.resizer}
       <Ports />
       <div className="card-handle cursor-grab active:cursor-grabbing flex items-center gap-2 h-8 pl-2.5 pr-1 border-b border-line text-[12px] shrink-0">
         <span className="truncate font-medium text-muted">{heading}</span>
+        {governs.length > 0 && (
+          <span className="shrink-0 h-4 px-1 rounded bg-cobalt text-on-accent text-[10px] font-medium leading-4" data-spec-badge={id} title={`The spec of ${governs.map((s) => s.name).join(", ")}: it goes along with every turn on their relay lines`}>
+            📌 spec
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-0.5 nodrag shrink-0">
+          <button type="button" onClick={() => setSpecOpen(!specOpen)} className={`h-6 px-1.5 rounded hover:text-ink hover:bg-ground ${specOpen ? "text-ink bg-ground" : "text-faint"}`} title="Use this note as the spec for terminals and their relay lines" aria-expanded={specOpen}>
+            Spec
+          </button>
           <button type="button" onClick={() => setEditing(!editing)} className="h-6 px-1.5 rounded text-faint hover:text-ink hover:bg-ground">
             {editing ? "Done" : "Edit"}
           </button>
@@ -340,6 +389,7 @@ function NoteCard({ id, data, selected }: NodeProps<NoteCardNode>) {
           </button>
         </div>
       </div>
+      {specOpen && <SpecMenu note={id} specs={data.specs} />}
       {editing ? (
         <textarea
           autoFocus
@@ -519,6 +569,20 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         return ro?.author === r.author ? [{ id: o.id, name: nameOf(ro.reviewer) ?? "a terminal", panel: o.relay?.panel ? letters.get(`${r.author}|${o.relay.panel}`) : undefined, same: !!e.relay?.panel && o.relay?.panel === e.relay.panel }] : [];
       });
     };
+    // the notes each terminal card has as its spec, by their first line: every relay line at it carries them
+    const noteName = (id: string) =>
+      qc
+        .getQueryData<{ text: string }>(["note", id])
+        ?.text.split("\n")
+        .find((l) => l.trim())
+        ?.replace(/^#+\s*/, "") || "a note";
+    const specOf = new Map<string, string[]>();
+    for (const e of ws.edges.filter((x) => x.spec)) {
+      const note = cards.get(e.source)?.kind === "note" ? e.source : e.target;
+      const card = note === e.source ? e.target : e.source;
+      specOf.set(card, [...(specOf.get(card) ?? []), note]);
+    }
+    const specsOf = (e: CanvasInfo["edges"][number]) => [...new Set([...(specOf.get(e.source) ?? []), ...(specOf.get(e.target) ?? [])])].map(noteName);
     const out: LinkEdgeT[] = ws.edges
       .filter((e) => shown(e.source) && shown(e.target))
       .map((e) => {
@@ -536,7 +600,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
           type: "link",
           markerEnd: from === "source" || from === "both" ? arrow : undefined,
           markerStart: from === "target" || from === "both" ? arrow : undefined,
-          data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target), relay: e.relay, hops: e.hops, status: e.status, names: a && b ? [a, b] : undefined, panel, peers },
+          data: { kind: kindOf(cards.get(e.source)?.kind, cards.get(e.target)?.kind), live: busy(e.source) || busy(e.target), relay: e.relay, hops: e.hops, status: e.status, names: a && b ? [a, b] : undefined, panel, peers, spec: e.spec, specs: e.relay ? specsOf(e) : undefined },
         };
       });
     const drawn = new Set(out.flatMap((e) => [`${e.source}|${e.target}`, `${e.target}|${e.source}`]));
@@ -818,7 +882,13 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
         // a card that fits its content is left without a height, so it takes what it shows
         const base = { id: n.id, position: keep?.position ?? { x: n.x, y: n.y }, width: keep?.width ?? n.w, height: keep?.height ?? (n.fit ? undefined : n.h), initialHeight: n.h, dragHandle: ".card-handle", selected: was?.selected };
         if (n.kind === "note") {
-          out.push({ ...base, type: "note", data: { fresh: n.id === fresh, fit: n.fit } });
+          const specs = ws.nodes.flatMap((x) => {
+            const t = x.kind === "term" && !folded(x) ? byId.get(x.ref) : undefined;
+            if (!t) return [];
+            const on = ws.edges.some((e) => e.spec && ((e.source === n.id && e.target === x.id) || (e.target === n.id && e.source === x.id)));
+            return [{ card: x.id, name: titleOf(t), on, relays: ws.edges.filter((e) => e.relay && (e.source === x.id || e.target === x.id)).length }];
+          });
+          out.push({ ...base, type: "note", data: { fresh: n.id === fresh, fit: n.fit, specs } });
           continue;
         }
         if (n.kind === "ticket") {
@@ -1392,6 +1462,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     spawn: (node, anchor) => setSpawning({ from: node, x: anchor.left, y: anchor.bottom + 4 }),
     handOff: (edge, from, ask) => api.post(`/canvas/edges/${edge}/handoff`, { from, ask, by: tabId }).then(refresh),
     history: setHistory,
+    setSpec: (note, cards) => guard(api.put(`/canvas/nodes/${note}/spec`, { cards, by: tabId }).then(refresh)),
+    sendSpec: (note) => api.post<{ sent: string[]; left: string[] }>(`/canvas/nodes/${note}/spec/send`, { by: tabId }),
     setRelay: (edge, relay) => {
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.map((e) => (e.id === edge ? { ...e, relay: relay ?? undefined, hops: 0 } : e)) })));
       guard(api.patch(`/canvas/edges/${edge}`, { relay, by: tabId }).catch((e) => (refresh(), Promise.reject(e))));

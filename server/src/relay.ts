@@ -4,7 +4,8 @@
 // idle. Each hop counts, and at the line's limit it stops passing things on until you type into either terminal,
 // so two agents never talk to each other for ever. An agent just opened and not asked anything yet has no session
 // to send to: it's sitting at its prompt, so the message is typed into its terminal. A review line also hands the
-// reviewer what the turn changed in git, so it reviews the code and not only the agent's account of it.
+// reviewer what the turn changed in git, so it reviews the code and not only the agent's account of it. A note made the
+// spec of a terminal goes along every relay line at that terminal, so both ends work (and a reviewer judges) to it.
 import { randomUUID } from "node:crypto";
 import type { CanvasEdge, CanvasRelay, RelayLogEntry, Run, Session } from "@cockpit/shared";
 import { lastWords, sendText } from "./agents.ts";
@@ -36,11 +37,41 @@ const ANSWER = "That's a review of your last turn. Fix what it's right about, an
 // from it is a review to act on, not more work to review
 export const reviewerEnd = (relay: CanvasRelay): "source" | "target" => (relay.from === "target" ? "source" : "target");
 
-// changes: what the turn changed in git, under what it said, for a reviewer to read the code and not only the account
-export function relayMessage(from: string, text: string, relay: CanvasRelay, hop: number, back = false, changes?: string) {
+// changes: what the turn changed in git, under what it said, for a reviewer to read the code and not only the account.
+// spec: the spec's section (specSection), last before the footer
+export function relayMessage(from: string, text: string, relay: CanvasRelay, hop: number, back = false, changes?: string, spec = "") {
   const ask = relay.role === "custom" ? relay.prompt! : back ? ANSWER : ASK[relay.role];
   const diff = changes && !back && withDiff(relay) ? `\n\n${changes}` : "";
-  return `From ${from}, which just ${back ? "reviewed your last turn" : "finished a turn"}:\n\n${text}${diff}\n\n${ask}\n\n(Passed on by cockpit's canvas, ${hop} of ${relay.limit}.)`;
+  return withSpec(`From ${from}, which just ${back ? "reviewed your last turn" : "finished a turn"}:\n\n${text}${diff}\n\n${ask}\n\n(Passed on by cockpit's canvas, ${hop} of ${relay.limit}.)`, spec);
+}
+
+export const SPEC_MAX = 8000;
+// The text of the notes a line works to, under its heading, cut at SPEC_MAX. review: the reviewer judges the change
+// against it. Empty when there's no spec, or nothing in it.
+export function specSection(texts: string[], review = false) {
+  const all = texts
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join("\n\n---\n\n");
+  if (!all) return "";
+  const body = all.length > SPEC_MAX ? `${all.slice(0, SPEC_MAX)}\n\n(The spec is cut short here at ${SPEC_MAX / 1000}k characters: the rest is in its note on cockpit's canvas.)` : all;
+  return `The spec you both work to:\n\n${body}${review ? "\n\nJudge the change against this spec; call out anything it misses or contradicts." : ""}`;
+}
+// the spec goes in last, before the footer that says who passed it on
+const FOOT = "\n\n(Passed on by cockpit's canvas";
+export function withSpec(message: string, spec: string) {
+  if (!spec) return message;
+  const i = message.lastIndexOf(FOOT);
+  return i < 0 ? `${message}\n\n${spec}` : `${message.slice(0, i)}\n\n${spec}${message.slice(i)}`;
+}
+// the notes a line works to and their section; a review going back to its author goes without, the reviewer had it
+export function specFor(edge: string, review: boolean, back = false) {
+  const notes = back ? [] : canvas.specOfLine(edge);
+  const section = specSection(
+    notes.map((n) => canvas.readNote(n) ?? ""),
+    review,
+  );
+  return section ? { notes, section } : { notes: [] as string[], section: "" };
 }
 
 // on by default for a review line
@@ -216,8 +247,11 @@ async function passOn(relays: Relays, from: string, text: string, failing: Run[]
     const name = nameOf(to);
     const hop = (edge.hops ?? 0) + 1;
     const back = isBack(r);
-    const message = relayMessage(from, text.trim(), edge.relay!, hop, back, changes);
-    const entry = { edge: edge.id, limit: edge.relay!.limit, ...cardsOf(r), text: message };
+    // the history keeps which notes went as the spec, not their text each time
+    const spec = specFor(edge.id, edge.relay!.role === "review", back);
+    const logged = relayMessage(from, text.trim(), edge.relay!, hop, back, changes);
+    const message = withSpec(logged, spec.section);
+    const entry = { edge: edge.id, limit: edge.relay!.limit, ...cardsOf(r), text: logged, ...(spec.notes.length ? { spec: spec.notes } : {}) };
     // a review for a panel that's gathering them: kept until the rest are in, and goes back with theirs as one
     const gather = back && edge.relay!.panel ? gathers.get(panelKey(entry.to, edge.relay!.panel)) : undefined;
     if (gather?.waits(edge.id)) {
@@ -410,11 +444,41 @@ export async function replay(id: number, toCard?: string) {
   const end = canvas.termOfCard(card);
   if (!end || end.canvas !== line.canvas) throw new Error("Send it to a terminal on the same workspace");
   if (!sessionIn(end.term) && !freshAgent(end.term)) throw new Error(`${nameOf(end.term)} isn't running an agent, so there's no one to send it to`);
-  const kind = was.kind === "back" || was.kind === "handoff" || was.kind === "panel" ? was.kind : "forward";
-  const log = canvas.logRelay({ edge: was.edge, hop: line.hops, ...(was.limit ? { limit: was.limit } : {}), from: was.from, to: card, kind, text: was.text, outcome: "pending", replay: was.id });
-  await sendOrHold(`replay:${log}`, was.edge, end.term, was.text, log);
+  const kind = was.kind === "back" || was.kind === "handoff" || was.kind === "panel" || was.kind === "spec" ? was.kind : "forward";
+  // the spec it went with, as its notes say now
+  const spec = was.spec?.length ? specSection(was.spec.map((n) => canvas.readNote(n) ?? ""), kind === "forward" && canvas.edgeById(was.edge)?.relay?.role === "review") : "";
+  const log = canvas.logRelay({ edge: was.edge, hop: line.hops, ...(was.limit ? { limit: was.limit } : {}), from: was.from, to: card, kind, text: was.text, outcome: "pending", replay: was.id, ...(spec ? { spec: was.spec } : {}) });
+  await sendOrHold(`replay:${log}`, was.edge, end.term, withSpec(was.text, spec), log);
   changed();
   return canvas.logEntry(log)!;
+}
+
+// A note's spec sent once to every terminal it's the spec of, to start from: a test writer and an implementer both
+// working to it from the first turn. Held for one that's busy; a terminal with no agent in it is left out and said.
+export const specMessage = (text: string) => `${specSection([text])}\n\nRead it before you start, and work to it: the lines between you hold each turn to it.\n\n(Sent by cockpit's canvas.)`;
+
+export async function sendSpec(note: string) {
+  const text = canvas.readNote(note);
+  if (text === undefined) throw new Error("No such note");
+  if (!text.trim()) throw new Error("The note is empty, so there's no spec to send");
+  const ends = canvas.specEdges(note);
+  if (!ends.length) throw new Error("This note isn't the spec of any terminal yet: use it as the spec for one first");
+  const message = specMessage(text);
+  const sent: string[] = [];
+  const left: string[] = [];
+  for (const e of ends) {
+    const name = nameOf(e.term);
+    if (!sessionIn(e.term) && !freshAgent(e.term)) {
+      left.push(`${name} isn't running an agent`);
+      continue;
+    }
+    const log = canvas.logRelay({ edge: e.edge, hop: 0, from: note, to: e.card, kind: "spec", text: message, outcome: "pending" });
+    await sendOrHold(`spec:${e.edge}`, e.edge, e.term, message, log);
+    sent.push(name);
+  }
+  changed();
+  if (!sent.length) throw new Error(`There was no one to send it to: ${left.join("; ")}`);
+  return { sent, left };
 }
 
 export function startRelays() {

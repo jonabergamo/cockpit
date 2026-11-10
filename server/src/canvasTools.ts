@@ -103,7 +103,8 @@ export function canvasView(canvases: CanvasInfo[], terms: TermInfo[], noteText: 
         if (n.kind === "note") {
           const text = (noteText(n.id) ?? "").trim();
           label.set(n.id, `note "${text.slice(0, 30)}"`);
-          return { ...base, text: text.length > 600 ? `${text.slice(0, 600)}…` : text };
+          const specFor = c.edges.filter((e) => e.spec && (e.source === n.id || e.target === n.id)).map((e) => (e.source === n.id ? e.target : e.source));
+          return { ...base, text: text.length > 600 ? `${text.slice(0, 600)}…` : text, ...(specFor.length ? { specFor } : {}) };
         }
         if (n.kind === "ticket") {
           label.set(n.id, n.ref);
@@ -112,6 +113,16 @@ export function canvasView(canvases: CanvasInfo[], terms: TermInfo[], noteText: 
         label.set(n.id, `${n.kind} card`);
         return base;
       });
+      // the notes each card has as its spec, which every relay line at it carries
+      const specOf = new Map<string, string[]>();
+      for (const e of c.edges.filter((x) => x.spec)) {
+        const note = c.nodes.find((n) => n.kind === "note" && (n.id === e.source || n.id === e.target));
+        if (note) {
+          const card = note.id === e.source ? e.target : e.source;
+          specOf.set(card, [...(specOf.get(card) ?? []), note.id]);
+        }
+      }
+      const governing = (e: CanvasInfo["edges"][number]) => [...new Set([...(specOf.get(e.source) ?? []), ...(specOf.get(e.target) ?? [])])];
       const lines = c.edges.map((e) => ({
         id: e.id,
         from: e.source,
@@ -127,8 +138,10 @@ export function canvasView(canvases: CanvasInfo[], terms: TermInfo[], noteText: 
               prompt: e.relay.prompt,
               // review lines from one worker with the same panel review together, merged into one review
               panel: e.relay.panel,
+              // the notes whose text goes along with each turn as the spec both ends work to
+              spec: governing(e).length ? governing(e) : undefined,
             }
-          : { role: "plain line" }),
+          : { role: e.spec ? "spec (the note is the spec of this terminal's relay lines)" : "plain line" }),
         last: e.status ? `${e.status.state}: ${e.status.text}` : undefined,
         lastMessage: lastMessage(logs.get(e.id), label),
       }));

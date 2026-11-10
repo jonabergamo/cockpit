@@ -32,6 +32,9 @@ export interface Actions {
   handOff: (edge: string, from: "source" | "target", ask: string) => Promise<void>;
   // everything a line carried, in a panel beside the canvas, to read or send again
   history: (edge: string) => void;
+  // the terminal cards a note is the spec of, all at once; and the spec sent to each of them once, to start from
+  setSpec: (note: string, cards: string[]) => void;
+  sendSpec: (note: string) => Promise<{ sent: string[]; left: string[] }>;
   // a terminal was just started from a ticket card: it gets a changes card of its own once it's on the canvas
   started: (ticketNode: string, term: string) => void;
   // everything for working on a ticket at once: its agent, a reviewer on its turns, its changes and its runs
@@ -68,4 +71,8 @@ export interface LinkData extends Record<string, unknown> {
   // the other review lines from the same author: the reviewer each goes to, its panel's letter, and whether it's
   // in this line's panel
   peers?: { id: string; name: string; panel?: string; same: boolean }[];
+  // a note to a terminal: the note is that terminal's spec
+  spec?: boolean;
+  // a relay line: the notes whose text goes along with each turn as the spec, by their first line
+  specs?: string[];
 }

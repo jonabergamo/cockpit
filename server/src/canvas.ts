@@ -60,12 +60,16 @@ db.exec(`
 `);
 // a panel's entry keeps each reviewer's own review beside the merged one
 if (!db.prepare<[], { name: string }>("pragma table_info(canvas_relay_log)").all().some((c) => c.name === "parts")) db.exec("alter table canvas_relay_log add column parts text");
+// the notes that went with an entry as the spec, by card id: the text itself is in the note, not copied each time
+if (!db.prepare<[], { name: string }>("pragma table_info(canvas_relay_log)").all().some((c) => c.name === "spec")) db.exec("alter table canvas_relay_log add column spec text");
 // lines between terminals can relay turns: how, and how many hops so far
 for (const [col, type] of [
   ["relay", "text"],
   ["hops", "integer not null default 0"],
   // what happened to the last turn it had to pass on
   ["status", "text"],
+  // a line from a note to a terminal: the note is the spec of that terminal's relay lines
+  ["spec", "integer"],
 ] as const)
   if (!db.prepare<[], { name: string }>("pragma table_info(canvas_edges)").all().some((c) => c.name === col)) db.exec(`alter table canvas_edges add column ${col} ${type}`);
 // a card that sizes its height to what it shows (0 once you size it yourself); unset is the card's own default
@@ -101,13 +105,13 @@ const rowsOf = (canvas: string) => db.prepare<[string], NodeRow>(`select ${COLS}
 const nodeRow = (id: string) => db.prepare<[string], NodeRow>(`select ${COLS} from canvas_nodes where id = ?`).get(id);
 const refRow = (kind: CanvasNode["kind"], ref: string) => db.prepare<[string, string], NodeRow>(`select ${COLS} from canvas_nodes where kind = ? and ref = ?`).get(kind, ref);
 const canvasRow = (id: string) => db.prepare<[string], { id: string; name: string }>("select id, name from canvases where id = ?").get(id);
-type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number; status?: string | null };
+type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number; status?: string | null; spec?: number | null };
 // what each relay last did, kept with the line so a warning is still there after a restart
 export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) => db.prepare("update canvas_edges set status = ? where id = ?").run(JSON.stringify({ ...status, at: Date.now() }), edge);
 // a message carries a diff at most; the history keeps it whole up to this, and only so many per line
 export const LOG_TEXT = 60_000;
 export const LOG_KEEP = 200;
-type LogRow = { id: number; edge: string; hop: number; hop_limit: number | null; from_node: string; to_node: string; kind: RelayLogEntry["kind"]; text: string; at: number; outcome: RelayLogEntry["outcome"]; note: string | null; replay: number | null; parts?: string | null };
+type LogRow = { id: number; edge: string; hop: number; hop_limit: number | null; from_node: string; to_node: string; kind: RelayLogEntry["kind"]; text: string; at: number; outcome: RelayLogEntry["outcome"]; note: string | null; replay: number | null; parts?: string | null; spec?: string | null };
 const toLog = (r: LogRow): RelayLogEntry => ({
   id: r.id,
   edge: r.edge,
@@ -122,13 +126,14 @@ const toLog = (r: LogRow): RelayLogEntry => ({
   ...(r.note ? { note: r.note } : {}),
   ...(r.replay != null ? { replay: r.replay } : {}),
   ...(r.parts ? { parts: JSON.parse(r.parts) as PanelPart[] } : {}),
+  ...(r.spec ? { spec: JSON.parse(r.spec) as string[] } : {}),
 });
 export function logRelay(e: Omit<RelayLogEntry, "id" | "at"> & { at?: number }) {
   const text = e.text.length > LOG_TEXT ? `${e.text.slice(0, LOG_TEXT)}\n\n(cut short at ${LOG_TEXT / 1000}k characters in the line's history)` : e.text;
   const id = Number(
     db
-      .prepare("insert into canvas_relay_log (edge, hop, hop_limit, from_node, to_node, kind, text, at, outcome, note, replay, parts) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(e.edge, e.hop, e.limit ?? null, e.from, e.to, e.kind, text, e.at ?? Date.now(), e.outcome, e.note ?? null, e.replay ?? null, e.parts ? JSON.stringify(e.parts.map((p) => ({ ...p, ...(p.text ? { text: p.text.slice(0, LOG_TEXT / 4) } : {}) }))) : null).lastInsertRowid,
+      .prepare("insert into canvas_relay_log (edge, hop, hop_limit, from_node, to_node, kind, text, at, outcome, note, replay, parts, spec) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(e.edge, e.hop, e.limit ?? null, e.from, e.to, e.kind, text, e.at ?? Date.now(), e.outcome, e.note ?? null, e.replay ?? null, e.parts ? JSON.stringify(e.parts.map((p) => ({ ...p, ...(p.text ? { text: p.text.slice(0, LOG_TEXT / 4) } : {}) }))) : null, e.spec?.length ? JSON.stringify(e.spec) : null).lastInsertRowid,
   );
   db.prepare("delete from canvas_relay_log where edge = ? and id <= coalesce((select id from canvas_relay_log where edge = ? order by id desc limit 1 offset ?), -1)").run(e.edge, e.edge, LOG_KEEP);
   return id;
@@ -146,8 +151,8 @@ export const lastLog = (edge: string) => {
 // the last entry on each line, for the lead's view
 export const lastLogs = () => new Map(db.prepare<[], LogRow>("select * from canvas_relay_log where id in (select max(id) from canvas_relay_log group by edge)").all().map((r) => [r.edge, toLog(r)]));
 // a line says how the last thing it carried went: a relayed turn, or a last answer handed over along it
-const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops } : {}), ...(e.status ? { status: JSON.parse(e.status) as RelayStatus } : {}) });
-const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, status from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
+const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops } : {}), ...(e.status ? { status: JSON.parse(e.status) as RelayStatus } : {}), ...(e.spec ? { spec: true } : {}) });
+const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, status, spec from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
 // every card but a terminal fits its content until you size it yourself
 const strip = ({ canvas: _, fit, archived, ...n }: NodeRow): CanvasNode => {
   const a = archived ? (JSON.parse(archived) as Archived) : undefined;
@@ -464,7 +469,7 @@ export function relaysFrom(term: string) {
 }
 
 export const edgeById = (id: string) => {
-  const e = db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where id = ?").get(id);
+  const e = db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, spec from canvas_edges where id = ?").get(id);
   return e && toEdge(e);
 };
 // a line's two cards, by card id
@@ -474,6 +479,57 @@ export const termOfCard = (card: string) => {
   const n = nodeRow(card);
   return n?.kind === "term" ? { term: n.ref, canvas: n.canvas } : undefined;
 };
+
+// A note made the spec of a terminal, or not: the line between them says so. Every relay line at that terminal then
+// carries the note's text along with each turn.
+export function setEdgeSpec(edge: string, on: boolean) {
+  const e = db.prepare<[string], { source: string; target: string }>("select source, target from canvas_edges where id = ?").get(edge);
+  if (!e) return false;
+  const kinds = [nodeRow(e.source)?.kind, nodeRow(e.target)?.kind];
+  if (on && !(kinds.includes("note") && kinds.includes("term"))) throw new Error("Only a line between a note and a terminal can make the note a spec");
+  db.prepare("update canvas_edges set spec = ? where id = ?").run(on ? 1 : null, edge);
+  return true;
+}
+
+// The terminals a note is the spec of, set all at once: a line is drawn to each that hasn't one, and the lines to
+// terminals left out stay as plain lines
+export function setSpec(note: string, cards: string[]) {
+  const n = nodeRow(note);
+  if (n?.kind !== "note") throw new Error("Only a note can be a spec");
+  const want = new Set(cards);
+  for (const c of want) {
+    const t = nodeRow(c);
+    if (t?.kind !== "term" || t.canvas !== n.canvas) throw new Error("A note can only be the spec of terminals on its own workspace");
+  }
+  db.transaction(() => {
+    for (const c of want) setEdgeSpec(addEdge(n.canvas, note, c).id, true);
+    for (const e of specEdges(note)) if (!want.has(e.card)) setEdgeSpec(e.edge, false);
+  })();
+  return specEdges(note);
+}
+
+// a note's spec lines: the terminal card at the other end, and its terminal
+export function specEdges(note: string) {
+  return db
+    .prepare<[string, string], { id: string; source: string; target: string }>("select id, source, target from canvas_edges where spec = 1 and (source = ? or target = ?) order by created_at")
+    .all(note, note)
+    .flatMap((e) => {
+      const card = e.source === note ? e.target : e.source;
+      const t = nodeRow(card);
+      return t?.kind === "term" ? [{ edge: e.id, card, term: t.ref }] : [];
+    });
+}
+
+// The notes that are the spec of a relay line: those made the spec of either terminal at its ends, each once
+export function specOfLine(edge: string) {
+  const e = edgeCards(edge);
+  if (!e) return [];
+  const rows = db
+    .prepare<[string, string, string, string], { source: string; target: string }>("select source, target from canvas_edges where spec = 1 and (source in (?, ?) or target in (?, ?)) order by created_at")
+    .all(e.source, e.target, e.source, e.target);
+  const notes = rows.map((r) => ([e.source, e.target].includes(r.source) ? r.target : r.source)).filter((id) => nodeRow(id)?.kind === "note");
+  return [...new Set(notes)];
+}
 
 export const countHop = (edge: string) => db.prepare("update canvas_edges set hops = hops + 1 where id = ?").run(edge);
 
