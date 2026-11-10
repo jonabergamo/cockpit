@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, RelayStatus, TermInfo } from "@cockpit/shared";
+import type { CanvasEdge, CanvasInfo, CanvasNode, CanvasRelay, RelayLogEntry, RelayStatus, TermInfo } from "@cockpit/shared";
 import { paths } from "./config.ts";
 import { db } from "./db.ts";
 
@@ -39,6 +39,24 @@ db.exec(`
     created_at integer not null
   );
   create index if not exists canvas_edges_canvas on canvas_edges (canvas);
+`);
+// every message a line carried or held back, not only the last, so the back-and-forth can be read and sent again
+db.exec(`
+  create table if not exists canvas_relay_log (
+    id integer primary key autoincrement,
+    edge text not null,
+    hop integer not null,
+    hop_limit integer,
+    from_node text not null,
+    to_node text not null,
+    kind text not null,
+    text text not null,
+    at integer not null,
+    outcome text not null,
+    note text,
+    replay integer
+  );
+  create index if not exists canvas_relay_log_edge on canvas_relay_log (edge, id);
 `);
 // lines between terminals can relay turns: how, and how many hops so far
 for (const [col, type] of [
@@ -84,6 +102,46 @@ const canvasRow = (id: string) => db.prepare<[string], { id: string; name: strin
 type EdgeRow = { id: string; source: string; target: string; relay: string | null; hops: number; status?: string | null };
 // what each relay last did, kept with the line so a warning is still there after a restart
 export const setRelayStatus = (edge: string, status: Omit<RelayStatus, "at">) => db.prepare("update canvas_edges set status = ? where id = ?").run(JSON.stringify({ ...status, at: Date.now() }), edge);
+// a message carries a diff at most; the history keeps it whole up to this, and only so many per line
+export const LOG_TEXT = 60_000;
+export const LOG_KEEP = 200;
+type LogRow = { id: number; edge: string; hop: number; hop_limit: number | null; from_node: string; to_node: string; kind: RelayLogEntry["kind"]; text: string; at: number; outcome: RelayLogEntry["outcome"]; note: string | null; replay: number | null };
+const toLog = (r: LogRow): RelayLogEntry => ({
+  id: r.id,
+  edge: r.edge,
+  hop: r.hop,
+  ...(r.hop_limit != null ? { limit: r.hop_limit } : {}),
+  from: r.from_node,
+  to: r.to_node,
+  kind: r.kind,
+  text: r.text,
+  at: r.at,
+  outcome: r.outcome,
+  ...(r.note ? { note: r.note } : {}),
+  ...(r.replay != null ? { replay: r.replay } : {}),
+});
+export function logRelay(e: Omit<RelayLogEntry, "id" | "at"> & { at?: number }) {
+  const text = e.text.length > LOG_TEXT ? `${e.text.slice(0, LOG_TEXT)}\n\n(cut short at ${LOG_TEXT / 1000}k characters in the line's history)` : e.text;
+  const id = Number(
+    db
+      .prepare("insert into canvas_relay_log (edge, hop, hop_limit, from_node, to_node, kind, text, at, outcome, note, replay) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(e.edge, e.hop, e.limit ?? null, e.from, e.to, e.kind, text, e.at ?? Date.now(), e.outcome, e.note ?? null, e.replay ?? null).lastInsertRowid,
+  );
+  db.prepare("delete from canvas_relay_log where edge = ? and id <= coalesce((select id from canvas_relay_log where edge = ? order by id desc limit 1 offset ?), -1)").run(e.edge, e.edge, LOG_KEEP);
+  return id;
+}
+export const setLogOutcome = (id: number, outcome: RelayLogEntry["outcome"], note?: string) => db.prepare("update canvas_relay_log set outcome = ?, note = ? where id = ?").run(outcome, note ?? null, id);
+export const relayLog = (edge: string) => db.prepare<[string], LogRow>("select * from canvas_relay_log where edge = ? order by id").all(edge).map(toLog);
+export const logEntry = (id: number) => {
+  const r = db.prepare<[number], LogRow>("select * from canvas_relay_log where id = ?").get(id);
+  return r && toLog(r);
+};
+export const lastLog = (edge: string) => {
+  const r = db.prepare<[string], LogRow>("select * from canvas_relay_log where edge = ? order by id desc limit 1").get(edge);
+  return r && toLog(r);
+};
+// the last entry on each line, for the lead's view
+export const lastLogs = () => new Map(db.prepare<[], LogRow>("select * from canvas_relay_log where id in (select max(id) from canvas_relay_log group by edge)").all().map((r) => [r.edge, toLog(r)]));
 // a line says how the last thing it carried went: a relayed turn, or a last answer handed over along it
 const toEdge = (e: EdgeRow): CanvasEdge => ({ id: e.id, source: e.source, target: e.target, ...(e.relay ? { relay: JSON.parse(e.relay) as CanvasRelay, hops: e.hops } : {}), ...(e.status ? { status: JSON.parse(e.status) as RelayStatus } : {}) });
 const edgesOf = (canvas: string) => db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, status from canvas_edges where canvas = ? order by created_at").all(canvas).map(toEdge);
@@ -108,7 +166,10 @@ function reviewsCanvas() {
 }
 
 // a line goes once either of its cards has left the workspace
-const tidyEdges = () => db.exec("delete from canvas_edges where source not in (select id from canvas_nodes where canvas = canvas_edges.canvas) or target not in (select id from canvas_nodes where canvas = canvas_edges.canvas)");
+const tidyEdges = () => {
+  db.exec("delete from canvas_edges where source not in (select id from canvas_nodes where canvas = canvas_edges.canvas) or target not in (select id from canvas_nodes where canvas = canvas_edges.canvas)");
+  db.exec("delete from canvas_relay_log where edge not in (select id from canvas_edges)");
+};
 
 export function listCanvases(): CanvasInfo[] {
   first();
@@ -140,6 +201,7 @@ export function deleteCanvas(id: string) {
   if (db.prepare<[], { n: number }>("select count(*) as n from canvases").get()!.n <= 1) throw new Error("The last workspace can't be deleted");
   const kept = rowsOf(id).filter((n) => n.kind === "term" || n.kind === "ticket");
   db.prepare("delete from canvas_nodes where canvas = ?").run(id);
+  db.prepare("delete from canvas_relay_log where edge in (select id from canvas_edges where canvas = ?)").run(id);
   db.prepare("delete from canvas_edges where canvas = ?").run(id);
   db.prepare("delete from canvases where id = ?").run(id);
   rmSync(notesDir(id), { recursive: true, force: true });
@@ -320,6 +382,7 @@ export function removeNode(id: string) {
   const n = nodeRow(id);
   if (!n) return false;
   db.prepare("delete from canvas_nodes where id = ?").run(id);
+  db.prepare("delete from canvas_relay_log where edge in (select id from canvas_edges where source = ? or target = ?)").run(id, id);
   db.prepare("delete from canvas_edges where source = ? or target = ?").run(id, id);
   if (n.kind === "note") rmSync(notePath(n.canvas, n.ref), { force: true });
   return true;
@@ -338,7 +401,10 @@ export function addEdge(canvas: string, source: string, target: string): CanvasE
   return { id, source, target };
 }
 
-export const removeEdge = (id: string) => db.prepare("delete from canvas_edges where id = ?").run(id).changes > 0;
+export const removeEdge = (id: string) => {
+  db.prepare("delete from canvas_relay_log where edge = ?").run(id);
+  return db.prepare("delete from canvas_edges where id = ?").run(id).changes > 0;
+};
 
 const ROLES = new Set(["review", "plan", "build", "custom"]);
 const FROM = new Set(["source", "target", "both"]);
@@ -382,6 +448,14 @@ export function relaysFrom(term: string) {
       return other?.kind === "term" ? [{ edge: e, to: other.ref, toEnd: (e.source === card.id ? "target" : "source") as "source" | "target" }] : [];
     });
 }
+
+// a line's two cards, by card id
+export const edgeCards = (edge: string) => db.prepare<[string], { source: string; target: string; canvas: string; hops: number }>("select source, target, canvas, hops from canvas_edges where id = ?").get(edge);
+// the terminal on a terminal card
+export const termOfCard = (card: string) => {
+  const n = nodeRow(card);
+  return n?.kind === "term" ? { term: n.ref, canvas: n.canvas } : undefined;
+};
 
 export const countHop = (edge: string) => db.prepare("update canvas_edges set hops = hops + 1 where id = ?").run(edge);
 

@@ -24,7 +24,7 @@ const { db } = await import("../src/db.ts");
 const canvas = await import("../src/canvas.ts");
 const { broadcast } = await import("../src/hub.ts");
 const { input, isTyping, termTurn } = await import("../src/pty.ts");
-const { handOff, onlyAcknowledges, relayMessage, startRelays } = await import("../src/relay.ts");
+const { handOff, onlyAcknowledges, relayMessage, replay, startRelays } = await import("../src/relay.ts");
 
 const term = (id: string): TermInfo => ({ id, title: id, cwd: "/tmp", command: "claude", createdAt: 0, node: "local" });
 const session = (id: string, termId: string, status: Session["status"]): Session => ({ id, project: "p", cwd: "/tmp", status, startedAt: 0, updatedAt: 0, size: 0, term: termId, title: `${id} title` });
@@ -33,7 +33,7 @@ const line = () => canvas.listCanvases()[0].edges[0];
 
 beforeAll(() => startRelays());
 beforeEach(() => {
-  db.exec("delete from canvas_nodes; delete from canvas_edges; delete from canvases;");
+  db.exec("delete from canvas_nodes; delete from canvas_edges; delete from canvases; delete from canvas_relay_log;");
   sent.length = 0;
   canvas.syncTerms([term("builder"), term("reviewer")]);
   const main = canvas.listCanvases()[0];
@@ -262,6 +262,81 @@ describe("relays", () => {
     // no session at the end it would come from
     broadcast({ type: "sessions", sessions: [session("bld", "builder", "ended")] });
     await expect(handOff(line().id, "source")).rejects.toThrow(/no agent in it/);
+  });
+});
+
+describe("a line's history", () => {
+  const log = () => canvas.relayLog(line().id);
+  const cards = () => Object.fromEntries(canvas.listCanvases()[0].nodes.map((n) => [n.ref, n.id]));
+
+  it("keeps every message a line carried, both ways, in order, with how each went", async () => {
+    canvas.setRelay(line().id, { from: "both", role: "review", limit: 2 });
+    broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "idle")] });
+    await turn("bld", "builder");
+    await turn("rev", "reviewer");
+    // at the limit: the first turn past it is kept, not every one after
+    await turn("bld", "builder");
+    await turn("bld", "builder");
+    const { builder, reviewer } = cards();
+    expect(log().map((e) => [e.kind, e.from, e.to, e.hop, e.limit, e.outcome])).toEqual([
+      ["forward", builder, reviewer, 1, 2, "delivered"],
+      ["back", reviewer, builder, 2, 2, "delivered"],
+      ["skipped-limit", builder, reviewer, 2, 2, "limit"],
+    ]);
+    expect(log()[0].text).toBe(sent[0].text);
+  });
+
+  it("keeps what it held, stopped at an acknowledgement, or handed over", async () => {
+    canvas.setRelay(line().id, { from: "source", role: "build", limit: 3 });
+    broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "busy")] });
+    await turn("bld", "builder");
+    expect(log().map((e) => e.outcome)).toEqual(["held"]);
+    broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "idle")] });
+    await settle();
+    expect(log().map((e) => e.outcome)).toEqual(["delivered"]);
+    await handOff(line().id, "source", "Look");
+    expect(log().at(-1)).toMatchObject({ kind: "handoff", hop: 0, outcome: "delivered" });
+    const agents = await import("../src/agents.ts");
+    const spy = vi.spyOn(agents, "lastWords").mockResolvedValue({ text: "Got it, thanks." } as Awaited<ReturnType<typeof agents.lastWords>>);
+    try {
+      await turn("bld", "builder");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(log().at(-1)).toMatchObject({ kind: "skipped-ack", outcome: "stopped-ack" });
+  });
+
+  it("sends a message again, there or to another terminal, as a replay that costs no hop", async () => {
+    canvas.setRelay(line().id, { from: "source", role: "review", limit: 1 });
+    broadcast({ type: "sessions", sessions: [session("rev", "reviewer", "idle"), session("oth", "other", "idle")] });
+    await turn("bld", "builder");
+    expect(line().hops).toBe(1);
+    const [first] = log();
+    const again = await replay(first.id);
+    expect(again).toMatchObject({ replay: first.id, to: first.to, outcome: "delivered" });
+    expect(sent.at(-1)).toEqual({ id: "rev", text: first.text });
+    // another terminal on the workspace
+    canvas.syncTerms([term("builder"), term("reviewer"), term("other")]);
+    const other = canvas.listCanvases()[0].nodes.find((n) => n.ref === "other")!;
+    await replay(first.id, other.id);
+    expect(sent.at(-1)).toEqual({ id: "oth", text: first.text });
+    expect(line().hops).toBe(1);
+    expect(log().map((e) => e.replay ?? null)).toEqual([null, first.id, first.id]);
+    await expect(replay(first.id, canvas.listCanvases()[0].nodes.find((n) => n.ref === "builder")!.id.replace(/.$/, "x"))).rejects.toThrow(/same workspace/);
+    await expect(replay(999999)).rejects.toThrow(/history/);
+  });
+
+  it("cuts a long message short, keeps only the last entries per line, and goes with the line", () => {
+    const id = line().id;
+    const base = { edge: id, hop: 1, from: "a", to: "b", kind: "forward" as const, outcome: "delivered" as const };
+    canvas.logRelay({ ...base, text: "x".repeat(canvas.LOG_TEXT + 500) });
+    expect(log()[0].text.length).toBeLessThan(canvas.LOG_TEXT + 100);
+    for (let i = 0; i < canvas.LOG_KEEP + 5; i++) canvas.logRelay({ ...base, text: `m${i}` });
+    expect(log()).toHaveLength(canvas.LOG_KEEP);
+    expect(log().at(-1)!.text).toBe(`m${canvas.LOG_KEEP + 4}`);
+    expect(canvas.lastLogs().get(id)?.text).toBe(`m${canvas.LOG_KEEP + 4}`);
+    canvas.removeEdge(id);
+    expect(canvas.relayLog(id)).toEqual([]);
   });
 });
 

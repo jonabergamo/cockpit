@@ -212,20 +212,27 @@ export function LinkEdge({ id, source, target, selected, data, markerEnd, marker
                 </button>
               )}
             </div>
+            {kind === "talk" && data?.names && (
+              <button type="button" onClick={() => a.history(id)} className="mb-1 h-6 px-2 rounded-full border border-line bg-ground hover:border-cobalt hover:text-cobalt" data-line-history-open={id}>
+                History
+              </button>
+            )}
             {kind === "talk" && data?.names && <HandOff id={id} names={data.names} status={data.status} relayed={!!relay} />}
             {kind === "talk" && data?.names && <RelayControls key={JSON.stringify(relay)} id={id} relay={relay} hops={data.hops} status={data.status} names={data.names} />}
           </div>
         ) : (
           relay && (
-            <div
+            <button
+              type="button"
+              onClick={() => a.history(id)}
               className={`nodrag nopan absolute rounded-full border px-1.5 h-5 flex items-center gap-1 whitespace-nowrap text-[11px] tabular-nums ${status?.state === "failed" ? LOOK.failed.pill : stopped ? "border-amber bg-amber-soft text-amber" : "border-cobalt/50 bg-raised text-cobalt"}`}
               style={at}
               data-relay-pill={status?.state ?? (stopped ? "stopped" : "ok")}
-              title={status ? `${status.text} (${ago(status.at)}). Click the line for more.` : stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}
+              title={`${status ? `${status.text} (${ago(status.at)})` : stopped ? "Stopped at its hop limit: type into either terminal to carry on" : "Turns passed on since you last typed into either end"}. Click for the line's history, the line for its settings.`}
             >
               {status ? LOOK[status.state].mark : "↻"} {data?.hops ?? 0}/{relay.limit}
               {status && LOOK[status.state].word && <span>· {LOOK[status.state].word}</span>}
-            </div>
+            </button>
           )
         )}
       </EdgeLabelRenderer>

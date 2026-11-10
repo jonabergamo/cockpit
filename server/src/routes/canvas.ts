@@ -6,7 +6,7 @@ import { currentCwd, listTerms, onTermsChanged, spawnTerm } from "../pty.ts";
 import { allWorktrees } from "../remote/work.ts";
 import { away } from "../away.ts";
 import { isReviewTerm } from "../reviews.ts";
-import { handOff } from "../relay.ts";
+import { handOff, replay } from "../relay.ts";
 import { canvasView, findCard, openBeside, type BesideAgent, type BesideAs, type FindCtx } from "../canvasTools.ts";
 import { listSessions } from "../claude/sessions.ts";
 import { config } from "../config.ts";
@@ -221,6 +221,22 @@ export const canvasRoutes = new Hono()
       await handOff(c.req.param("edge"), b.from === "target" ? "target" : "source", typeof b.ask === "string" ? b.ask : undefined);
       changed(b.by);
       return c.json({ ok: true });
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
+  // everything the line carried or held back, oldest first
+  .get("/edges/:edge/log", (c) => {
+    if (!canvas.edgeCards(c.req.param("edge"))) return c.json({ error: "No such line" }, 404);
+    return c.json(canvas.relayLog(c.req.param("edge")));
+  })
+  // one message from a line's history sent again, to where it went or to another terminal card (to)
+  .post("/log/:id/replay", async (c) => {
+    const b = await c.req.json<{ to?: string; by?: string }>();
+    try {
+      const sent = await replay(Number(c.req.param("id")), typeof b.to === "string" ? b.to : undefined);
+      changed(b.by);
+      return c.json(sent);
     } catch (e) {
       return c.json(fail(e), 400);
     }

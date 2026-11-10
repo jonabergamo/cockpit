@@ -40,6 +40,7 @@ import { useAppConfig, useRuns, useTickets, useWorktrees, type Job } from "../li
 import { termPrefs, useCopyOnSelect } from "../lib/termPrefs";
 import { useTerms } from "../pages/Terminals";
 import { AwayPanel } from "./canvas/AwayPanel";
+import { LineHistory } from "./canvas/LineHistory";
 import { AddMenu } from "./canvas/AddMenu";
 import { Schedules, useSchedules } from "./canvas/Schedules";
 import { CardFinder, type FoundCard } from "./canvas/CardFinder";
@@ -568,6 +569,8 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
   // Coming back to a workspace after a while away, or to this tab: what its agents did meanwhile. While you're
   // looking, the time you last saw it moves on every half minute; once the tab is hidden it stays where you left.
   const [recap, setRecap] = useState<{ ws: string; since: number; asked: boolean }>();
+  // the line whose history is open beside the canvas
+  const [history, setHistory] = useState<string>();
   const wsId = ws?.id;
   useEffect(() => {
     if (!wsId) return;
@@ -1356,6 +1359,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
     },
     spawn: (node, anchor) => setSpawning({ from: node, x: anchor.left, y: anchor.bottom + 4 }),
     handOff: (edge, from, ask) => api.post(`/canvas/edges/${edge}/handoff`, { from, ask, by: tabId }).then(refresh),
+    history: setHistory,
     setRelay: (edge, relay) => {
       qc.setQueryData<CanvasInfo[]>(["canvas"], (old) => old?.map((c) => ({ ...c, edges: c.edges.map((e) => (e.id === edge ? { ...e, relay: relay ?? undefined, hops: 0 } : e)) })));
       guard(api.patch(`/canvas/edges/${edge}`, { relay, by: tabId }).catch((e) => (refresh(), Promise.reject(e))));
@@ -1570,6 +1574,18 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
             }}
           />
         )}
+        {history &&
+          ws &&
+          (() => {
+            const e = ws.edges.find((x) => x.id === history);
+            const names = links.find((l) => l.id === history)?.data?.names;
+            if (!e || !names) return null;
+            const terms = ws.nodes.flatMap((n) => {
+              const t = n.kind === "term" ? byId.get(n.ref) : undefined;
+              return t ? [{ id: n.id, name: titleOf(t) }] : [];
+            });
+            return <LineHistory key={history} edge={history} stamp={`${e.hops ?? 0}:${e.status?.at ?? 0}`} names={names} terms={terms} by={tabId} onClose={() => setHistory(undefined)} />;
+          })()}
         {recap && recap.ws === ws?.id && (
           <AwayPanel
             ws={recap.ws}

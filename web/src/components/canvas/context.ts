@@ -28,6 +28,8 @@ export interface Actions {
   setRelay: (edge: string, relay: CanvasRelay | null) => void;
   // what the agent at one end said last, handed to the one at the other, with what to do with it
   handOff: (edge: string, from: "source" | "target", ask: string) => Promise<void>;
+  // everything a line carried, in a panel beside the canvas, to read or send again
+  history: (edge: string) => void;
   // a terminal was just started from a ticket card: it gets a changes card of its own once it's on the canvas
   started: (ticketNode: string, term: string) => void;
   // everything for working on a ticket at once: its agent, a reviewer on its turns, its changes and its runs

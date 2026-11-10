@@ -5,7 +5,7 @@
 // so two agents never talk to each other for ever. An agent just opened and not asked anything yet has no session
 // to send to: it's sitting at its prompt, so the message is typed into its terminal. A review line also hands the
 // reviewer what the turn changed in git, so it reviews the code and not only the agent's account of it.
-import type { CanvasEdge, CanvasRelay, Run, Session } from "@cockpit/shared";
+import type { CanvasEdge, CanvasRelay, RelayLogEntry, Run, Session } from "@cockpit/shared";
 import { lastWords, sendText } from "./agents.ts";
 import * as canvas from "./canvas.ts";
 import { broadcast, tap } from "./hub.ts";
@@ -52,8 +52,10 @@ export const onlyAcknowledges = (text: string) => {
 
 // what each live session was last seen doing, from the sessions the app is told about
 const seen = new Map<string, Session>();
-// a message held for a session until it's idle, by the line it came along
-const held = new Map<string, { to: string; name: string; text: string }>();
+// a message held for a session until it's idle, by the line it came along (or the history entry sent again), and
+// its entry in the line's history
+type Held = { edge: string; to: string; name: string; text: string; log: number };
+const held = new Map<string, Held>();
 
 const sessionIn = (term: string) => [...seen.values()].find((s) => s.term === term && s.status !== "ended");
 // a terminal running an agent, by its command; a plain shell at the other end isn't typed into. cockpit's chat
@@ -105,15 +107,35 @@ const wantsDiff = (term: string) => open(term).some(({ edge, toEnd }) => withDif
 
 const send = (session: string, text: string) => onNode(session, (n) => n.request<boolean>("session.send", { id: session, text }), () => sendText(session, text));
 
-// what happened to a turn on its way along a line, shown on the line
-function deliver(edge: string, name: string, go: () => Promise<boolean | void>) {
+// what happened to a turn on its way along a line, shown on the line and kept in its history
+function deliver(edge: string, name: string, go: () => Promise<boolean | void>, log?: number) {
+  const failed = (text: string) => {
+    canvas.setRelayStatus(edge, { state: "failed", text });
+    if (log !== undefined) canvas.setLogOutcome(log, "failed", text);
+  };
   return go().then(
-    (ok) => canvas.setRelayStatus(edge, ok === false ? { state: "failed", text: `Couldn't reach ${name}'s terminal to type it in` } : { state: "sent", text: `Passed on to ${name}` }),
+    (ok) => {
+      if (ok === false) return failed(`Couldn't reach ${name}'s terminal to type it in`);
+      canvas.setRelayStatus(edge, { state: "sent", text: `Passed on to ${name}` });
+      if (log !== undefined) canvas.setLogOutcome(log, "delivered");
+    },
     (e) => {
       console.error("relay", e);
-      canvas.setRelayStatus(edge, { state: "failed", text: `Couldn't pass it on to ${name}: ${why(e)}` });
+      failed(`Couldn't pass it on to ${name}: ${why(e)}`);
     },
   );
+}
+
+// sent now when the agent at the other end is free (or typed in when it's only just opened), else held until it is
+async function sendOrHold(key: string, edge: string, to: string, message: string, log: number) {
+  const target = sessionIn(to);
+  const name = nameOf(to);
+  if (!target) return deliver(edge, name, () => typeIn(to, message), log);
+  if (target.status === "idle") return deliver(edge, name, () => send(target.id, message), log);
+  held.set(key, { edge, to: target.id, name, text: message, log });
+  const text = `Held for ${name}, which is ${target.status === "waiting" ? "waiting on you" : "busy"}: it goes once it's free`;
+  canvas.setRelayStatus(edge, { state: "held", text });
+  canvas.setLogOutcome(log, "held", text);
 }
 
 // A line set to pass on only passing work holds a turn back while any of its checks is failing: the runs the session
@@ -132,16 +154,34 @@ export async function failingChecks(s: Pick<Session, "id" | "term" | "node">): P
 const changed = () => broadcast({ type: "canvas" });
 
 const open = (term: string) => canvas.relaysFrom(term).filter(({ edge }) => (edge.hops ?? 0) < edge.relay!.limit);
+// the lines out of a terminal that stopped at their limit and haven't yet said so in their history: the first turn
+// past the limit is kept there, not every one after it
+const stopped = (term: string) => canvas.relaysFrom(term).filter(({ edge }) => (edge.hops ?? 0) >= edge.relay!.limit && canvas.lastLog(edge.id)?.outcome !== "limit");
+type Relays = ReturnType<typeof open>;
+// the cards a turn goes between on a line
+const cardsOf = ({ edge, toEnd }: Relays[number]) => ({ from: toEnd === "target" ? edge.source : edge.target, to: toEnd === "target" ? edge.target : edge.source });
+const isBack = ({ edge, toEnd }: Relays[number]) => edge.relay!.role === "review" && toEnd !== reviewerOf(edge);
+
+function logStopped(relays: Relays, from: string, text: string) {
+  for (const r of relays) {
+    const hops = r.edge.hops ?? 0;
+    const message = relayMessage(from, text.trim(), r.edge.relay!, hops, isBack(r));
+    canvas.logRelay({ edge: r.edge.id, hop: hops, limit: r.edge.relay!.limit, ...cardsOf(r), kind: "skipped-limit", text: message, outcome: "limit", note: `Stopped at ${r.edge.relay!.limit} hops: type into either terminal to carry on` });
+  }
+}
 
 async function finished(s: Session, from: Promise<string | undefined> | undefined) {
   const relays = open(s.term!);
-  if (!relays.length) return;
+  const limited = stopped(s.term!);
+  if (!relays.length && !limited.length) return;
   // only worked out when it goes to a reviewer that wants it
   const changes = relays.some(({ edge, toEnd }) => withDiff(edge.relay!) && toEnd === reviewerOf(edge)) ? await changesOf(s, from) : undefined;
   // the lines that only pass on passing work hold this turn back while its checks fail
   const gated = relays.some(({ edge }) => edge.relay!.when === "passing" || edge.relay!.when === "failing");
   const failing = gated ? await failingChecks(s).catch(() => [] as Run[]) : [];
   const text = await lastText(s).catch(() => undefined);
+  if (text?.trim()) logStopped(limited, titleOf(s), text);
+  if (!relays.length) return limited.length ? changed() : undefined;
   if (!text?.trim()) {
     for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
     return changed();
@@ -153,41 +193,46 @@ async function finished(s: Session, from: Promise<string | undefined> | undefine
 const chatSaid = new Map<string, string>();
 async function chatFinished(term: string, text: string) {
   chatSaid.set(term, text);
+  logStopped(stopped(term), nameOf(term), text);
   const relays = open(term);
   if (relays.length) await passOn(relays, nameOf(term), text, []);
 }
 
-async function passOn(relays: ReturnType<typeof open>, from: string, text: string, failing: Run[], changes?: string) {
-  if (onlyAcknowledges(text)) {
-    for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "held", text: `Stopped: ${from} only acknowledged, so there was nothing to pass on` });
-    return;
-  }
-  for (const { edge, to, toEnd } of relays) {
-    const target = sessionIn(to);
+async function passOn(relays: Relays, from: string, text: string, failing: Run[], changes?: string) {
+  const ack = onlyAcknowledges(text);
+  for (const r of relays) {
+    const { edge, to } = r;
     const name = nameOf(to);
+    const hop = (edge.hops ?? 0) + 1;
+    const back = isBack(r);
+    const message = relayMessage(from, text.trim(), edge.relay!, hop, back, changes);
+    const entry = { edge: edge.id, limit: edge.relay!.limit, ...cardsOf(r), text: message };
+    // not passed on: kept in the line's history as it would have gone, and said on the line
+    const skip = (kind: RelayLogEntry["kind"], outcome: RelayLogEntry["outcome"], text: string, state: "held" | "failed" = "held") => {
+      canvas.logRelay({ ...entry, hop: hop - 1, kind, outcome, note: text });
+      canvas.setRelayStatus(edge.id, { state, text });
+    };
+    if (ack) {
+      skip("skipped-ack", "stopped-ack", `Stopped: ${from} only acknowledged, so there was nothing to pass on`);
+      continue;
+    }
     if (edge.relay!.when === "failing" && !failing.length) {
-      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: nothing is failing in ${from}, so there's nothing to hand ${name}` });
+      skip("held", "held", `Held back: nothing is failing in ${from}, so there's nothing to hand ${name}`);
       continue;
     }
     if (edge.relay!.when === "passing" && failing.length) {
       const what = [...new Set(failing.map((r) => r.name))].slice(0, 2).join(" and ");
-      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: ${what}${failing.length > 2 ? " and more" : ""} failing in ${from}. The next turn after they pass goes to ${name}` });
+      skip("held", "held", `Held back: ${what}${failing.length > 2 ? " and more" : ""} failing in ${from}. The next turn after they pass goes to ${name}`);
       continue;
     }
     // no agent at the other end to read it
-    if (!target && !freshAgent(to)) {
-      canvas.setRelayStatus(edge.id, { state: "failed", text: `${name} isn't running an agent, so there was no one to pass ${from}'s turn to` });
+    if (!sessionIn(to) && !freshAgent(to)) {
+      skip(back ? "back" : "forward", "failed", `${name} isn't running an agent, so there was no one to pass ${from}'s turn to`, "failed");
       continue;
     }
-    const back = edge.relay!.role === "review" && toEnd !== reviewerOf(edge);
-    const message = relayMessage(from, text.trim(), edge.relay!, (edge.hops ?? 0) + 1, back, changes);
     canvas.countHop(edge.id);
-    if (!target) await deliver(edge.id, name, () => typeIn(to, message));
-    else if (target.status === "idle") await deliver(edge.id, name, () => send(target.id, message));
-    else {
-      held.set(edge.id, { to: target.id, name, text: message });
-      canvas.setRelayStatus(edge.id, { state: "held", text: `Held for ${name}, which is ${target.status === "waiting" ? "waiting on you" : "busy"}: it goes once it's free` });
-    }
+    const log = canvas.logRelay({ ...entry, hop, kind: back ? "back" : "forward", outcome: "pending" });
+    await sendOrHold(edge.id, edge.id, to, message, log);
   }
   changed();
 }
@@ -200,10 +245,10 @@ function update(s: Session) {
   if (s.status !== "idle") return;
   const from = marks.get(s.id);
   marks.delete(s.id);
-  for (const [edge, m] of held)
+  for (const [key, m] of held)
     if (m.to === s.id) {
-      held.delete(edge);
-      void deliver(edge, m.name, () => send(s.id, m.text)).then(changed);
+      held.delete(key);
+      void deliver(m.edge, m.name, () => send(s.id, m.text), m.log).then(changed);
     }
   if (was === "busy" && s.term) void finished(s, from).catch((e) => console.error("relay", e));
 }
@@ -224,17 +269,30 @@ export async function handOff(edge: string, from: "source" | "target", ask?: str
   const fromName = s ? titleOf(s) : nameOf(fromTerm);
   const text = (s ? await lastText(s).catch(() => undefined) : said)?.trim();
   if (!text) throw new Error(`Couldn't read what ${fromName} said last`);
-  const target = sessionIn(to);
-  const name = nameOf(to);
-  if (!target && !freshAgent(to)) throw new Error(`${name} isn't running an agent, so there's no one to hand it to`);
+  if (!sessionIn(to) && !freshAgent(to)) throw new Error(`${nameOf(to)} isn't running an agent, so there's no one to hand it to`);
   const message = handOffMessage(fromName, text, ask?.slice(0, 2000));
-  if (!target) await deliver(edge, name, () => typeIn(to, message));
-  else if (target.status === "idle") await deliver(edge, name, () => send(target.id, message));
-  else {
-    held.set(edge, { to: target.id, name, text: message });
-    canvas.setRelayStatus(edge, { state: "held", text: `Held for ${name}, which is ${target.status === "waiting" ? "waiting on you" : "busy"}: it goes once it's free` });
-  }
+  const cards = canvas.edgeCards(edge)!;
+  const log = canvas.logRelay({ edge, hop: 0, from: cards[from], to: cards[from === "source" ? "target" : "source"], kind: "handoff", text: message, outcome: "pending" });
+  await sendOrHold(edge, edge, to, message, log);
   changed();
+}
+
+// One message from a line's history sent again, as it was, to the card it went to or another terminal on the same
+// workspace. It's kept in the history as a replay and doesn't count against the line's hop limit.
+export async function replay(id: number, toCard?: string) {
+  const was = canvas.logEntry(id);
+  if (!was) throw new Error("That message isn't in the line's history any more");
+  const line = canvas.edgeCards(was.edge);
+  if (!line) throw new Error("That line has gone");
+  const card = toCard || was.to;
+  const end = canvas.termOfCard(card);
+  if (!end || end.canvas !== line.canvas) throw new Error("Send it to a terminal on the same workspace");
+  if (!sessionIn(end.term) && !freshAgent(end.term)) throw new Error(`${nameOf(end.term)} isn't running an agent, so there's no one to send it to`);
+  const kind = was.kind === "back" || was.kind === "handoff" ? was.kind : "forward";
+  const log = canvas.logRelay({ edge: was.edge, hop: line.hops, ...(was.limit ? { limit: was.limit } : {}), from: was.from, to: card, kind, text: was.text, outcome: "pending", replay: was.id });
+  await sendOrHold(`replay:${log}`, was.edge, end.term, was.text, log);
+  changed();
+  return canvas.logEntry(log)!;
 }
 
 export function startRelays() {

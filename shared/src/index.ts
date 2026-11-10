@@ -172,6 +172,26 @@ export interface RelayStatus {
   at: number;
 }
 
+// One thing a line carried, or held back, in order, for the line's history: from and to are card ids. kind:
+// forward (a finished turn), back (a review coming back to the one whose work it was), handoff (a last answer handed
+// over once), held (held back by its checks gate), skipped-ack (it only acknowledged), skipped-limit (the line was
+// at its hop limit). replay: the entry it sent again; a replay doesn't count against the hop limit.
+export interface RelayLogEntry {
+  id: number;
+  edge: string;
+  hop: number;
+  limit?: number;
+  from: string;
+  to: string;
+  kind: "forward" | "back" | "handoff" | "held" | "skipped-ack" | "skipped-limit";
+  text: string;
+  at: number;
+  outcome: "pending" | "delivered" | "held" | "failed" | "stopped-ack" | "limit";
+  // why it failed or was held
+  note?: string;
+  replay?: number;
+}
+
 // from: whose finished turns go along the line (its source's, its target's, or both ways). role: what the one
 // receiving is asked to do with it, or your own words in prompt. limit: how many hops before it stops for you.
 // A kind of work's team: the terminals a ticket of that kind starts with, what each does, the cards beside each,

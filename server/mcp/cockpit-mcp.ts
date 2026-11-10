@@ -202,7 +202,7 @@ server.registerTool(
   "canvas_view",
   {
     description:
-      "The Terminals canvas: each workspace's cards (terminals with their session and folder, notes with their text, tickets) and the lines between them, with each line's role (review, plan, build, custom), which way it goes, its gate, hops used of its limit and how the last thing it carried went.",
+      "The Terminals canvas: each workspace's cards (terminals with their session and folder, notes with their text, tickets) and the lines between them, with each line's role (review, plan, build, custom), which way it goes, its gate, hops used of its limit and how the last thing it carried went, with the last message on each line (lastMessage: who to whom, hop, outcome, its start).",
     inputSchema: { workspace: z.string().optional().describe("Only this workspace, by name or id") },
   },
   wrap(({ workspace }: { workspace?: string }) => call("GET", `/canvas/view${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`)),

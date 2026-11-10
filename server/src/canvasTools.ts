@@ -1,7 +1,7 @@
 // The canvas as the lead session sees it through cockpit's MCP tools: which card a worker is on, the cards and lines
 // of each workspace in a few words, and Codex or the local model opened beside a worker the way its + menu does.
 // A worker is named the way the other tools name it: a task, a session, a worktree, a terminal or a card id.
-import type { CanvasInfo, CanvasNode, Task, TermInfo } from "@cockpit/shared";
+import type { CanvasInfo, CanvasNode, RelayLogEntry, Task, TermInfo } from "@cockpit/shared";
 import { agentTerm, modelName } from "@cockpit/shared";
 import * as canvas from "./canvas.ts";
 
@@ -73,10 +73,22 @@ export function findCard(who: string, ctx: FindCtx): Found {
 // what a line does, in words: which way its turns go, what the other end is asked, and how the last one went
 const way = { source: "from → to", target: "to → from", both: "both ways" } as const;
 
+const lastMessage = (l: RelayLogEntry | undefined, label: Map<string, string>) =>
+  l && {
+    kind: l.replay ? `${l.kind} (sent again)` : l.kind,
+    between: `${label.get(l.from) ?? l.from} → ${label.get(l.to) ?? l.to}`,
+    ...(l.limit ? { hop: `${l.hop} of ${l.limit}` } : {}),
+    outcome: l.note ? `${l.outcome}: ${l.note}` : l.outcome,
+    at: new Date(l.at).toISOString(),
+    text: l.text.length > 400 ? `${l.text.slice(0, 400)}…` : l.text,
+  };
+
 // The workspaces, their cards and lines, with only what a lead needs to read the topology
 export function canvasView(canvases: CanvasInfo[], terms: TermInfo[], noteText: (node: string) => string | undefined = canvas.readNote, only?: string) {
   const term = new Map(terms.map((t) => [t.id, t]));
   const want = only?.trim().toLowerCase();
+  // the last thing each line carried or held back, from its history
+  const logs = canvas.lastLogs();
   return canvases
     .filter((c) => !want || c.id === only || c.name.toLowerCase() === want)
     .map((c) => {
@@ -116,6 +128,7 @@ export function canvasView(canvases: CanvasInfo[], terms: TermInfo[], noteText: 
             }
           : { role: "plain line" }),
         last: e.status ? `${e.status.state}: ${e.status.text}` : undefined,
+        lastMessage: lastMessage(logs.get(e.id), label),
       }));
       return { id: c.id, name: c.name, cards, lines };
     });
