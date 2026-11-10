@@ -4,10 +4,11 @@ import type { BoardCard, Session } from "@cockpit/shared";
 import { AwayDigest } from "../components/AwayDigest";
 import { ReadyForYou } from "../components/Focus";
 import { Overnight } from "../components/Overnight";
+import { PickUp, wrapUp } from "../components/WrapUp";
 import { RuleSuggestionsCard } from "../components/RuleSuggestions";
 import { SetupBanner } from "../components/SetupSection";
 import { RefreshButton, useRefreshing } from "../components/RefreshButton";
-import { ErrorNote, Loading } from "../components/ui";
+import { Button, ErrorNote, Loading } from "../components/ui";
 import { api } from "../lib/api";
 import { duration, shortPath, time, today, usd } from "../lib/format";
 import { useCost } from "../lib/cost";
@@ -252,6 +253,7 @@ export function TodayPage() {
       <SetupBanner />
       <AwayDigest />
       <ReadyForYou />
+      <PickUp />
       <Overnight />
       <RuleSuggestionsCard />
       <div className="flex flex-wrap items-end gap-4">
@@ -262,6 +264,9 @@ export function TodayPage() {
             {day.data ? ` · ${day.data.commits.length} commits${cost.hidden || !claudeMain ? "" : ` and ${usd(day.data.costUSD) || "$0"} ${cost.real ? "of Claude" : "of API value"}`} so far` : ""}
           </p>
         </div>
+        <Button onClick={wrapUp.open} title="A next step for each open session, on Today tomorrow">
+          Wrap up the day
+        </Button>
         <RefreshButton
           targets={[
             ...(tracker ? [{ key: ["tickets"], url: "/tickets" }, { key: ["report", undefined, "me"] }] : []),

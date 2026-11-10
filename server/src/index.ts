@@ -29,6 +29,7 @@ import { agents } from "./routes/agents.ts";
 import { canvasRoutes, startCanvas } from "./routes/canvas.ts";
 import { scheduleRoutes } from "./routes/schedules.ts";
 import { dictateRoutes } from "./routes/dictate.ts";
+import { dayRoutes } from "./routes/day.ts";
 import { startRelays } from "./relay.ts";
 import { startSendingFailures } from "./sendFailures.ts";
 import { claude } from "./routes/claude.ts";
@@ -311,6 +312,7 @@ const api = new Hono()
   .route("/canvas", canvasRoutes)
   .route("/schedules", scheduleRoutes)
   .route("/dictate", dictateRoutes)
+  .route("/day", dayRoutes)
   .route("/", work);
 
 app.route("/api", api);

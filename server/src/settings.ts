@@ -97,6 +97,8 @@ const schema = z.object({
   // until 0 is until it's turned off; since is when it started, so the summary counts only this block
   focus: z.object({ on: z.boolean().default(false), since: z.number().default(0), until: z.number().default(0) }).prefault({}),
   away: z.object({ minutes: z.number().int().min(5).max(24 * 60).default(30) }).prefault({}),
+  // the wrap-up's "pick up where you left off" on Today: how many days a line stays before it's hidden
+  handoff: z.object({ keepDays: z.number().int().min(1).max(30).default(3) }).prefault({}),
   // the Claude cockpit starts in a terminal: its status line on the card (model, context, cost...) and none in the
   // terminal, or Claude Code's own in the terminal as you set it up
   // voiceSend: what you say to a terminal is sent once it's settled, rather than left for you to read and send

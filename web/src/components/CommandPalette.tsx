@@ -11,6 +11,7 @@ import { newTask } from "./NewTask";
 import { runSomething } from "./RunSomething";
 import { useAppConfig } from "../lib/queries";
 import { askCockpit } from "./AskPanel";
+import { wrapUp } from "./WrapUp";
 import { themeStore, useThemes } from "../lib/theme";
 import { FOCUS_LENGTHS, useFocus, useFocusActions } from "../lib/focus";
 
@@ -105,6 +106,9 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
             </Command.Item>
             <Command.Item value="run something test lint typecheck audit e2e ci verify script" className={item} onSelect={() => go(() => runSomething.open())}>
               Run something…
+            </Command.Item>
+            <Command.Item value="wrap up the day end handoff next step tomorrow pick up overnight" className={item} onSelect={() => go(wrapUp.open)}>
+              Wrap up the day…
             </Command.Item>
           </Command.Group>
           <Command.Group heading="Pages" className={group}>

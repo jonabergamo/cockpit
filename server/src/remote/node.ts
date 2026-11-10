@@ -28,6 +28,7 @@ import { cleanChecked, createWorktree, deleteChecked, listWorktrees, repoState }
 import { slugify } from "../util.ts";
 import { markTree, turnChanges } from "../turndiff.ts";
 import { waitsBetween } from "../waits.ts";
+import { whereHere } from "../handoff.ts";
 import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, onTermTurn, reopened, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
@@ -172,6 +173,11 @@ export function serve(c: Channel) {
   // a reply typed in on the hub is kept here, where the session and its settings are
   c.handle("session.send", ({ id, text }: { id: string; text: string }) => answering(id, { text }, () => sendText(id, text)));
   c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => answering(id, { keys }, () => sendKeys(id, keys)));
+  // the folder comes from the session as this machine knows it, not from the hub
+  c.handle("session.wrap", ({ id, agent }: { id: string; agent?: string }) => {
+    const s = getSession(id);
+    return whereHere({ id, agent, cwd: s?.cwd, worktree: s?.worktree });
+  });
   c.handle("sessions.waits", ({ from, to }: { from: number; to: number }) => waitsBetween(from, to));
   c.handle("replies.frequent", () => frequentHere());
   c.handle("sessions.search", ({ q, limit, any }: { q: string; limit?: number; any?: boolean }) => searchSessions(q, limit, any));

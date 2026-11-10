@@ -25,6 +25,7 @@ export interface SettingsRes {
     replies: { on: boolean; pinned: string[]; hidden: string[] };
     alerts: { stuckMinutes: number; escalateMinutes: number; holdFinished: boolean };
     away: { minutes: number };
+    handoff: { keepDays: number };
     terminals: { statusLine: "card" | "claude"; voiceSend: boolean };
     budget: { perTicketUSD: number; perTicketMTokens: number; warnPct: number };
     weekly: { on: boolean; day: number; hour: number };

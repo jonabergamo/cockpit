@@ -14,6 +14,7 @@ import { TerminalLauncher } from "./TerminalLauncher";
 import { RunSomething } from "./RunSomething";
 import { NewTaskModal } from "./NewTask";
 import { AskPanel } from "./AskPanel";
+import { WrapUpModal } from "./WrapUp";
 import { SessionStrip } from "./SessionStrip";
 import { ThemePicker } from "./ThemePicker";
 import { notifyStore, useNotifyMode, type NotifyMode } from "../lib/notifications";
@@ -183,6 +184,7 @@ export function Layout() {
       <NewTaskModal />
       <RunSomething />
       <AskPanel />
+      <WrapUpModal />
       <WhatsNew />
     </div>
   );
