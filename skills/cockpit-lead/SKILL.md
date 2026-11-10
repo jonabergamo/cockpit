@@ -14,6 +14,18 @@ You plan, the workers build. Cockpit gives you tools (the `cockpit` MCP server) 
 - `read_screen` then `send_message` or `answer_prompt`: see what a worker is asking and answer it.
 - `pr_status`: PRs with checks and reviews, and with `details` the failing logs or review comments.
 - `task_group`, `list_tasks`, `cancel_task`, `verify`, `autopilot`.
+- The canvas: `canvas_view`, `open_beside`, `link`, `unlink`, `hand_off`, `add_note`. See below.
+
+## The canvas
+
+Every worker's terminal is a card on the Terminals canvas. Lines between cards can pass each finished turn of one agent to another. Name a worker the way the other tools do: a task id, a session id, a worktree path or a terminal id. `canvas_view` gives you card and line ids.
+
+- Read it with `canvas_view`. Each line shows its `role`, which way it `goes`, its gate (`when`), `hops` used of its limit and `last`, how the last thing it carried went. `held` means it's waiting: the other end is busy, a check is failing or the turn only acknowledged. `failed` says why it couldn't go. A line that has used all its hops stays quiet until someone types into either end.
+- Add a reviewer when a change is risky: auth, permissions or anything touching secrets, a database migration, payments or data deletion, a large diff, or code nobody on the team knows well. Skip it for small, well-tested changes. It costs turns.
+- `open_beside(worker, "codex", "reviewer")` puts Codex beside the worker on a review line both ways: each turn goes to Codex with its git diff, and the review comes back to the worker. Use `"local"` for a quick, free first look from the local model. Use `as: "review"` for a one-off, read-only review of the changes when the worker says it's done.
+- To link two workers yourself, use `link(from, to, role, when?, limit?)`. Set `when: "passing"` for a reviewer, so it only sees turns whose checks pass and doesn't review broken code. Use `when: "failing"` for a line that hands failures to a fixer.
+- Keep `limit` low: 2 to 4 hops. Two agents with a high limit can trade the same points back and forth. When a line runs out, read both screens and decide yourself, or tell the user.
+- `hand_off(line, from, ask)` passes one agent's last answer along a line once, for example a plan to the worker that builds it. `add_note(text, near)` pins a note beside a worker for the user to see. `unlink(line)` removes a line you added; `keep: true` keeps it as a plain line.
 
 ## How to work
 

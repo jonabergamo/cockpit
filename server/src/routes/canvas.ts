@@ -2,11 +2,18 @@ import { Hono } from "hono";
 import type { CanvasRelay, TermInfo, Worktree } from "@cockpit/shared";
 import * as canvas from "../canvas.ts";
 import { broadcast } from "../hub.ts";
-import { listTerms, onTermsChanged } from "../pty.ts";
+import { currentCwd, listTerms, onTermsChanged, spawnTerm } from "../pty.ts";
 import { allWorktrees } from "../remote/work.ts";
 import { away } from "../away.ts";
 import { isReviewTerm } from "../reviews.ts";
 import { handOff } from "../relay.ts";
+import { canvasView, findCard, openBeside, type BesideAgent, type BesideAs, type FindCtx } from "../canvasTools.ts";
+import { listSessions } from "../claude/sessions.ts";
+import { config } from "../config.ts";
+import { cwdAllowed } from "../files.ts";
+import { spawnRemote } from "../remote/terminals.ts";
+import { getSettings } from "../settings.ts";
+import { listTasks } from "../tasks.ts";
 
 // every change is pushed, so other tabs and devices follow; by names the tab that made it, which already shows it
 const changed = (by?: string) => broadcast({ type: "canvas", by });
@@ -35,8 +42,43 @@ export async function startCanvas(reopened: Promise<Map<string, string>> = Promi
   onTermsChanged(() => void sync());
 }
 
+// what a worker can be named by, for the lead's tools
+const findCtx = (): FindCtx => ({ canvases: canvas.listCanvases(), terms: listTerms(), tasks: listTasks(), sessions: listSessions({ limit: 800 }) });
+
 export const canvasRoutes = new Hono()
   .get("/", (c) => c.json(canvas.listCanvases()))
+  // the lead's view: each workspace's cards and lines in a few words
+  .get("/view", (c) => c.json(canvasView(canvas.listCanvases(), listTerms(), canvas.readNote, c.req.query("workspace") || undefined)))
+  // the card a worker is on, by its task, session, worktree, terminal or card id
+  .get("/find", (c) => {
+    try {
+      const f = findCard(c.req.query("who") ?? "", findCtx());
+      return c.json({ canvas: f.canvas, workspace: f.workspace, node: f.node, term: f.term });
+    } catch (e) {
+      return c.json(fail(e), 404);
+    }
+  })
+  // Codex or the local model beside a worker, as its card's + menu opens them
+  .post("/beside", async (c) => {
+    const b = await c.req.json<{ who?: string; agent?: BesideAgent; as?: BesideAs; by?: string }>();
+    if (b.agent !== "codex" && b.agent !== "local") return c.json({ error: "agent is codex or local" }, 400);
+    try {
+      const made = await openBeside(findCard(b.who ?? "", findCtx()), b.agent, b.as ?? "chat", {
+        quick: getSettings().quick,
+        base: config.repo.baseBranch,
+        cwdNow: currentCwd,
+        spawn: async ({ node, ...opts }) => {
+          if (node) return spawnRemote(node, opts);
+          if (!(await cwdAllowed(opts.cwd))) throw new Error(`cockpit doesn't open terminals in ${opts.cwd}`);
+          return spawnTerm(opts);
+        },
+      });
+      changed(b.by);
+      return c.json(made);
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
+  })
   // what the agents on a workspace did since you last looked
   .get("/:id/away", async (c) => {
     const ws = canvas.listCanvases().find((x) => x.id === c.req.param("id"));

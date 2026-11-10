@@ -85,3 +85,31 @@ export interface AgentInfo {
   models: AgentModel[];
   terminal: boolean;
 }
+
+// What the canvas and the launcher open beside the main agent: cockpit's chat with the local model (each machine
+// finds its own copy of the script) or Codex, read-only when it's reviewing the folder's changes
+export interface LaunchExtra {
+  model?: string;
+  url?: string;
+  base?: string;
+  review?: boolean;
+}
+
+const reviewPrompt = (base: string) =>
+  `Review the uncommitted changes in this repo, or if there are none, this branch's changes against origin/${base}. List real bugs first, each with the file and line and why it breaks, then risks worth a second look, then at most three small nits. Don't change any files.`;
+
+// the local model by its family, like Qwen for qwen2.5-coder:7b
+export const modelName = (m: string) => {
+  const f = m.split(/[:/]/)[0].replace(/[\d.]+.*$/, "") || m;
+  return f.charAt(0).toUpperCase() + f.slice(1);
+};
+
+export function agentTerm(mode: "local" | "codex", x: LaunchExtra): { command: string; args: string[]; title: string } {
+  const base = x.base || "main";
+  if (mode === "local") {
+    if (!x.model) throw new Error("No local model yet: set one in Settings → Automation → Quick answers");
+    const name = x.model.split(/[:/]/)[0];
+    return { command: "cockpit:chat", args: ["--model", x.model, ...(x.url ? ["--url", x.url] : []), ...(x.review ? ["--review", "--base", base] : [])], title: x.review ? `${name} review` : name };
+  }
+  return { command: "codex", args: x.review ? ["-s", "read-only", reviewPrompt(base)] : [], title: x.review ? "codex review" : "codex" };
+}

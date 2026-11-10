@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { QueryClient } from "@tanstack/react-query";
+import { agentTerm, type LaunchExtra } from "@cockpit/shared";
 import { api } from "./api";
 import { shortPath } from "./format";
 
@@ -10,15 +11,7 @@ export const MODES: LaunchMode[] = ["claude", "resume", "shell", "local", "codex
 export const REVIEWS: LaunchMode[] = ["local", "codex"];
 
 // what local and codex need to start: the local model, the branch work goes back to, and whether to review
-export interface LaunchExtra {
-  model?: string;
-  url?: string;
-  base?: string;
-  review?: boolean;
-}
-
-const reviewPrompt = (base: string) =>
-  `Review the uncommitted changes in this repo, or if there are none, this branch's changes against origin/${base}. List real bugs first, each with the file and line and why it breaks, then risks worth a second look, then at most three small nits. Don't change any files.`;
+export { agentTerm, modelName, type LaunchExtra } from "@cockpit/shared";
 
 const LAST = "cockpit.lastClaudeCwd";
 const MODE = "cockpit.launchMode";
@@ -81,24 +74,6 @@ export const recentOn = (node: string): string[] => {
 const rememberOn = (node: string, cwd: string) => write(nodeFolders(node), JSON.stringify([cwd, ...recentOn(node).filter((p) => p !== cwd)].slice(0, 12)));
 
 export const useLauncher = () => useSyncExternalStore(launcher.subscribe, launcher.get);
-
-// the local model by its family, like Qwen for qwen2.5-coder:7b
-export const modelName = (m: string) => {
-  const f = m.split(/[:/]/)[0].replace(/[\d.]+.*$/, "") || m;
-  return f.charAt(0).toUpperCase() + f.slice(1);
-};
-
-// the terminal for local and codex: cockpit's chat with the local model (each machine finds its own copy of the
-// script) or Codex, read-only when it's reviewing
-export function agentTerm(mode: "local" | "codex", x: LaunchExtra): { command: string; args: string[]; title: string } {
-  const base = x.base || "main";
-  if (mode === "local") {
-    if (!x.model) throw new Error("No local model yet: set one in Settings → Automation → Quick answers");
-    const name = x.model.split(/[:/]/)[0];
-    return { command: "cockpit:chat", args: ["--model", x.model, ...(x.url ? ["--url", x.url] : []), ...(x.review ? ["--review", "--base", base] : [])], title: x.review ? `${name} review` : name };
-  }
-  return { command: "codex", args: x.review ? ["-s", "read-only", reviewPrompt(base)] : [], title: x.review ? "codex review" : "codex" };
-}
 
 // "resume" opens claude's own picker of past sessions in that folder
 export async function launch(qc: QueryClient, cwd: string, mode: LaunchMode, label = shortPath(cwd).split("/").pop()!, node = "local", extra: LaunchExtra = {}) {

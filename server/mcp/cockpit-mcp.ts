@@ -7,10 +7,17 @@ import { z } from "zod";
 
 const BASE = (process.env.COCKPIT_URL ?? "http://127.0.0.1:8770").replace(/\/$/, "");
 
-async function call(method: "GET" | "POST", path: string, body?: unknown) {
+async function call(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown) {
   const res = await fetch(`${BASE}/api${path}`, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
-  if (!res.ok) throw new Error(`${res.status}: ${text.slice(0, 400)}`);
+  // the server's own words when it gave some, rather than its JSON
+  if (!res.ok) {
+    let said: unknown;
+    try {
+      said = (JSON.parse(text) as { error?: unknown }).error;
+    } catch {}
+    throw new Error(typeof said === "string" ? said : `${res.status}: ${text.slice(0, 400)}`);
+  }
   return text ? JSON.parse(text) : null;
 }
 
@@ -170,6 +177,113 @@ server.registerTool(
   wrap(async (a: { command: string; cwd: string; exit_code: number; kind?: string; name?: string; ticket?: string; output?: string }) => {
     const r = await call("POST", "/runs", { finished: true, source: "mcp", command: a.command, cwd: a.cwd, exitCode: a.exit_code, kind: a.kind, name: a.name, ticket: a.ticket, output: a.output });
     return `Recorded as ${r.run.kind} run ${r.id} (${r.run.status}): ${BASE}${r.link}`;
+  }),
+);
+
+// The canvas: terminals as cards, with lines between them that can pass each finished turn of one agent to the other
+const WHO = "The worker: a task id, a session id, a worktree path, a terminal id or a card id from canvas_view";
+type Found = { canvas: string; workspace: string; node: { id: string; kind: string; x: number; y: number; w: number; h: number } };
+const find = (who: string) => call("GET", `/canvas/find?who=${encodeURIComponent(who)}`) as Promise<Found>;
+
+server.registerTool(
+  "canvas_view",
+  {
+    description:
+      "The Terminals canvas: each workspace's cards (terminals with their session and folder, notes with their text, tickets) and the lines between them, with each line's role (review, plan, build, custom), which way it goes, its gate, hops used of its limit and how the last thing it carried went.",
+    inputSchema: { workspace: z.string().optional().describe("Only this workspace, by name or id") },
+  },
+  wrap(({ workspace }: { workspace?: string }) => call("GET", `/canvas/view${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`)),
+);
+
+server.registerTool(
+  "open_beside",
+  {
+    description:
+      "Open Codex or the local model (Settings → Automation → Quick answers) beside a worker's terminal, in its folder and linked to it. as: chat (a line you can hand answers over), reviewer (each turn the worker finishes goes to it and the review comes back, 4 hops), review (a one-off read-only review of the folder's changes).",
+    inputSchema: { who: z.string().describe(WHO), agent: z.enum(["codex", "local"]), as: z.enum(["chat", "reviewer", "review"]).optional().describe("chat when left out") },
+  },
+  wrap(({ who, agent, as }: { who: string; agent: string; as?: string }) => call("POST", "/canvas/beside", { who, agent, as })),
+);
+
+server.registerTool(
+  "link",
+  {
+    description:
+      "Draw a line between two cards on the same workspace, and with a role make it pass each finished turn of `from` on to `to`. A review line goes both ways (the review comes back) and hands the reviewer the turn's git diff unless with_diff is false. when: passing only passes turns after which its checks pass, failing only ones where something fails. limit: hops before it stops until someone types into either end (keep it low, 2-4).",
+    inputSchema: {
+      from: z.string().describe(WHO),
+      to: z.string().describe(WHO),
+      role: z.enum(["review", "plan", "build", "custom"]).optional().describe("Left out: a plain line that passes nothing on"),
+      prompt: z.string().optional().describe("What the other end should do with it; needed for custom"),
+      both: z.boolean().optional().describe("Turns go both ways; on by default for review"),
+      when: z.enum(["every", "passing", "failing"]).optional(),
+      limit: z.number().int().min(1).max(20).optional().describe("3 when left out"),
+      with_diff: z.boolean().optional(),
+    },
+  },
+  wrap(async (a: { from: string; to: string; role?: "review" | "plan" | "build" | "custom"; prompt?: string; both?: boolean; when?: string; limit?: number; with_diff?: boolean }) => {
+    const [from, to] = await Promise.all([find(a.from), find(a.to)]);
+    if (from.canvas !== to.canvas) throw new Error(`They're on different workspaces (${from.workspace} and ${to.workspace}); a line can only join cards on one`);
+    const line = (await call("POST", `/canvas/${from.canvas}/edges`, { source: from.node.id, target: to.node.id })) as { id: string; source: string };
+    if (!a.role) return { line: line.id, relay: "none" };
+    // a line already drawn the other way round keeps its ends, so the turns go from `from` all the same
+    const both = a.both ?? a.role === "review";
+    const relay = { from: both ? "both" : line.source === from.node.id ? "source" : "target", role: a.role, prompt: a.prompt, when: a.when === "every" ? undefined : a.when, limit: a.limit ?? 3, withDiff: a.with_diff };
+    await call("PATCH", `/canvas/edges/${line.id}`, { relay });
+    return { line: line.id, ...relay };
+  }),
+);
+
+server.registerTool(
+  "unlink",
+  {
+    description: "Remove a line (its id from canvas_view), or with keep=true only stop it passing turns on and leave a plain line.",
+    inputSchema: { line: z.string(), keep: z.boolean().optional() },
+  },
+  wrap(async ({ line, keep }: { line: string; keep?: boolean }) => {
+    await call(keep ? "PATCH" : "DELETE", `/canvas/edges/${encodeURIComponent(line)}`, keep ? { relay: null } : undefined);
+    return keep ? "It's a plain line now." : "Removed.";
+  }),
+);
+
+server.registerTool(
+  "hand_off",
+  {
+    description: "Hand the last answer of the agent at one end of a line to the agent at the other, once, with what to do with it. It waits while the other end is busy.",
+    inputSchema: { line: z.string(), from: z.string().describe(`source or target (the line's from and to in canvas_view), or ${WHO.toLowerCase()}`), ask: z.string().optional() },
+  },
+  wrap(async ({ line, from, ask }: { line: string; from: string; ask?: string }) => {
+    let end = from === "source" || from === "target" ? from : undefined;
+    if (!end) {
+      const card = (await find(from)).node.id;
+      const edge = ((await call("GET", "/canvas")) as { edges: { id: string; source: string; target: string }[] }[]).flatMap((c) => c.edges).find((e) => e.id === line);
+      if (!edge) throw new Error("No such line");
+      end = edge.source === card ? "source" : edge.target === card ? "target" : undefined;
+      if (!end) throw new Error(`${from} isn't at either end of that line`);
+    }
+    await call("POST", `/canvas/edges/${encodeURIComponent(line)}/handoff`, { from: end, ask });
+    return "Handed over.";
+  }),
+);
+
+server.registerTool(
+  "add_note",
+  {
+    description: "Put a markdown note on the canvas: beside a card and linked to it when near is given, else on the workspace named (or the first one).",
+    inputSchema: { text: z.string().min(1), near: z.string().optional().describe(WHO), workspace: z.string().optional().describe("By name or id, when near isn't given") },
+  },
+  wrap(async ({ text, near, workspace }: { text: string; near?: string; workspace?: string }) => {
+    if (near) {
+      const f = await find(near);
+      const note = (await call("POST", `/canvas/${f.canvas}/notes`, { text, x: f.node.x + f.node.w + 40, y: f.node.y })) as { id: string };
+      await call("POST", `/canvas/${f.canvas}/edges`, { source: f.node.id, target: note.id });
+      return { note: note.id, workspace: f.workspace, linkedTo: f.node.id };
+    }
+    const all = (await call("GET", "/canvas")) as { id: string; name: string }[];
+    const ws = workspace ? all.find((c) => c.id === workspace || c.name.toLowerCase() === workspace.trim().toLowerCase()) : all[0];
+    if (!ws) throw new Error(`No workspace called ${workspace}. There are: ${all.map((c) => c.name).join(", ")}`);
+    const note = (await call("POST", `/canvas/${ws.id}/notes`, { text })) as { id: string };
+    return { note: note.id, workspace: ws.name };
   }),
 );
 
