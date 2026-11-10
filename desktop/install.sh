@@ -94,4 +94,22 @@ Categories=Development;
 StartupWMClass=cockpit
 DESK
   echo "Installed $dest/cockpit"
+
+  # Chromium sandboxes its renderers with user namespaces. Ubuntu (23.10+) only lets apps with an AppArmor
+  # profile create them, like the ones it ships for chrome and code, so this adds one for the app.
+  if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" == 1 ]]; then
+    profile=/etc/apparmor.d/cockpit-desktop
+    rules="abi <abi/4.0>,
+include <tunables/global>
+
+profile cockpit-desktop $dest/cockpit flags=(unconfined) {
+  userns,
+
+  include if exists <local/cockpit-desktop>
+}"
+    if [[ "$(cat "$profile" 2>/dev/null)" != "$rules" ]]; then
+      echo "Adding an AppArmor profile so the app can sandbox itself (needs sudo)"
+      printf '%s\n' "$rules" | sudo tee "$profile" >/dev/null && sudo apparmor_parser -r "$profile"
+    fi
+  fi
 fi

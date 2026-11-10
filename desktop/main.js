@@ -16,7 +16,9 @@ const SETTINGS = path.join(HOME, 'desktop.json')
 
 app.setPath('userData', path.join(HOME, 'window'))
 app.setName('cockpit')
-if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox')
+// No `no-sandbox` switch from here on Linux: set at runtime it comes too late for the zygote, which is already
+// sandboxed, so each renderer skips the broker, can't open /dev/shm (ESRCH) and the window stays blank. The
+// installer lets the app use a sandbox instead.
 
 function settings() {
   try {
