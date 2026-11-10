@@ -495,7 +495,7 @@ function settle(r: Run) {
 
 // The checks that don't care which files they ran on: a later pass of the same kind fixes an earlier failure. An
 // e2e flow or a proof is about one thing, so only the same one passing does. CI goes by its own checks.
-const BY_KIND = new Set<RunKind>(["unit", "lint", "typecheck", "audit", "verify"]);
+export const BY_KIND = new Set<RunKind>(["unit", "lint", "typecheck", "audit", "verify"]);
 const FIX_WINDOW = 3 * 864e5;
 
 // A run that passed fixes the failures before it of the same check, in the same place: the same Claude session,

@@ -106,6 +106,8 @@ const schema = z.object({
   // voiceSend: what you say to a terminal is sent once it's settled, rather than left for you to read and send
   terminals: z.object({ statusLine: z.enum(["card", "claude"]).default("card"), voiceSend: z.boolean().default(false) }).prefault({}),
   // the weekly digest's notification: on this day (0 is Sunday) from this hour
+  // the retro on Your week: your corrections of Claude and its fix loops over the last 7 days, as CLAUDE.md rules
+  retro: z.object({ on: z.boolean().default(true) }).prefault({}),
   weekly: z.object({ on: z.boolean().default(true), day: z.number().int().min(0).max(6).default(5), hour: z.number().int().min(0).max(23).default(16) }).prefault({}),
   // kinds of work, see templates.ts; the first whose pattern matches a ticket is used
   templates: z

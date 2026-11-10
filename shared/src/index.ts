@@ -367,6 +367,35 @@ export interface ReviewLessons {
   prompt: string;
 }
 
+// The week's retro on Your week: what you kept correcting Claude on, and checks it looped on, as rules for CLAUDE.md
+export interface RetroTheme {
+  id: string;
+  kind: "correction" | "loop";
+  title: string;
+  count: number;
+  sessions: { id: string; title?: string }[];
+  examples: string[];
+  rule: string;
+  // the repo most of its sessions ran in, whose CLAUDE.md it can go to
+  project?: string;
+  state: "open" | "dismissed" | "added";
+  // where it was added
+  addedTo?: string;
+}
+
+export interface Retro {
+  on: boolean;
+  running: boolean;
+  themes: RetroTheme[];
+  at?: number;
+  method?: "model" | "words";
+  note?: string;
+  corrections: number;
+  interrupts: number;
+  // the user CLAUDE.md the rules can go to
+  userFile: string;
+}
+
 // your last submitted review of a PR and what happened since, for a second look at only what changed
 export interface LastReview {
   // the commit you reviewed, and the PR's head now

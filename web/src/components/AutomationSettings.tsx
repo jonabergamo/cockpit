@@ -312,6 +312,12 @@ export function AutomationSettings() {
         <Num label="Show “While you were away” after" value={s.away.minutes} min={5} max={1440} unit="minutes" onSave={(n) => put("away", { minutes: n })} />
         <Num label="Keep “Pick up where you left off” for" help="The next steps from Wrap up the day, on Today" value={s.handoff.keepDays} min={1} max={30} unit="days" onSave={(n) => put("handoff", { keepDays: n })} />
         <Num label="Wait for a panel of reviewers" help="On the canvas, review lines that review together: after this, the reviews in hand go back merged and the rest are noted as not answering" value={s.panels.waitMinutes} min={1} max={120} unit="minutes" onSave={(n) => put("panels", { waitMinutes: n })} />
+        <Toggle
+          label="Retro on Your week"
+          help="What you kept correcting Claude on and the checks it failed again and again in the last 7 days, each with a rule you can add to a CLAUDE.md. Grouped by the quick model when one is set"
+          on={s.retro.on}
+          onChange={(v) => put("retro", { on: v })}
+        />
         <Toggle label="Weekly digest notification" help="What shipped, what's stuck and where the tokens went, on Your week" on={s.weekly.on} onChange={(v) => put("weekly", { on: v })} />
         {s.weekly.on && (
           <label className="flex items-center gap-3 text-[13px]">

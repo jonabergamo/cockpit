@@ -30,6 +30,7 @@ export interface SettingsRes {
     terminals: { statusLine: "card" | "claude"; voiceSend: boolean };
     budget: { perTicketUSD: number; perTicketMTokens: number; warnPct: number };
     weekly: { on: boolean; day: number; hour: number };
+    retro: { on: boolean };
     templates: { id: string; name: string; match: string; vars: Record<string, string>; model: string; prompt: string; autopilot: "default" | "on" | "off"; team?: KitTeam }[];
     notes: { prompt: string; maxChars: number; liveBranch: string };
     agents: { off: string[] };

@@ -142,6 +142,15 @@ export async function writeProjectSettings(path: string, content: string) {
   return save(p, content);
 }
 
+// A repo's CLAUDE.md, at the root of a repo cockpit saw sessions run in, which needn't be one the editor lists. Only
+// that file, and only at a path cockpit worked out itself, never one a request named.
+export async function writeProjectClaudeMd(path: string, content: string, expectMtime?: number) {
+  const p = resolve(path);
+  if (basename(p) !== "CLAUDE.md" && !(await writable(p))) throw new Error("path not allowed");
+  if (expectMtime && existsSync(p) && Math.abs((await stat(p)).mtimeMs - expectMtime) > 1) throw new Error("file changed on disk since you opened it");
+  return save(p, content);
+}
+
 export async function backups(path: string) {
   const suffix = `--${backupName(path)}`;
   return (await ls(backupsDir))

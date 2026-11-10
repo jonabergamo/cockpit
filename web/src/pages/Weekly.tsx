@@ -1,10 +1,10 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import type { Ticket } from "@cockpit/shared";
+import type { Retro, RetroTheme, Ticket } from "@cockpit/shared";
 import { api, qs } from "../lib/api";
 import { useCost } from "../lib/cost";
-import { duration, today, usd } from "../lib/format";
+import { ago, duration, today, usd } from "../lib/format";
 import { Button, copy, ErrorNote, inputClass, Loading, PageHeader, Tag } from "../components/ui";
 import { useAgentName } from "../lib/agent";
 
@@ -168,6 +168,8 @@ export function WeeklyPage() {
           </div>
         </>
       )}
+      {/* the last 7 days, so only on this week */}
+      {thisWeek && <RetroSection />}
       {/* today's standup and this week's brag doc lines, only while the page is on this week */}
       {thisWeek && (
         <div className="grid gap-4 lg:grid-cols-2 items-start">
@@ -265,5 +267,117 @@ function BragBox() {
       </div>
       <pre className="whitespace-pre-wrap text-[13px] font-sans">{text}</pre>
     </section>
+  );
+}
+
+const home = (p: string) => p.replace(/^\/(home|Users)\/[^/]+/, "~");
+
+// what you kept correcting Claude on and the checks it looped on, each with a rule for a CLAUDE.md
+function RetroSection() {
+  const qc = useQueryClient();
+  const [showSettled, setShowSettled] = useState(false);
+  const q = useQuery({ queryKey: ["retro"], queryFn: () => api.get<Retro>("/weekly/retro"), refetchInterval: (r) => (r.state.data?.running ? 3000 : false) });
+  const set = (d: Retro) => qc.setQueryData(["retro"], d);
+  const refresh = useMutation({ mutationFn: () => api.post<Retro>("/weekly/retro/refresh"), onSuccess: set });
+  const d = q.data;
+  if (d && !d.on) return null;
+  const all = d?.themes ?? [];
+  const settled = all.filter((t) => t.state !== "open").length;
+  const shown = all.filter((t) => showSettled || t.state === "open");
+  const busy = refresh.isPending || !!d?.running;
+
+  return (
+    <section className={`bg-panel border border-line rounded-lg ${busy ? "wave" : ""}`}>
+      <div className="flex items-center gap-2 px-4 pt-2.5 pb-1.5">
+        <h2 className="font-semibold text-[14px] flex-1">Retro</h2>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => refresh.mutate()} title="Read the last 7 days of sessions and runs again">
+          {busy ? "Working it out" : "Refresh"}
+        </Button>
+      </div>
+      <p className="px-4 pb-2 text-[12px] text-muted">
+        The last 7 days: {d?.corrections ?? 0} times you corrected Claude, {d?.interrupts ?? 0} interrupted turns, and checks a session failed 3 or more times before they passed
+        {d?.at ? `. Worked out ${ago(d.at)}${d.method === "words" ? " by shared words" : ""}` : ""}.
+      </p>
+      <div className="px-4">
+        <ErrorNote error={q.error ?? refresh.error} />
+      </div>
+      {q.isLoading && <Loading />}
+      {d?.note && <p className="mx-4 mb-2 text-[12px] text-amber">{d.note}</p>}
+      <div className="grid gap-3 px-4 pb-3 lg:grid-cols-2">
+        {shown.map((t) => (
+          <RetroCard key={t.id} theme={t} userFile={d!.userFile} onDone={set} />
+        ))}
+      </div>
+      {d && !all.length && <p className="px-4 pb-3 text-[13px] text-faint">{d.at ? "Nothing came up more than once." : busy ? "Reading the week's sessions." : "Not worked out yet."}</p>}
+      {!!settled && (
+        <button className="px-4 pb-2.5 text-[12px] text-muted hover:text-cobalt" onClick={() => setShowSettled(!showSettled)}>
+          {showSettled ? "Hide added and dismissed" : `Show ${settled} added or dismissed`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function RetroCard({ theme: t, userFile, onDone }: { theme: RetroTheme; userFile: string; onDone: (d: Retro) => void }) {
+  const [rule, setRule] = useState(t.rule);
+  const [target, setTarget] = useState<"user" | "project">("user");
+  useEffect(() => setRule(t.rule), [t.rule]);
+  const act = useMutation({
+    mutationFn: (b: { dismissed?: boolean; add?: { target: "user" | "project"; rule: string } }) => api.post<Retro>(`/weekly/retro/${encodeURIComponent(t.id)}`, b),
+    onSuccess: onDone,
+  });
+  const open = t.state === "open";
+  return (
+    <div className={`border border-line rounded-lg bg-ground p-3 space-y-2 ${open ? "" : "opacity-60"}`}>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium">{t.title}</div>
+          <div className="text-[12px] text-muted">
+            {t.kind === "loop" ? `${t.count} failed runs` : `${t.count} corrections`} in {t.sessions.length} {t.sessions.length === 1 ? "session" : "sessions"}
+          </div>
+        </div>
+        <Tag tone={t.kind === "loop" ? "amber" : "plain"}>{t.kind === "loop" ? "fix loop" : "correction"}</Tag>
+      </div>
+      {t.examples.map((e, i) => (
+        <div key={i} className="text-[12px] text-faint truncate" title={e}>
+          “{e}”
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[12px]">
+        {t.sessions.slice(0, 5).map((s) => (
+          <Link key={s.id} to="/sessions/$id" params={{ id: s.id }} className="text-muted hover:text-cobalt truncate max-w-[200px]" title={s.title ?? s.id}>
+            {s.title ?? s.id.slice(0, 8)}
+          </Link>
+        ))}
+        {t.sessions.length > 5 && <span className="text-faint">+{t.sessions.length - 5}</span>}
+      </div>
+      {open ? (
+        <>
+          <textarea value={rule} onChange={(e) => setRule(e.target.value)} rows={2} className={`${inputClass} h-auto w-full py-1.5 text-[13px]`} aria-label="Rule to add" />
+          <div className="flex items-center gap-2">
+            <select value={target} onChange={(e) => setTarget(e.target.value as "user" | "project")} className={`${inputClass} min-w-0 flex-1 text-[12px]`} aria-label="Which CLAUDE.md">
+              <option value="user">{home(userFile)}</option>
+              {t.project && <option value="project">{home(`${t.project}/CLAUDE.md`)}</option>}
+            </select>
+            <Button size="sm" variant="primary" disabled={act.isPending || !rule.trim()} onClick={() => act.mutate({ add: { target, rule } })} title="Under “## Learned”, made if it isn't there; the file is backed up first">
+              Add to CLAUDE.md
+            </Button>
+            <Button size="sm" variant="ghost" disabled={act.isPending} onClick={() => act.mutate({ dismissed: true })}>
+              Dismiss
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="flex items-center gap-2 text-[12px]">
+          <span className="flex-1 text-muted">{t.state === "added" ? `Added to ${home(t.addedTo ?? "")}: ${t.rule}` : "Dismissed"}</span>
+          {t.state === "dismissed" && (
+            <Button size="sm" variant="ghost" disabled={act.isPending} onClick={() => act.mutate({ dismissed: false })}>
+              Bring back
+            </Button>
+          )}
+        </div>
+      )}
+      <ErrorNote error={act.error} />
+    </div>
   );
 }

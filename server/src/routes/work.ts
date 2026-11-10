@@ -28,6 +28,7 @@ import { getCompare, sendCompare, startCompare } from "../cicompare.ts";
 import { budgets, setBudget, ticketSpend } from "../budget.ts";
 import { templateFor } from "../templates.ts";
 import { weekly, weekStart } from "../weekly.ts";
+import { addTheme, dismissTheme, recompute as recomputeRetro, retro } from "../retro.ts";
 import { runVerify, sendFailure } from "../verify.ts";
 import { previewOf, startPreview, stopPreview } from "../preview.ts";
 import { cleanChecked, createWorktree, deleteChecked, link, listWorktrees, openInEditor, openRemote, refreshSizes, unlink } from "../worktrees.ts";
@@ -149,6 +150,24 @@ export const work = new Hono()
     const at = c.req.query("week");
     const d = at && /^\d{4}-\d{2}-\d{2}$/.test(at) ? new Date(`${at}T12:00:00`) : new Date();
     return c.json(await weekly(weekStart(d)));
+  })
+  // the retro: what you kept correcting Claude on and the checks it looped on, last 7 days. Under /weekly so a hub
+  // asks the machine the sessions and runs are on
+  .get("/weekly/retro", (c) => c.json(retro()))
+  .post("/weekly/retro/refresh", async (c) => {
+    await recomputeRetro();
+    return c.json(retro());
+  })
+  .post("/weekly/retro/:id", async (c) => {
+    const b = await c.req.json<{ dismissed?: boolean; add?: { target: "user" | "project"; rule: string } }>();
+    try {
+      if (b.add) await addTheme(c.req.param("id"), b.add.target === "project" ? "project" : "user", String(b.add.rule ?? ""));
+      else dismissTheme(c.req.param("id"), b.dismissed !== false);
+      return c.json(retro());
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 500) as 400);
+    }
   })
   .get("/budgets", (c) => c.json(budgets()))
   // in the unit that's showing, dollars or tokens; null goes back to the default budget, 0 is none for this ticket
