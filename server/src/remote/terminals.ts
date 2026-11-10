@@ -5,7 +5,7 @@
 import type { TermInfo } from "@cockpit/shared";
 import type { WebSocket } from "ws";
 import { send } from "../hub.ts";
-import { announce, useRemoteTerms, type PtyFrame } from "../pty.ts";
+import { announce, termTurn, useRemoteTerms, type PtyFrame } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
 import type { RemoteLink } from "./link.ts";
 
@@ -158,6 +158,8 @@ function linked(machine: string, link: RemoteLink) {
       const rt = n.terms.get(f.id);
       if (rt) onFrame(rt, f);
     });
+    // a turn finished in one of its terminals without a Claude session (cockpit's chat), for the canvas relays here
+    c.on("term.turn", ({ id, text }: { id: string; text: string }) => n.terms.has(id) && termTurn(id, text));
     c.on("pty.exit", ({ id, code }: { id: string; code: number }) => {
       const rt = n.terms.get(id);
       if (!rt) return;

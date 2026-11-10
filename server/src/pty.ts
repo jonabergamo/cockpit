@@ -1,6 +1,6 @@
 import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -261,10 +261,36 @@ export function withStatusLine(command: string | undefined, args: string[] | und
 // cockpit's own chat with a local model (server/bin/chat.mjs). Asked for by this name so a hub can start it on a
 // node, where cockpit's folder and Node live somewhere else; each machine puts in its own paths here.
 export const CHAT_COMMAND = "cockpit:chat";
-const ownCommand = (command?: string, args?: string[]) => (command === CHAT_COMMAND ? { command: process.execPath, args: [join(paths.root, "server", "bin", "chat.mjs"), ...(args ?? [])] } : { command, args });
+const ownCommand = (id: string, command?: string, args?: string[]) =>
+  command === CHAT_COMMAND ? { command: process.execPath, args: [join(paths.root, "server", "bin", "chat.mjs"), ...(args ?? []), "--turns", join(turnsDir, `${id}.json`)] } : { command, args };
+
+// A turn finished in a terminal that has no Claude session to say so, like cockpit's chat: it leaves its answer in a
+// file named after the terminal, and whoever listens (the canvas relays; a node passes it on to its hub) hears it
+const turnsDir = join(paths.data, "turns");
+const turned = new Set<(id: string, text: string) => void>();
+export const onTermTurn = (fn: (id: string, text: string) => void) => (turned.add(fn), () => void turned.delete(fn));
+export const termTurn = (id: string, text: string) => turned.forEach((fn) => fn(id, text));
+const lastTurn = new Map<string, number>();
+export function watchTurns() {
+  mkdirSync(turnsDir, { recursive: true });
+  watch(turnsDir, (_, file) => {
+    const id = file?.toString().match(/^([\w-]+)\.json$/)?.[1];
+    if (!id) return;
+    try {
+      const t = JSON.parse(readFileSync(join(turnsDir, `${id}.json`), "utf8")) as { text?: string; at?: number };
+      // a write can be seen more than once
+      if (!t.text?.trim() || !t.at || lastTurn.get(id) === t.at) return;
+      lastTurn.set(id, t.at);
+      termTurn(id, t.text);
+    } catch {
+      // half written, or gone; the finished write comes along as its own change
+    }
+  });
+}
 
 export function spawnTerm(opts: { cwd: string; title?: string; command?: string; args?: string[]; session?: string; parent?: string; run?: string; beside?: boolean; was?: string }) {
-  opts = { ...opts, ...ownCommand(opts.command, opts.args) };
+  const id = randomUUID();
+  opts = { ...opts, ...ownCommand(id, opts.command, opts.args) };
   opts = { ...opts, args: withStatusLine(opts.command, opts.args) };
   // a Claude session is one of its own, never a split of another
   const own = !!opts.session || /^claude\b/.test(opts.command ?? "");
@@ -280,7 +306,7 @@ export function spawnTerm(opts: { cwd: string; title?: string; command?: string;
   // kept with the tmux session (same 16KB limit) and only shown as a tooltip, so a long prompt is cut short
   const full = [shell, ...(opts.args ?? [])].join(" ");
   const command = full.length > 500 ? `${full.slice(0, 500)}…` : full;
-  const meta: Meta = { id: randomUUID(), title: opts.title ?? command, cwd: opts.cwd, command, createdAt: Date.now(), session: opts.session, parent: opts.parent, run: opts.run, was: opts.was };
+  const meta: Meta = { id, title: opts.title ?? command, cwd: opts.cwd, command, createdAt: Date.now(), session: opts.session, parent: opts.parent, run: opts.run, was: opts.was };
 
   if (!hasTmux) {
     const proc = pty.spawn(file, argv, ptyOpts(opts.cwd));

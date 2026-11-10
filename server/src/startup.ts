@@ -25,7 +25,7 @@ import { startUpdates, useBusyCheck, useNodeUpdates } from "./update.ts";
 import { listJobs, type Job } from "./jobs.ts";
 import { existsSync } from "node:fs";
 import { scanCodexTerminals } from "./claude/codexTerminal.ts";
-import { hasTmux, holdTerms, lostTerms, restoreTerms, spawnTerm } from "./pty.ts";
+import { hasTmux, holdTerms, lostTerms, restoreTerms, spawnTerm, watchTurns } from "./pty.ts";
 import { resumeLaunch } from "./workers/index.ts";
 
 // what belongs to the machine itself: its Claude sessions, their usage and search index, runs and terminals
@@ -37,6 +37,7 @@ export function startHostServices() {
   startSearch();
   startRuns();
   startRecordings();
+  watchTurns();
   const restored = restoreTerms();
   if (restored) console.log(`reattached ${restored} terminals`);
   // the new id of each terminal reopened after a reboot, by its old one, so the canvas can keep its card in place

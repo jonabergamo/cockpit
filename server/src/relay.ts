@@ -4,11 +4,11 @@
 // idle. Each hop counts, and at the line's limit it stops passing things on until you type into either terminal,
 // so two agents never talk to each other for ever. An agent just opened and not asked anything yet has no session
 // to send to: it's sitting at its prompt, so the message is typed into its terminal.
-import type { CanvasRelay, Run, Session } from "@cockpit/shared";
+import type { CanvasEdge, CanvasRelay, Run, Session } from "@cockpit/shared";
 import { lastWords, sendText } from "./agents.ts";
 import * as canvas from "./canvas.ts";
 import { broadcast, tap } from "./hub.ts";
-import { listTerms, onTermInput, typeInto } from "./pty.ts";
+import { listTerms, onTermInput, onTermTurn, typeInto } from "./pty.ts";
 import { requestApi } from "./remote/forward.ts";
 import { onNode } from "./remote/sessions.ts";
 import { listRuns, settledFail } from "./runs.ts";
@@ -41,7 +41,16 @@ const held = new Map<string, { to: string; name: string; text: string }>();
 const sessionIn = (term: string) => [...seen.values()].find((s) => s.term === term && s.status !== "ended");
 // a terminal running an agent, by its command; a plain shell at the other end isn't typed into. cockpit's chat
 // with the local model (server/bin/chat.mjs) counts: it takes a pasted turn as one message
+const CHAT = /\/server\/bin\/chat\.mjs(?:\s|$)/;
 const AGENT = /^(?:\S*\/)?(?:claude|codex|gemini)(?:\s|$)|\/server\/bin\/chat\.mjs(?:\s|$)/;
+const isChat = (term: string) => listTerms().some((t) => t.id === term && CHAT.test(t.command));
+// A line both ways between an agent and cockpit's chat: the chat can only talk, so it's the reviewer whichever way
+// the line was drawn
+function reviewerOf(edge: CanvasEdge): "source" | "target" {
+  const ends = edge.relay!.from === "both" ? canvas.termEnds(edge.id) : undefined;
+  if (ends && isChat(ends.source) !== isChat(ends.target)) return isChat(ends.source) ? "source" : "target";
+  return reviewerEnd(edge.relay!);
+}
 const freshAgent = (term: string) => listTerms().some((t) => t.id === term && t.exited === undefined && t.state !== "exited" && AGENT.test(t.command));
 // pasted the way a terminal pastes, so the agent takes it as one message, then sent
 async function typeIn(term: string, text: string) {
@@ -90,8 +99,10 @@ export async function failingChecks(s: Pick<Session, "id" | "term" | "node">): P
 // the canvas shows the count on the line
 const changed = () => broadcast({ type: "canvas" });
 
+const open = (term: string) => canvas.relaysFrom(term).filter(({ edge }) => (edge.hops ?? 0) < edge.relay!.limit);
+
 async function finished(s: Session) {
-  const relays = canvas.relaysFrom(s.term!).filter(({ edge }) => (edge.hops ?? 0) < edge.relay!.limit);
+  const relays = open(s.term!);
   if (!relays.length) return;
   // the lines that only pass on passing work hold this turn back while its checks fail
   const gated = relays.some(({ edge }) => edge.relay!.when === "passing" || edge.relay!.when === "failing");
@@ -101,25 +112,37 @@ async function finished(s: Session) {
     for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
     return changed();
   }
+  await passOn(relays, titleOf(s), text, failing);
+}
+
+// an answer finished in cockpit's chat, which has no session: it has no checks of its own to hold it back
+const chatSaid = new Map<string, string>();
+async function chatFinished(term: string, text: string) {
+  chatSaid.set(term, text);
+  const relays = open(term);
+  if (relays.length) await passOn(relays, nameOf(term), text, []);
+}
+
+async function passOn(relays: ReturnType<typeof open>, from: string, text: string, failing: Run[]) {
   for (const { edge, to, toEnd } of relays) {
     const target = sessionIn(to);
     const name = nameOf(to);
     if (edge.relay!.when === "failing" && !failing.length) {
-      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: nothing is failing in ${titleOf(s)}, so there's nothing to hand ${name}` });
+      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: nothing is failing in ${from}, so there's nothing to hand ${name}` });
       continue;
     }
     if (edge.relay!.when === "passing" && failing.length) {
       const what = [...new Set(failing.map((r) => r.name))].slice(0, 2).join(" and ");
-      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: ${what}${failing.length > 2 ? " and more" : ""} failing in ${titleOf(s)}. The next turn after they pass goes to ${name}` });
+      canvas.setRelayStatus(edge.id, { state: "held", text: `Held back: ${what}${failing.length > 2 ? " and more" : ""} failing in ${from}. The next turn after they pass goes to ${name}` });
       continue;
     }
     // no agent at the other end to read it
     if (!target && !freshAgent(to)) {
-      canvas.setRelayStatus(edge.id, { state: "failed", text: `${name} isn't running an agent, so there was no one to pass ${titleOf(s)}'s turn to` });
+      canvas.setRelayStatus(edge.id, { state: "failed", text: `${name} isn't running an agent, so there was no one to pass ${from}'s turn to` });
       continue;
     }
-    const back = edge.relay!.role === "review" && toEnd !== reviewerEnd(edge.relay!);
-    const message = relayMessage(titleOf(s), text.trim(), edge.relay!, (edge.hops ?? 0) + 1, back);
+    const back = edge.relay!.role === "review" && toEnd !== reviewerOf(edge);
+    const message = relayMessage(from, text.trim(), edge.relay!, (edge.hops ?? 0) + 1, back);
     canvas.countHop(edge.id);
     if (!target) await deliver(edge.id, name, () => typeIn(to, message));
     else if (target.status === "idle") await deliver(edge.id, name, () => send(target.id, message));
@@ -154,13 +177,15 @@ export async function handOff(edge: string, from: "source" | "target", ask?: str
   const fromTerm = ends[from];
   const to = ends[from === "source" ? "target" : "source"];
   const s = sessionIn(fromTerm);
-  if (!s) throw new Error(`${nameOf(fromTerm)} has no agent in it, so there's no answer to hand over`);
-  const text = (await lastText(s).catch(() => undefined))?.trim();
-  if (!text) throw new Error(`Couldn't read what ${titleOf(s)} said last`);
+  const said = s || !isChat(fromTerm) ? undefined : chatSaid.get(fromTerm);
+  if (!s && !said) throw new Error(`${nameOf(fromTerm)} has no agent in it that has answered yet, so there's no answer to hand over`);
+  const fromName = s ? titleOf(s) : nameOf(fromTerm);
+  const text = (s ? await lastText(s).catch(() => undefined) : said)?.trim();
+  if (!text) throw new Error(`Couldn't read what ${fromName} said last`);
   const target = sessionIn(to);
   const name = nameOf(to);
   if (!target && !freshAgent(to)) throw new Error(`${name} isn't running an agent, so there's no one to hand it to`);
-  const message = handOffMessage(titleOf(s), text, ask?.slice(0, 2000));
+  const message = handOffMessage(fromName, text, ask?.slice(0, 2000));
   if (!target) await deliver(edge, name, () => typeIn(to, message));
   else if (target.status === "idle") await deliver(edge, name, () => send(target.id, message));
   else {
@@ -175,6 +200,7 @@ export function startRelays() {
     if (ev.type === "sessions") for (const s of ev.sessions) update(s);
     if (ev.type === "session.update") update(ev.session);
   });
+  onTermTurn((term, text) => void chatFinished(term, text).catch((e) => console.error("relay", e)));
   // you stepped in: whatever it passed on so far, it may carry on again
   onTermInput((term) => {
     if (canvas.resetHops(term)) changed();

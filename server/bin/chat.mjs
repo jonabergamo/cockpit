@@ -5,6 +5,7 @@
 //   node chat.mjs --model qwen2.5-coder:7b [--url http://127.0.0.1:11434] [--review] [--base main]
 // Plain JavaScript with no packages, so it runs on any machine cockpit is on.
 import { execFileSync } from "node:child_process";
+import { renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const arg = (name, fallback) => {
@@ -15,6 +16,8 @@ const url = arg("url", "http://127.0.0.1:11434").replace(/\/$/, "");
 const model = arg("model");
 const review = process.argv.includes("--review");
 const base = arg("base", "main");
+// where cockpit hears that an answer is done, to pass it along a line on the canvas
+const turns = arg("turns");
 // room for a real diff; Ollama's default of 4096 tokens cuts most reviews short
 const CTX = 16384;
 const MAX_DIFF = 40_000;
@@ -88,6 +91,13 @@ async function ask(content) {
     }
   }
   messages.push({ role: "assistant", content: answer });
+  if (turns && answer.trim())
+    try {
+      writeFileSync(`${turns}.tmp`, JSON.stringify({ text: answer, at: Date.now() }));
+      renameSync(`${turns}.tmp`, turns);
+    } catch {
+      // cockpit only misses this one
+    }
 }
 
 console.log(`${bold(model)} ${dim(`on ${url} · /clear forgets, /exit or Ctrl+D ends`)}`);

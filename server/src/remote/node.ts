@@ -24,7 +24,7 @@ import { onJobStart } from "../jobs.ts";
 import { templateFor } from "../templates.ts";
 import { cleanChecked, createWorktree, deleteChecked, listWorktrees, repoState } from "../worktrees.ts";
 import { slugify } from "../util.ts";
-import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, reopened, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
+import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, onTermTurn, reopened, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
 import { localHost } from "./local.ts";
@@ -227,10 +227,12 @@ export function serve(c: Channel) {
   });
   const offTerms = onTermsChanged(() => void reopened().then(() => c.emit("terms", localTerms())));
   const offExit = onTermExit((id, code) => c.emit("pty.exit", { id, code }));
+  const offTurn = onTermTurn((id, text) => c.emit("term.turn", { id, text }));
   c.onClose(() => {
     for (const off of subs.values()) off();
     offTerms();
     offExit();
+    offTurn();
     offSessions();
     offJobs();
     offOutbox();

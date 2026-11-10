@@ -18,7 +18,7 @@ vi.mock("../src/pty.ts", async (orig) => ({ ...(await orig<typeof import("../src
 const { db } = await import("../src/db.ts");
 const canvas = await import("../src/canvas.ts");
 const { broadcast } = await import("../src/hub.ts");
-const { input, isTyping } = await import("../src/pty.ts");
+const { input, isTyping, termTurn } = await import("../src/pty.ts");
 const { handOff, relayMessage, startRelays } = await import("../src/relay.ts");
 
 const term = (id: string): TermInfo => ({ id, title: id, cwd: "/tmp", command: "claude", createdAt: 0, node: "local" });
@@ -101,6 +101,36 @@ describe("relays", () => {
     expect(line().hops).toBe(0);
     await turn("bld", "builder");
     expect(sent).toHaveLength(3);
+  });
+
+  it("passes on what cockpit's chat answers, and takes the chat as the reviewer whichever way the line was drawn", async () => {
+    // the line goes from the chat (builder's card) to the agent (reviewer's card)
+    const chat = { ...term("builder"), command: "/usr/bin/node /opt/cockpit/server/bin/chat.mjs --model qwen --turns /x/builder.json" };
+    open.push(chat);
+    typed.length = 0;
+    try {
+      canvas.setRelay(line().id, { from: "both", role: "review", limit: 4 });
+      broadcast({ type: "sessions", sessions: [session("agent", "reviewer", "idle"), session("bld", "builder", "ended"), session("rev", "reviewer", "ended")] });
+      // the agent's turn goes to the chat to review, typed in since the chat has no session
+      await turn("agent", "reviewer");
+      await new Promise((r) => setTimeout(r, 350));
+      expect(typed[0].id).toBe("builder");
+      expect(typed[0].data).toContain("Review this work");
+      // the chat's answer comes back to the agent as a review of its turn
+      termTurn("builder", "foo.ts:3 drops the last row.");
+      await settle();
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ id: "agent" });
+      expect(sent[0].text).toContain("which just reviewed your last turn");
+      expect(sent[0].text).toContain("foo.ts:3 drops the last row.");
+      expect(line().hops).toBe(2);
+      // and its last answer can be handed over by hand
+      await handOff(line().id, "source", "Fix it.");
+      expect(sent[1].text).toContain("foo.ts:3 drops the last row.");
+    } finally {
+      open.splice(open.indexOf(chat), 1);
+      typed.length = 0;
+    }
   });
 
   it("types into an agent just opened, which has no session yet, but never into a shell", async () => {
