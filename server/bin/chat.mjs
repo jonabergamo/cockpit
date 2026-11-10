@@ -4,9 +4,9 @@
 // the branch against --base when there are none) and reviews them, then the chat goes on from there.
 //   node chat.mjs --model qwen2.5-coder:7b [--url http://127.0.0.1:11434] [--review] [--base main]
 // Plain JavaScript with no packages, so it runs on any machine cockpit is on.
-import { execFileSync } from "node:child_process";
 import { renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { capDiff, diffBetween, fenced, git, MAX_DIFF, snapshot, topOf } from "./diff.mjs";
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -20,7 +20,6 @@ const base = arg("base", "main");
 const turns = arg("turns");
 // room for a real diff; Ollama's default of 4096 tokens cuts most reviews short
 const CTX = 16384;
-const MAX_DIFF = 40_000;
 
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
@@ -31,25 +30,18 @@ if (!model) {
   process.exit(2);
 }
 
-const git = (...a) => {
-  try {
-    return execFileSync("git", a, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
-  } catch {
-    return undefined;
-  }
-};
-
 // what to review: the uncommitted changes, new files included, or the branch's commits since it left base
-function changes() {
-  if (git("rev-parse", "--is-inside-work-tree")?.trim() !== "true") return { error: "This folder isn't a git repo, so there are no changes to review." };
-  const untracked = (git("ls-files", "--others", "--exclude-standard") ?? "").split("\n").filter(Boolean);
-  const local = (git("diff", "HEAD") ?? "") + untracked.map((f) => git("diff", "--no-index", "/dev/null", f) ?? "").join("");
-  if (local.trim()) return { what: "the uncommitted changes", diff: local };
+async function changes() {
+  const cwd = process.cwd();
+  if (!(await topOf(cwd))) return { error: "This folder isn't a git repo, so there are no changes to review." };
+  const now = await snapshot(cwd);
+  const local = now && (await diffBetween(cwd, "HEAD", now));
+  if (local?.files.length) return { what: "the uncommitted changes", ...local };
   for (const b of [`origin/${base}`, base]) {
-    const mb = git("merge-base", "HEAD", b)?.trim();
+    const mb = (await git(cwd, ["merge-base", "HEAD", b]))?.trim();
     if (!mb) continue;
-    const d = git("diff", `${mb}...HEAD`) ?? "";
-    if (d.trim()) return { what: `this branch's changes since ${b}`, diff: d };
+    const d = await diffBetween(cwd, mb, "HEAD");
+    if (d?.files.length) return { what: `this branch's changes since ${b}`, ...d };
   }
   return { error: `Nothing to review: no uncommitted changes, and nothing on this branch that isn't on ${base}.` };
 }
@@ -103,13 +95,14 @@ async function ask(content) {
 console.log(`${bold(model)} ${dim(`on ${url} · /clear forgets, /exit or Ctrl+D ends`)}`);
 
 if (review) {
-  const c = changes();
+  const c = await changes();
   if (c.error) console.log(dim(c.error));
   else {
-    const cut = c.diff.length > MAX_DIFF;
-    console.log(dim(`Reviewing ${c.what}${cut ? `, the first ${MAX_DIFF / 1000}k characters of ${Math.round(c.diff.length / 1000)}k` : ""}…\n`));
+    const { text, cut, size } = capDiff(c.diff);
+    const named = c.skipped.length ? `\n\nAlso changed, not shown (lock, generated or binary files): ${c.skipped.join(", ")}` : "";
+    console.log(dim(`Reviewing ${c.what}${cut ? `, the first ${MAX_DIFF / 1000}k characters of ${Math.round(size / 1000)}k` : ""}…\n`));
     await ask(
-      `Review ${c.what} below. List real bugs first, each with the file and line and why it breaks, then risks worth a second look, then at most three small nits. Skip anything that's fine. If nothing is wrong, say so in one line.${cut ? " The diff is cut short, so only judge what's there." : ""}\n\n\`\`\`diff\n${c.diff.slice(0, MAX_DIFF)}\n\`\`\``,
+      `Review ${c.what} below. List real bugs first, each with the file and line and why it breaks, then risks worth a second look, then at most three small nits. Skip anything that's fine. If nothing is wrong, say so in one line.${cut ? " The diff is cut short, so only judge what's there." : ""}\n\n${fenced(text)}${named}`,
     );
   }
 }

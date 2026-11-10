@@ -152,6 +152,12 @@ function RelayControls({ id, relay, hops, status, names }: { id: string; relay?:
           aria-label="Relay instruction"
         />
       )}
+      {relay.role === "review" && (
+        <label className="flex items-center gap-1.5 text-muted" title="Hand the reviewer what the turn changed in git (lock and binary files by name only), not only what the agent said it did">
+          <input type="checkbox" checked={relay.withDiff !== false} onChange={(e) => set({ withDiff: e.target.checked })} className="accent-[var(--cobalt)]" aria-label="With the turn's diff" />
+          with the turn's diff
+        </label>
+      )}
       <div className="flex items-center gap-1.5">
         <span className={(hops ?? 0) >= relay.limit ? "text-amber font-medium" : "text-muted"}>
           {(hops ?? 0) >= relay.limit ? `Stopped at ${relay.limit}: type into either to carry on` : `${hops ?? 0} of`}

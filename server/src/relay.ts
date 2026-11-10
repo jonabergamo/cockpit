@@ -3,7 +3,8 @@
 // when its session goes from busy to idle. A message for an agent that's busy or waiting on you waits for it to be
 // idle. Each hop counts, and at the line's limit it stops passing things on until you type into either terminal,
 // so two agents never talk to each other for ever. An agent just opened and not asked anything yet has no session
-// to send to: it's sitting at its prompt, so the message is typed into its terminal.
+// to send to: it's sitting at its prompt, so the message is typed into its terminal. A review line also hands the
+// reviewer what the turn changed in git, so it reviews the code and not only the agent's account of it.
 import type { CanvasEdge, CanvasRelay, Run, Session } from "@cockpit/shared";
 import { lastWords, sendText } from "./agents.ts";
 import * as canvas from "./canvas.ts";
@@ -12,6 +13,7 @@ import { listTerms, onTermInput, onTermTurn, typeInto } from "./pty.ts";
 import { requestApi } from "./remote/forward.ts";
 import { onNode } from "./remote/sessions.ts";
 import { listRuns, settledFail } from "./runs.ts";
+import { markTree, turnChanges } from "./turndiff.ts";
 
 const ASK: Record<Exclude<CanvasRelay["role"], "custom">, string> = {
   review: "Review this work. Say briefly what's wrong, risky or missing, and what to change. If it's good, say so.",
@@ -28,10 +30,15 @@ const ANSWER = "That's a review of your last turn. Fix what it's right about, an
 // from it is a review to act on, not more work to review
 export const reviewerEnd = (relay: CanvasRelay): "source" | "target" => (relay.from === "target" ? "source" : "target");
 
-export function relayMessage(from: string, text: string, relay: CanvasRelay, hop: number, back = false) {
+// changes: what the turn changed in git, under what it said, for a reviewer to read the code and not only the account
+export function relayMessage(from: string, text: string, relay: CanvasRelay, hop: number, back = false, changes?: string) {
   const ask = relay.role === "custom" ? relay.prompt! : back ? ANSWER : ASK[relay.role];
-  return `From ${from}, which just ${back ? "reviewed your last turn" : "finished a turn"}:\n\n${text}\n\n${ask}\n\n(Passed on by cockpit's canvas, ${hop} of ${relay.limit}.)`;
+  const diff = changes && !back && withDiff(relay) ? `\n\n${changes}` : "";
+  return `From ${from}, which just ${back ? "reviewed your last turn" : "finished a turn"}:\n\n${text}${diff}\n\n${ask}\n\n(Passed on by cockpit's canvas, ${hop} of ${relay.limit}.)`;
 }
+
+// on by default for a review line
+export const withDiff = (relay: CanvasRelay) => relay.role === "review" && relay.withDiff !== false;
 
 // A turn that only says it heard ("Understood. Moving on.", "Thanks, looks good"): short, with no list, code or file
 // in it, and nothing that turns it into a point ("Good catch, but the limit is still wrong"). Passing it on would only
@@ -81,6 +88,21 @@ async function lastText(s: Session) {
   return onNode(s.id, (n) => n.request<{ last?: string }>("session.ask", { id: s.id }), () => ({ last: undefined })).then((a) => a.last);
 }
 
+// The folder each busy session's turn started from, for the review lines that hand over the turn's diff. Marked on
+// the machine the session runs on, as soon as it's seen busy.
+const marks = new Map<string, Promise<string | undefined>>();
+const mark = (s: Session) => onNode(s.id, (n) => n.request<string | null>("git.mark", { cwd: s.cwd }), () => markTree(s.cwd)).then((t) => t ?? undefined, () => undefined);
+async function changesOf(s: Session, from: Promise<string | undefined> | undefined) {
+  if (!from) return "(cockpit didn't see this turn start, so it has no diff of what it changed.)";
+  const base = await from;
+  if (!base) return undefined;
+  return onNode(s.id, (n) => n.request<string | null>("git.turn", { cwd: s.cwd, from: base }), () => turnChanges(s.cwd, base)).then(
+    (t) => t ?? undefined,
+    (e) => `(cockpit couldn't diff what the turn changed: ${why(e)})`,
+  );
+}
+const wantsDiff = (term: string) => open(term).some(({ edge, toEnd }) => withDiff(edge.relay!) && toEnd === reviewerOf(edge));
+
 const send = (session: string, text: string) => onNode(session, (n) => n.request<boolean>("session.send", { id: session, text }), () => sendText(session, text));
 
 // what happened to a turn on its way along a line, shown on the line
@@ -111,9 +133,11 @@ const changed = () => broadcast({ type: "canvas" });
 
 const open = (term: string) => canvas.relaysFrom(term).filter(({ edge }) => (edge.hops ?? 0) < edge.relay!.limit);
 
-async function finished(s: Session) {
+async function finished(s: Session, from: Promise<string | undefined> | undefined) {
   const relays = open(s.term!);
   if (!relays.length) return;
+  // only worked out when it goes to a reviewer that wants it
+  const changes = relays.some(({ edge, toEnd }) => withDiff(edge.relay!) && toEnd === reviewerOf(edge)) ? await changesOf(s, from) : undefined;
   // the lines that only pass on passing work hold this turn back while its checks fail
   const gated = relays.some(({ edge }) => edge.relay!.when === "passing" || edge.relay!.when === "failing");
   const failing = gated ? await failingChecks(s).catch(() => [] as Run[]) : [];
@@ -122,7 +146,7 @@ async function finished(s: Session) {
     for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "failed", text: `Couldn't read what ${titleOf(s)} said in its last turn` });
     return changed();
   }
-  await passOn(relays, titleOf(s), text, failing);
+  await passOn(relays, titleOf(s), text, failing, changes);
 }
 
 // an answer finished in cockpit's chat, which has no session: it has no checks of its own to hold it back
@@ -133,7 +157,7 @@ async function chatFinished(term: string, text: string) {
   if (relays.length) await passOn(relays, nameOf(term), text, []);
 }
 
-async function passOn(relays: ReturnType<typeof open>, from: string, text: string, failing: Run[]) {
+async function passOn(relays: ReturnType<typeof open>, from: string, text: string, failing: Run[], changes?: string) {
   if (onlyAcknowledges(text)) {
     for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "held", text: `Stopped: ${from} only acknowledged, so there was nothing to pass on` });
     return;
@@ -156,7 +180,7 @@ async function passOn(relays: ReturnType<typeof open>, from: string, text: strin
       continue;
     }
     const back = edge.relay!.role === "review" && toEnd !== reviewerOf(edge);
-    const message = relayMessage(from, text.trim(), edge.relay!, (edge.hops ?? 0) + 1, back);
+    const message = relayMessage(from, text.trim(), edge.relay!, (edge.hops ?? 0) + 1, back, changes);
     canvas.countHop(edge.id);
     if (!target) await deliver(edge.id, name, () => typeIn(to, message));
     else if (target.status === "idle") await deliver(edge.id, name, () => send(target.id, message));
@@ -171,13 +195,17 @@ async function passOn(relays: ReturnType<typeof open>, from: string, text: strin
 function update(s: Session) {
   const was = seen.get(s.id)?.status;
   seen.set(s.id, s);
+  if (s.status === "busy" && s.term && s.cwd && !marks.has(s.id) && wantsDiff(s.term)) marks.set(s.id, mark(s));
+  if (s.status === "ended") marks.delete(s.id);
   if (s.status !== "idle") return;
+  const from = marks.get(s.id);
+  marks.delete(s.id);
   for (const [edge, m] of held)
     if (m.to === s.id) {
       held.delete(edge);
       void deliver(edge, m.name, () => send(s.id, m.text)).then(changed);
     }
-  if (was === "busy" && s.term) void finished(s).catch((e) => console.error("relay", e));
+  if (was === "busy" && s.term) void finished(s, from).catch((e) => console.error("relay", e));
 }
 
 // A last answer handed along a line, once, when you say: what the agent at one end said last goes to the agent at the

@@ -352,7 +352,7 @@ export function setRelay(id: string, relay: CanvasRelay | null) {
     if (!FROM.has(relay.from) || !ROLES.has(relay.role)) throw new Error("That isn't a way to relay");
     if (relay.role === "custom" && !relay.prompt?.trim()) throw new Error("Say what the other end should do with it");
     const limit = Math.min(Math.max(Math.round(Number(relay.limit) || 3), 1), 20);
-    relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}), ...(relay.when === "passing" || relay.when === "failing" ? { when: relay.when } : {}) };
+    relay = { from: relay.from, role: relay.role, limit, ...(relay.role === "custom" ? { prompt: relay.prompt!.trim().slice(0, 2000) } : {}), ...(relay.when === "passing" || relay.when === "failing" ? { when: relay.when } : {}), ...(relay.role === "review" && relay.withDiff === false ? { withDiff: false } : {}) };
   }
   // set up again, it starts with nothing to report
   db.prepare("update canvas_edges set relay = ?, hops = 0, status = null where id = ?").run(relay ? JSON.stringify(relay) : null, id);

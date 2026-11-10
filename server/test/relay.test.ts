@@ -1,4 +1,9 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { capDiff, fenced, MAX_DIFF } from "../bin/diff.mjs";
 import type { Session, TermInfo } from "@cockpit/shared";
 
 const sent: { id: string; text: string }[] = [];
@@ -257,5 +262,83 @@ describe("relays", () => {
     // no session at the end it would come from
     broadcast({ type: "sessions", sessions: [session("bld", "builder", "ended")] });
     await expect(handOff(line().id, "source")).rejects.toThrow(/no agent in it/);
+  });
+});
+
+describe("a review line's diff", () => {
+  const git = (cwd: string, ...a: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { encoding: "utf8" }).trim();
+  const repo = () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-diff-"));
+    git(dir, "init", "-q", "-b", "main");
+    writeFileSync(join(dir, "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(dir, "package-lock.json"), "{}\n");
+    git(dir, "add", ".");
+    git(dir, "commit", "-qm", "start");
+    return dir;
+  };
+  const at = (cwd: string, id: string, termId: string, status: Session["status"]): Session => ({ ...session(id, termId, status), cwd });
+  // the turn starts, does its work, and ends
+  const workedTurn = async (cwd: string, work: () => void) => {
+    broadcast({ type: "sessions", sessions: [at(cwd, "rev", "reviewer", "idle"), at(cwd, "bld", "builder", "busy")] });
+    await new Promise((r) => setTimeout(r, 300));
+    work();
+    broadcast({ type: "sessions", sessions: [at(cwd, "bld", "builder", "idle")] });
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThan(0), { timeout: 5000 });
+  };
+
+  it("hands the reviewer what the turn changed in git, commits and new files too, with lock files by name only", async () => {
+    const dir = repo();
+    writeFileSync(join(dir, "staged.ts"), "before the turn\n");
+    git(dir, "add", "staged.ts");
+    canvas.setRelay(line().id, { from: "source", role: "review", limit: 3 });
+    expect(line().relay?.withDiff).toBeUndefined();
+    await workedTurn(dir, () => {
+      writeFileSync(join(dir, "a.ts"), "export const a = 2;\n");
+      git(dir, "commit", "-qm", "turn", "a.ts");
+      writeFileSync(join(dir, "b.ts"), "export const b = 3;\n");
+      writeFileSync(join(dir, "package-lock.json"), '{"lockfileVersion":3}\n');
+    });
+    const text = sent[0].text;
+    expect(text.indexOf("Added the export button")).toBeLessThan(text.indexOf("```diff"));
+    expect(text).toContain("+export const a = 2;");
+    expect(text).toContain("+export const b = 3;");
+    // what was already there before the turn isn't its work
+    expect(text).not.toContain("before the turn");
+    expect(text).toContain("named only (lock, generated or binary): package-lock.json");
+    expect(text).not.toContain("lockfileVersion");
+    // what you'd staged stays staged
+    expect(git(dir, "diff", "--cached", "--name-only")).toBe("staged.ts");
+  });
+
+  it("says in a line when the turn changed nothing", async () => {
+    const dir = repo();
+    canvas.setRelay(line().id, { from: "source", role: "review", limit: 3 });
+    await workedTurn(dir, () => {});
+    expect(sent[0].text).toContain("The turn changed nothing in git.");
+    expect(sent[0].text).not.toContain("```");
+  });
+
+  it("leaves the diff out when the line is set to, and on lines that don't review", async () => {
+    const dir = repo();
+    canvas.setRelay(line().id, { from: "source", role: "review", limit: 3, withDiff: false });
+    expect(line().relay?.withDiff).toBe(false);
+    await workedTurn(dir, () => writeFileSync(join(dir, "a.ts"), "export const a = 9;\n"));
+    expect(sent[0].text).not.toContain("changed in git");
+    sent.length = 0;
+    canvas.setRelay(line().id, { from: "source", role: "build", limit: 3, withDiff: false });
+    expect(line().relay?.withDiff).toBeUndefined();
+    await workedTurn(dir, () => writeFileSync(join(dir, "a.ts"), "export const a = 10;\n"));
+    expect(sent[0].text).not.toContain("changed in git");
+  });
+
+  it("puts the diff under what it said, only going to the reviewer, cut short and fenced so it can't close early", () => {
+    const relay = { from: "source", role: "review", limit: 3 } as const;
+    expect(relayMessage("A", "Done.", relay, 1, false, "DIFF")).toContain("Done.\n\nDIFF\n\nReview this work");
+    // a review coming back carries no diff
+    expect(relayMessage("A", "Done.", relay, 1, true, "DIFF")).not.toContain("DIFF");
+    const { text, cut } = capDiff("x\n".repeat(30_000));
+    expect(cut).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(MAX_DIFF);
+    expect(fenced("a ``` b")).toMatch(/^````diff\n/);
   });
 });

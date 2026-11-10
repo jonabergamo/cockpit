@@ -219,6 +219,8 @@ export interface CanvasRelay {
   when?: "every" | "passing" | "failing";
   prompt?: string;
   limit: number;
+  // a review line hands the reviewer what the turn changed in git along with what the agent said; false: only what it said
+  withDiff?: boolean;
 }
 
 export interface CanvasInfo {

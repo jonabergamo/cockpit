@@ -24,6 +24,7 @@ import { onJobStart } from "../jobs.ts";
 import { templateFor } from "../templates.ts";
 import { cleanChecked, createWorktree, deleteChecked, listWorktrees, repoState } from "../worktrees.ts";
 import { slugify } from "../util.ts";
+import { markTree, turnChanges } from "../turndiff.ts";
 import { currentCwd, input, kill, localTerms, onTermExit, onTermsChanged, onTermTurn, reopened, resize, scroll, search, spawnTerm, subscribe } from "../pty.ts";
 import type { SpawnOpts } from "./host.ts";
 import { handleApi, type ApiReq } from "./forward.ts";
@@ -184,6 +185,9 @@ export function serve(c: Channel) {
     return fsCall(q.root, method, op, q, body);
   });
   c.handle("term.changes", ({ id }: { id: string }) => termChanges(currentCwd(id)));
+  // a review line's turn diff: the folder marked when the turn starts, and what changed since when it ends
+  c.handle("git.mark", ({ cwd }: { cwd: string }) => markTree(cwd).then((t) => t ?? null));
+  c.handle("git.turn", ({ cwd, from }: { cwd: string; from: string }) => turnChanges(cwd, from).then((t) => t ?? null));
   c.handle("term.paste", ({ data, name }: { data: string; name: string }) => savePaste(Buffer.from(data, "base64"), name).then((path) => ({ path })));
   const offJobs = onJobStart((j) => c.emit("job.start", j));
   // claude -p for the hub, when Settings → Machines puts it here
