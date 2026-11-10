@@ -223,6 +223,9 @@ export interface CodeHost {
   lastReview?(ref: PrRef): Promise<LastReview | undefined>;
   // asks these people (code host logins) for a review, again when they already reviewed
   requestReview?(n: number, logins: string[]): Promise<unknown>;
+  // runs the failed checks of a PR's latest commit again, for autopilot to give a flaky one another go before it
+  // hands the PR to the agent; resolves to how many it started again
+  rerunFailedChecks?(n: number): Promise<number>;
 }
 
 // More PRs waiting for your review, from somewhere that is not the code host: a rota, a review board, a queue

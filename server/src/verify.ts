@@ -9,6 +9,7 @@ import { listSessions } from "./claude/sessions.ts";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
 import { emit, onEvent } from "./events.ts";
+import { flakyNote, flakyOf } from "./flaky.ts";
 import { startJob } from "./jobs.ts";
 import { notify } from "./notify.ts";
 import { appendLog, finishRun, getRun, outputTail, startRun } from "./runs.ts";
@@ -91,7 +92,9 @@ export async function sendRunFailure(id: string, to?: string) {
   const what = r.command ? `\`${r.command}\`` : r.name;
   const failing = r.summary.failing?.length ? `\n\nFailing:\n${r.summary.failing.map((f) => `- ${f}`).join("\n")}` : "";
   const url = typeof r.meta.url === "string" ? `\n\n${r.meta.url}` : "";
-  await sendToWorker(`${what} fails${r.worktree ? " in this worktree" : ""}. Fix it, then run it again to check.${failing}${url}${tail ? `\n\nEnd of its output:\n${tail}` : ""}`, r.worktree, to ?? r.meta.session);
+  const known = flakyOf(r.kind, r.name);
+  const flaky = known ? `\n\n${flakyNote(known)} Check whether this failure is that before changing code for it.` : "";
+  await sendToWorker(`${what} fails${r.worktree ? " in this worktree" : ""}. Fix it, then run it again to check.${flaky}${failing}${url}${tail ? `\n\nEnd of its output:\n${tail}` : ""}`, r.worktree, to ?? r.meta.session);
 }
 
 export function startVerify() {

@@ -174,6 +174,8 @@ async function target(c: Context, path: string): Promise<string | undefined> {
   if (path === "/runs/hook") return auto;
   // the hook's events and `cockpit run` of this machine record its own runs
   if (path.startsWith("/runs/hook") || (path === "/runs" && c.req.method === "POST")) return;
+  // worked out here and on the automations node, together (flakyEverywhere)
+  if (path === "/runs/flaky") return;
   const run = path.match(/^\/runs\/([^/]+)/)?.[1];
   if (run) return getRun(run) ? undefined : auto;
 }
@@ -207,6 +209,16 @@ export async function runsEverywhere<T extends { startedAt: number }>(mine: T[],
     .then((r) => (r.status === 200 ? (JSON.parse(r.body) as T[]).map((x) => ({ ...x, node })) : []))
     .catch(() => [] as T[]);
   return [...mine, ...theirs].sort((a, b) => b.startedAt - a.startedAt).slice(0, limit);
+}
+
+// The flaky checks, with those the automations node works out from its own runs, each tagged with it
+export async function flakyEverywhere<T>(mine: T[]) {
+  const node = config.role === "hub" ? automationsNode() : undefined;
+  if (!node || links.get(node)?.status.state !== "up") return mine;
+  const theirs = await requestApi(node, { method: "GET", path: "/runs/flaky", headers: {} })
+    .then((r) => (r.status === 200 ? (JSON.parse(r.body) as T[]).map((x) => ({ ...x, node })) : []))
+    .catch(() => [] as T[]);
+  return [...mine, ...theirs];
 }
 
 // every node's board, each card tagged; a node that's down shows nothing rather than stale cards

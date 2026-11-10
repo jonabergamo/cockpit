@@ -7,7 +7,8 @@ import { useAgents, useAppConfig } from "../lib/queries";
 import { Button, ErrorNote, inputClass } from "./ui";
 
 type Patterns = { e2e: string; audit: string; typecheck: string; lint: string; unit: string };
-type S = SettingsRes["settings"] & { runs?: { patterns: Patterns; failedVideoHours?: number; sendFailures?: boolean } };
+type Flaky = { minRuns: number; minFailPct: number; maxFailPct: number; days: number };
+type S = SettingsRes["settings"] & { runs?: { patterns: Patterns; failedVideoHours?: number; sendFailures?: boolean; flaky?: Flaky } };
 interface HookState {
   installed: boolean;
   partly: boolean;
@@ -94,7 +95,7 @@ function CiLines({ lines, onSave }: { lines: string[]; onSave: (l: string[]) => 
 }
 
 // The Claude Code hook that records the runs Claude does, and which commands count as which kind of run
-function RunSettings({ patterns, onSave, videoHours, onVideoHours, sendFailures, onSendFailures }: { patterns?: Patterns; onSave: (p: Partial<Patterns>) => void; videoHours?: number; onVideoHours: (h: number) => void; sendFailures?: boolean; onSendFailures: (on: boolean) => void }) {
+function RunSettings({ patterns, onSave, videoHours, onVideoHours, sendFailures, onSendFailures, flaky, onFlaky }: { patterns?: Patterns; onSave: (p: Partial<Patterns>) => void; videoHours?: number; onVideoHours: (h: number) => void; sendFailures?: boolean; onSendFailures: (on: boolean) => void; flaky?: Flaky; onFlaky: (f: Partial<Flaky>) => void }) {
   const qc = useQueryClient();
   const hook = useQuery({ queryKey: ["runs-hook"], queryFn: () => api.get<HookState>("/runs/hook") });
   const set = useMutation({ mutationFn: (on: boolean) => api.post<HookState>("/runs/hook", { on }), onSuccess: (h) => qc.setQueryData(["runs-hook"], h) });
@@ -156,6 +157,17 @@ function RunSettings({ patterns, onSave, videoHours, onVideoHours, sendFailures,
           />
           <span className="text-muted">hours</span>
         </label>
+      )}
+      {flaky && (
+        <>
+          <p className="text-[12px] text-faint">
+            A check is flaky when it passed and failed on the same commit, or has run often enough and fails between these shares of its runs. Runs on a tree with uncommitted changes don't count, nor proofs. A failed run of one says so on Runs and in what goes to {agent}, and autopilot runs a PR's flaky checks again once before it hands the PR over.
+          </p>
+          <Num label="Runs it needs" help="Before how often it fails says anything" value={flaky.minRuns} min={2} max={100} unit="runs" onSave={(n) => onFlaky({ minRuns: n })} />
+          <Num label="Fails at least" value={flaky.minFailPct} min={1} max={99} unit="%" onSave={(n) => onFlaky({ minFailPct: n })} />
+          <Num label="Fails at most" help="More often than this it's broken, not flaky" value={flaky.maxFailPct} min={1} max={100} unit="%" onSave={(n) => onFlaky({ maxFailPct: n })} />
+          <Num label="Looking back" value={flaky.days} min={1} max={90} unit="days" onSave={(n) => onFlaky({ days: n })} />
+        </>
       )}
       {patterns && (
         <>
@@ -328,6 +340,8 @@ export function AutomationSettings() {
         onVideoHours={(h) => put("runs", { ...s.runs!, failedVideoHours: h })}
         sendFailures={s.runs?.sendFailures}
         onSendFailures={(on) => put("runs", { ...s.runs!, sendFailures: on })}
+        flaky={s.runs?.flaky}
+        onFlaky={(f) => put("runs", { ...s.runs!, flaky: { ...s.runs!.flaky!, ...f } })}
       />
       <ErrorNote error={err} />
     </section>

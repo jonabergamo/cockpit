@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import type { PullRequest } from "@cockpit/shared";
 import { matchWorker } from "./board.ts";
+import { flakyNote, flakyOf } from "./flaky.ts";
 import { listSessions } from "./claude/sessions.ts";
 import { failingChecks, myPrs, reviewThreads } from "./providers.ts";
 import { allWorktrees } from "./remote/work.ts";
@@ -11,7 +12,10 @@ export async function fixPrompt(pr: PullRequest, kind: "checks" | "comments") {
     const failing = await failingChecks(pr.number);
     return [
       `The checks on ${pr.url} are failing. Find out why and fix it, then push.`,
-      ...failing.map((c) => `\nFailing: ${c.name} (${c.link})${c.tail ? `\nEnd of its log:\n${c.tail}` : ""}`),
+      ...failing.map((c) => {
+        const flaky = flakyOf("ci", c.name);
+        return `\nFailing${flaky ? " (known flaky)" : ""}: ${c.name} (${c.link})${flaky ? `\n${flakyNote(flaky)} Check whether this failure is that before changing code for it.` : ""}${c.tail ? `\nEnd of its log:\n${c.tail}` : ""}`;
+      }),
     ].join("\n");
   }
   const threads = await reviewThreads(pr.number).catch(() => []);

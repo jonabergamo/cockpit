@@ -1,0 +1,17 @@
+
+Running 4 tests using 2 workers
+
+  ✓  1 [setup] › tests/auth.setup.ts:5:1 › sign in (1.2s)
+  ✘  2 [chromium] › tests/basket.spec.ts:12:3 › Basket › adds an item (30.1s)
+  ✓  3 [chromium] › tests/menu.spec.ts:4:3 › Menu › opens (800ms)
+  -  4 [chromium] › tests/menu.spec.ts:9:3 › Menu › closes
+
+
+  1) [chromium] › tests/basket.spec.ts:12:3 › Basket › adds an item ────────────────────────────────
+
+    Error: locator.click: Timeout 30000ms exceeded.
+
+  1 failed
+    [chromium] › tests/basket.spec.ts:12:3 › Basket › adds an item ─────────────────────────────────
+  1 skipped
+  2 passed (33.4s)

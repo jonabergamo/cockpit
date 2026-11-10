@@ -1,0 +1,24 @@
+Creating test database for alias 'default'...
+System check identified no issues (0 silenced).
+..F.E.s...
+======================================================================
+ERROR: test_refund (shop.tests.test_payments.PaymentTests.test_refund)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/app/shop/tests/test_payments.py", line 40, in test_refund
+    payment.refund()
+ValueError: no charge
+
+======================================================================
+FAIL: test_total (shop.tests.test_orders.OrderTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/app/shop/tests/test_orders.py", line 12, in test_total
+    self.assertEqual(order.total, 4)
+AssertionError: 3 != 4
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.812s
+
+FAILED (failures=1, errors=1, skipped=1)
+Destroying test database for alias 'default'...

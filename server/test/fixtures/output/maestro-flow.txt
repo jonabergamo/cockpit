@@ -1,0 +1,11 @@
+Running on iPhone 16
+  > On Flow Start
+ > Flow add_to_basket
+  > On Flow Complete
+  Launch app "com.example.shop"... COMPLETED
+    Tap on id: ${output.ids.menu.first}... COMPLETED
+    Assert that id: ${output.ids.basket.count} is visible... FAILED
+  Run ../subflows/open_basket.yaml... FAILED
+Run ../../journeys/add_to_basket.yaml... FAILED
+
+Assertion 'id: basket-count is visible' failed. Check the UI hierarchy in debug artifacts to verify the element state and properties.

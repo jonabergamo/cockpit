@@ -132,6 +132,12 @@ export async function reviewQueue(fresh = false): Promise<PullRequest[]> {
   return remember("queue", mergeQueues(lists));
 }
 export const deploys = async (since: string) => (await codeHost()?.deploys?.(since)) ?? [];
+export const canRerunChecks = () => !!codeHost()?.rerunFailedChecks;
+export const rerunFailedChecks = async (n: number) => {
+  const h = codeHost();
+  if (!h?.rerunFailedChecks) throw Object.assign(new Error("the code host can't re-run checks"), { status: 400 });
+  return h.rerunFailedChecks(n);
+};
 export const failingChecks = async (n: number) => (await codeHost()?.failingChecks?.(n)) ?? [];
 export const reviewThreads = async (n: number) => (await codeHost()?.reviewThreads?.(n)) ?? [];
 export const parsePr = (input: string): PrRef | undefined => codeHost()?.parsePr?.(input);

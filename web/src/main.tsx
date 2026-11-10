@@ -50,7 +50,7 @@ const routes = [
   createRoute({ getParentRoute: () => root, path: "/usage", component: lazyRouteComponent(() => import("./pages/Hubs"), "UsageScreen") }),
   createRoute({ getParentRoute: () => root, path: "/weekly", component: lazyRouteComponent(() => import("./pages/Hubs"), "WeekScreen"), validateSearch: (s): { week?: string } => ({ week: str(s.week) }) }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: SettingsPage, validateSearch: (s): { tab?: SettingsTab } => ({ tab: SETTINGS_TABS.includes(s.tab as SettingsTab) ? (s.tab as SettingsTab) : undefined }) }),
-  createRoute({ getParentRoute: () => root, path: "/runs", component: lazyRouteComponent(() => import("./pages/Runs"), "RunsPage"), validateSearch: (s): { kind?: string; status?: string; ticket?: string; worktree?: string; group?: string; summary?: string } => ({ kind: str(s.kind), status: str(s.status), ticket: str(s.ticket), worktree: str(s.worktree), group: str(s.group), summary: str(s.summary) }) }),
+  createRoute({ getParentRoute: () => root, path: "/runs", component: lazyRouteComponent(() => import("./pages/Runs"), "RunsPage"), validateSearch: (s): { kind?: string; status?: string; ticket?: string; worktree?: string; group?: string; summary?: string; view?: string } => ({ kind: str(s.kind), status: str(s.status), ticket: str(s.ticket), worktree: str(s.worktree), group: str(s.group), summary: str(s.summary), view: str(s.view) }) }),
   createRoute({ getParentRoute: () => root, path: "/runs/$id", component: lazyRouteComponent(() => import("./pages/Runs"), "RunPage") }),
   createRoute({ getParentRoute: () => root, path: "/p/$plugin/$screen", component: PluginFrame }),
   createRoute({ getParentRoute: () => root, path: "/embed/terminal/$id", component: EmbedTerminal }),
@@ -92,7 +92,7 @@ listen((ev) => {
   // a node that connected brings its repo, worktrees, folders and tickets with it
   if (ev.type === "node.ready") for (const key of ["config", "worktrees", "roots", "tickets", "board", "badges"]) queryClient.invalidateQueries({ queryKey: [key] });
   if (ev.type === "notify") show(ev, (link) => router.history.push(link));
-  if (ev.type === "run") queryClient.invalidateQueries({ queryKey: ["runs"] }), queryClient.invalidateQueries({ queryKey: ["run", ev.run.id] });
+  if (ev.type === "run") queryClient.invalidateQueries({ queryKey: ["runs"] }), queryClient.invalidateQueries({ queryKey: ["run", ev.run.id] }), ev.run.status !== "running" && queryClient.invalidateQueries({ queryKey: ["runs-flaky"] });
   if (ev.type === "job") {
     const list = queryClient.getQueryData<Job[]>(["jobs"]);
     if (!list?.some((j) => j.id === ev.id)) return void queryClient.invalidateQueries({ queryKey: ["jobs"] });

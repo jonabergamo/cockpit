@@ -11,6 +11,13 @@ export async function headOf(cwd: string): Promise<{ branch?: string; sha?: stri
   return { branch: ref && ref !== "HEAD" ? ref : undefined, sha: sha || undefined };
 }
 
+// whether the tracked files differ from the commit, so a run there isn't a run of that commit; undefined when git
+// can't say
+export async function dirtyAt(cwd: string): Promise<boolean | undefined> {
+  const out = await run("git", ["status", "--porcelain", "--untracked-files=no"], { cwd, timeout: 10_000 }).catch(() => undefined);
+  return out === undefined ? undefined : out.trim() !== "";
+}
+
 // A branch's PR: the open one, else the newest that was merged, else the newest closed one
 export function prFor(branch: string | undefined, prs: PullRequest[]) {
   if (!branch) return undefined;

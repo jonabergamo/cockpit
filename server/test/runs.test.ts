@@ -49,10 +49,10 @@ describe("placeOf", () => {
 describe("countsOf", () => {
   it("reads vitest", () => {
     const out = [" × adds things 3ms", " FAIL  test/a.test.ts > maths > adds things", " Test Files  1 failed | 4 passed (5)", "      Tests  1 failed | 30 passed | 2 skipped (33)"];
-    expect(countsOf(out)).toEqual({ failed: 1, passed: 30, skipped: 2, failing: ["adds things", "test/a.test.ts > maths > adds things"] });
+    expect(countsOf(out)).toEqual({ failed: 1, passed: 30, skipped: 2, failing: ["test/a.test.ts > maths > adds things"] });
   });
   it("reads jest", () => expect(countsOf(["Tests:       2 failed, 1 skipped, 10 passed, 13 total"])).toMatchObject({ failed: 2, skipped: 1, passed: 10 }));
-  it("reads pytest", () => expect(countsOf(["FAILED tests/test_x.py::test_y - assert 1 == 2", "==== 1 failed, 12 passed in 0.31s ===="])).toEqual({ failed: 1, passed: 12, failing: ["tests/test_x.py::test_y - assert 1 == 2"] }));
+  it("reads pytest", () => expect(countsOf(["FAILED tests/test_x.py::test_y - assert 1 == 2", "==== 1 failed, 12 passed in 0.31s ===="])).toEqual({ failed: 1, passed: 12, failing: ["tests/test_x.py::test_y"] }));
   it("says nothing about output it doesn't know", () => expect(countsOf(["done"])).toEqual({}));
 });
 

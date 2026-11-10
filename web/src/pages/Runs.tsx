@@ -2,7 +2,7 @@ import { useAgentName, useClaudeMain } from "../lib/agent";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import type { Run, RunKind, RunStatus, RunStep } from "@cockpit/shared";
+import type { FlakyCheck, Run, RunKind, RunStatus, RunStep } from "@cockpit/shared";
 import { JobLog } from "../components/JobLog";
 import { LiveView } from "../components/LiveView";
 import { PrSummary } from "../components/PrSummary";
@@ -13,7 +13,7 @@ import { api } from "../lib/api";
 import { markSeen } from "../lib/badges";
 import { useLive } from "../lib/live";
 import { ago, duration, shortPath } from "../lib/format";
-import { useJobs, usePrs, useRun, useRuns, useTickets, useWorktrees, type RunsFilter } from "../lib/queries";
+import { useFlaky, useJobs, usePrs, useRun, useRuns, useTickets, useWorktrees, type RunsFilter } from "../lib/queries";
 import { GROUP_BYS, groupRuns, prOf, rowPr, rowStatus, settledFail, type GroupBy, type RunGroup, type RunRow } from "../lib/runGroups";
 
 const KINDS: { value: RunKind; label: string }[] = [
@@ -44,6 +44,71 @@ function Counts({ r }: { r: Run }) {
       {passed !== undefined && <span className="text-green">{passed} passed</span>}
       {skipped ? <span className="text-faint"> · {skipped} skipped</span> : null}
     </span>
+  );
+}
+
+const flakyTitle = (c: FlakyCheck) =>
+  [`Known flaky: it ${c.why}.`, `${c.fails} failed and ${c.passes} passed lately${c.lastFlip ? `, last flipped ${ago(c.lastFlip)}` : ""}.`, ...(c.tests.length ? [`Tests that failed: ${c.tests.slice(0, 3).map((t) => t.name).join(", ")}`] : [])].join("\n");
+
+// a failed run of a check that's known to pass and fail on the same code
+function FlakyTag({ r }: { r: Run }) {
+  const flaky = useFlaky();
+  const c = r.status === "fail" && r.kind !== "proof" ? flaky.data?.find((x) => x.kind === r.kind && x.name === r.name) : undefined;
+  return c ? (
+    <Tag tone="amber" title={flakyTitle(c)}>
+      flaky
+    </Tag>
+  ) : null;
+}
+
+// The Flaky view: each check that passed and failed on the same commit, or fails about as often as it passes
+function FlakyList() {
+  const flaky = useFlaky();
+  if (flaky.isLoading) return <Loading />;
+  if (flaky.error) return <ErrorNote error={flaky.error} />;
+  if (!flaky.data?.length)
+    return <Empty>Nothing flaky. A check shows here once it passes and fails on the same commit, or fails about as often as it passes; Settings → Board and automation says how often. Runs on a tree with uncommitted changes don't count, nor proofs.</Empty>;
+  return (
+    <div className="bg-panel border border-line rounded-lg divide-y divide-line">
+      {flaky.data.map((c) => (
+        <div key={`${c.node ?? ""}|${c.kind}|${c.name}`} className="px-3 py-2.5">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Tag tone="amber">flaky</Tag>
+                <Tag tone="faint">{kindLabel(c.kind)}</Tag>
+                <span className="font-medium truncate">{c.name}</span>
+                {c.node && <span className="shrink-0 text-[12px] text-faint">on {c.node}</span>}
+              </div>
+              <div className="text-[12px] text-muted truncate mt-0.5">It {c.why}</div>
+            </div>
+            <span className="text-[12px] tabular-nums whitespace-nowrap">
+              <span className="text-red">{c.fails} failed</span> <span className="text-green">{c.passes} passed</span>
+            </span>
+            <span className="text-[12px] text-muted w-28 text-right tabular-nums hidden sm:block" title="Commits it both passed and failed on">
+              {c.flips} {c.flips === 1 ? "flip" : "flips"}
+            </span>
+            <span className="text-[12px] text-muted w-28 text-right hidden sm:block" title={c.lastFlip ? "When it last came out differently on the same commit" : "When it last failed"}>
+              {c.lastFlip ? `flipped ${ago(c.lastFlip)}` : c.lastFail ? `failed ${ago(c.lastFail)}` : ""}
+            </span>
+          </div>
+          {c.tests.length > 0 && (
+            <div className="mt-1.5 pl-2 space-y-0.5 text-[12px] text-muted">
+              {c.tests.map((t) => (
+                <div key={t.name} className="flex gap-2 min-w-0">
+                  <span className="font-mono truncate flex-1 min-w-0" title={t.name}>
+                    {t.name}
+                  </span>
+                  <span className="tabular-nums whitespace-nowrap">
+                    failed {t.fails}×{t.flips ? `, on ${t.flips} ${t.flips === 1 ? "commit" : "commits"} it also passed on` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -104,6 +169,7 @@ function RunLine({ r, small }: { r: Run; small?: boolean }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           <Tag tone={settledFail(r) ? "faint" : statusTone(r.status)}>{statusLabel(r)}</Tag>
+          <FlakyTag r={r} />
           {!small && <Tag tone="faint">{kindLabel(r.kind)}</Tag>}
           <span className={`${small ? "" : "font-medium"} truncate`}>{r.name}</span>
           {r.node && <span className="shrink-0 text-[12px] text-faint">on {r.node}</span>}
@@ -297,6 +363,8 @@ export function RunsPage() {
   const groups = runs.data ? groupRuns(runs.data, by, (k) => kindLabel(k as RunKind), nameOf) : [];
   const set = (patch: Partial<RunsFilter>) => navigate({ search: (s) => ({ ...s, ...patch }), replace: true });
   const filtered = !!(f.kind || f.status || f.ticket || f.worktree);
+  const flakyView = search.view === "flaky";
+  const flaky = useFlaky();
 
   return (
     <div className="max-w-[1100px]">
@@ -306,56 +374,75 @@ export function RunsPage() {
         </Button>
       </PageHeader>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <select value={f.kind ?? ""} onChange={(e) => set({ kind: (e.target.value || undefined) as RunKind })} className={inputClass} aria-label="Kind">
-          <option value="">Every kind</option>
-          {KINDS.map((k) => (
-            <option key={k.value} value={k.value}>
-              {k.label}
-            </option>
+        <div className="flex rounded-md border border-line overflow-hidden text-[13px]" role="tablist">
+          {(["all", "flaky"] as const).map((v) => (
+            <button
+              key={v}
+              role="tab"
+              aria-selected={(v === "flaky") === flakyView}
+              onClick={() => navigate({ search: (s) => ({ ...s, view: v === "flaky" ? "flaky" : undefined }), replace: true })}
+              className={`px-3 h-8 ${(v === "flaky") === flakyView ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
+              title={v === "flaky" ? "Checks that pass and fail on the same code" : undefined}
+            >
+              {v === "all" ? "All runs" : `Flaky${flaky.data?.length ? ` (${flaky.data.length})` : ""}`}
+            </button>
           ))}
-        </select>
-        <select value={f.status ?? ""} onChange={(e) => set({ status: (e.target.value || undefined) as RunStatus })} className={inputClass} aria-label="Status">
-          <option value="">Any result</option>
-          <option value="running">Running</option>
-          <option value="pass">Passed</option>
-          <option value="fail">Failed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <input
-          defaultValue={f.ticket ?? ""}
-          key={f.ticket ?? ""}
-          placeholder="Ticket"
-          onBlur={(e) => set({ ticket: e.target.value.trim().toUpperCase() || undefined })}
-          onKeyDown={(e) => e.key === "Enter" && set({ ticket: e.currentTarget.value.trim().toUpperCase() || undefined })}
-          className={`${inputClass} w-32`}
-        />
-        <select value={f.worktree ?? ""} onChange={(e) => set({ worktree: e.target.value || undefined })} className={`${inputClass} max-w-[260px]`} aria-label="Worktree">
-          <option value="">Every worktree</option>
-          {worktrees.data
-            ?.filter((w) => !w.main)
-            .map((w) => (
-              <option key={w.path} value={w.path}>
-                {w.name}
-              </option>
-            ))}
-          {f.worktree && !worktrees.data?.some((w) => w.path === f.worktree) && <option value={f.worktree}>{shortPath(f.worktree)}</option>}
-        </select>
-        <select value={by} onChange={(e) => navigate({ search: (s) => ({ ...s, group: e.target.value === "ticket" ? undefined : e.target.value }), replace: true })} className={inputClass} aria-label="Group">
-          {GROUP_BYS.map((g) => (
-            <option key={g} value={g}>
-              {GROUP_LABEL[g]}
-            </option>
-          ))}
-        </select>
-        {filtered && (
-          <Button variant="ghost" size="sm" onClick={() => navigate({ search: (s) => ({ group: s.group }), replace: true })}>
-            Clear
-          </Button>
+        </div>
+        {!flakyView && (
+          <>
+            <select value={f.kind ?? ""} onChange={(e) => set({ kind: (e.target.value || undefined) as RunKind })} className={inputClass} aria-label="Kind">
+              <option value="">Every kind</option>
+              {KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+            <select value={f.status ?? ""} onChange={(e) => set({ status: (e.target.value || undefined) as RunStatus })} className={inputClass} aria-label="Status">
+              <option value="">Any result</option>
+              <option value="running">Running</option>
+              <option value="pass">Passed</option>
+              <option value="fail">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <input
+              defaultValue={f.ticket ?? ""}
+              key={f.ticket ?? ""}
+              placeholder="Ticket"
+              onBlur={(e) => set({ ticket: e.target.value.trim().toUpperCase() || undefined })}
+              onKeyDown={(e) => e.key === "Enter" && set({ ticket: e.currentTarget.value.trim().toUpperCase() || undefined })}
+              className={`${inputClass} w-32`}
+            />
+            <select value={f.worktree ?? ""} onChange={(e) => set({ worktree: e.target.value || undefined })} className={`${inputClass} max-w-[260px]`} aria-label="Worktree">
+              <option value="">Every worktree</option>
+              {worktrees.data
+                ?.filter((w) => !w.main)
+                .map((w) => (
+                  <option key={w.path} value={w.path}>
+                    {w.name}
+                  </option>
+                ))}
+              {f.worktree && !worktrees.data?.some((w) => w.path === f.worktree) && <option value={f.worktree}>{shortPath(f.worktree)}</option>}
+            </select>
+            <select value={by} onChange={(e) => navigate({ search: (s) => ({ ...s, group: e.target.value === "ticket" ? undefined : e.target.value }), replace: true })} className={inputClass} aria-label="Group">
+              {GROUP_BYS.map((g) => (
+                <option key={g} value={g}>
+                  {GROUP_LABEL[g]}
+                </option>
+              ))}
+            </select>
+            {filtered && (
+              <Button variant="ghost" size="sm" onClick={() => navigate({ search: (s) => ({ group: s.group }), replace: true })}>
+                Clear
+              </Button>
+            )}
+          </>
         )}
       </div>
-      {runs.isLoading && <Loading />}
-      <ErrorNote error={runs.error} />
-      {runs.data?.length === 0 &&
+      {flakyView && <FlakyList />}
+      {!flakyView && runs.isLoading && <Loading />}
+      {!flakyView && <ErrorNote error={runs.error} />}
+      {!flakyView && runs.data?.length === 0 &&
         (filtered ? (
           <Empty>No runs match these filters.</Empty>
         ) : (
@@ -367,14 +454,14 @@ export function RunsPage() {
           </Empty>
         ))}
       {search.summary && <PrSummary ticket={search.summary} open onClose={() => navigate({ search: (s) => ({ ...s, summary: undefined }), replace: true })} />}
-      {!!runs.data?.length && by === "none" && (
+      {!flakyView && !!runs.data?.length && by === "none" && (
         <div className="bg-panel border border-line rounded-lg divide-y divide-line">
           {runs.data.map((r) => (
             <RunLine key={r.id} r={r} />
           ))}
         </div>
       )}
-      {!!runs.data?.length && by !== "none" && (
+      {!flakyView && !!runs.data?.length && by !== "none" && (
         <div className="space-y-3">
           {groups.map((g) => (
             <Group key={g.key} g={g} folded={folded.has(`${by}:${g.key}`)} onToggle={() => toggle(`${by}:${g.key}`)} onSummary={(t) => navigate({ search: (s) => ({ ...s, summary: t }), replace: true })} />
@@ -467,6 +554,7 @@ export function RunPage() {
           sub={
             <span className="flex flex-wrap items-center gap-2">
               <Tag tone={statusTone(r.status)}>{statusLabel(r)}</Tag>
+              <FlakyTag r={r} />
               <Tag tone="faint">{kindLabel(r.kind)}</Tag>
               <span>
                 from {sourceLabel(r.source)}, {ago(r.startedAt)}, {r.status === "running" ? "running for" : "took"} {took(r) || "under a second"}

@@ -7,8 +7,9 @@ import { listSessions } from "./claude/sessions.ts";
 import { db } from "./db.ts";
 import { emit, onEvent } from "./events.ts";
 import { fixPrompt } from "./fix.ts";
+import { flakyOf } from "./flaky.ts";
 import { notify } from "./notify.ts";
-import { myPrs, requestReview, reviewThreads } from "./providers.ts";
+import { canRerunChecks, myPrs, requestReview, rerunFailedChecks, reviewThreads } from "./providers.ts";
 import { spawnTerm } from "./pty.ts";
 import { mainAgent, resumeLaunch } from "./workers/index.ts";
 import { startAgent } from "./workers/runner.ts";
@@ -63,6 +64,26 @@ export function decide(pr: Pick<PullRequest, "state" | "checks" | "reviewDecisio
   return { act: "fix" as const, kind };
 }
 
+// A PR whose failing checks are all known to be flaky gets them run again once per commit before the agent is told:
+// that costs a few minutes of CI rather than a turn spent chasing nothing. Once re-run, it waits a few minutes for
+// the checks to start again, and if they fail again the agent gets them, labelled as flaky.
+export interface Rerun {
+  sha: string;
+  at: number;
+}
+const RERUN_SETTLE_MS = 5 * 60_000;
+export function flakyStep(failing: string[], flaky: (name: string) => boolean, prior: Rerun | undefined, sha: string, now = Date.now()) {
+  if (prior?.sha === sha) return now - prior.at < RERUN_SETTLE_MS ? ("wait" as const) : ("send" as const);
+  return failing.length && failing.every(flaky) ? ("rerun" as const) : ("send" as const);
+}
+
+// the checks failing on a commit now, from the CI runs the code host recorded: the last word on each check counts
+export function failingOn(sha: string) {
+  const rows = db.prepare<[string], { name: string; status: string }>("select name, status from runs where kind = 'ci' and json_extract(meta, '$.sha') = ? and json_extract(meta, '$.ignored') is null order by started_at").all(sha);
+  const last = new Map(rows.map((r) => [r.name, r.status]));
+  return [...last].filter(([, s]) => s === "fail").map(([n]) => n);
+}
+
 let running = false;
 async function tick() {
   if (running) return;
@@ -111,6 +132,26 @@ async function tick() {
         continue;
       }
       if (d.act !== "fix") continue;
+      if (d.kind === "checks" && pr.headSha && canRerunChecks()) {
+        const reruns = readRow<Record<string, Rerun>>("autopilot-reruns") ?? {};
+        const failing = failingOn(pr.headSha);
+        const step = flakyStep(failing, (name) => !!flakyOf("ci", name), reruns[r.worktree], pr.headSha);
+        if (step === "wait") continue;
+        if (step === "rerun") {
+          writeRow("autopilot-reruns", { ...reruns, [r.worktree]: { sha: pr.headSha, at: Date.now() } });
+          try {
+            await rerunFailedChecks(pr.number);
+            save({ signature: `rerun|${pr.headSha}`, note: `Re-ran the flaky ${failing.join(", ")} before handing it to ${mainAgent()?.name ?? "Claude"}` });
+            notify({ title: `Re-ran the flaky checks on #${pr.number}`, body: `${failing.join(", ")} failed, and ${failing.length === 1 ? "it's" : "they're"} known to be flaky. If ${failing.length === 1 ? "it fails" : "they fail"} again, autopilot hands it over.`, link: pr.url, kind: "autopilot" });
+            boardChanged();
+            continue;
+          } catch (e) {
+            // the agent gets it instead, told the checks are flaky
+            console.error("autopilot re-run", e);
+            notify({ title: `Couldn't re-run the flaky checks on #${pr.number}`, body: (e as Error).message.slice(0, 200), link: pr.url, kind: "autopilot" });
+          }
+        }
+      }
       // never talk over Claude; next tick it'll be done
       if (session?.status === "busy") continue;
       const prompt = `${await fixPrompt(pr, d.kind)}\n\n(Sent by cockpit's autopilot, try ${r.attempts + 1} of ${max}.)`;

@@ -223,6 +223,14 @@ export default function setup(k: Cockpit) {
       }).then((r) => r ?? undefined),
     // asking someone who already reviewed is how GitHub re-requests a review
     requestReview: (n, logins) => gh(["pr", "edit", String(n), "-R", repo(), "--add-reviewer", logins.join(",")]),
+    async rerunFailedChecks(n) {
+      const pr = (await host.myPrs(false)).find((p) => p.number === n && p.state === "OPEN");
+      if (!pr) throw Object.assign(new Error(`#${n} isn't one of your open PRs`), { status: 400 });
+      const runs = await failedRuns(pr.branch, pr.headSha);
+      if (!runs.length) throw Object.assign(new Error(`nothing failed on #${n}'s latest commit that GitHub can re-run`), { status: 400 });
+      for (const w of runs) await gh(["run", "rerun", String(w.databaseId), "--failed", "-R", repo()]);
+      return runs.length;
+    },
   };
   k.codeHost(host);
 

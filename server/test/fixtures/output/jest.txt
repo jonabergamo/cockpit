@@ -1,0 +1,22 @@
+PASS src/cart/Cart.test.tsx
+FAIL src/menu/Menu.test.tsx (5.2 s)
+  <Menu />
+    ✓ renders the items (40 ms)
+    ✕ renders settings from config (12 ms)
+
+  ● <Menu /> › renders settings from config
+
+    expect(element).toBeVisible()
+
+      12 |   it("renders settings from config", () => {
+    > 13 |     expect(screen.getByText("Settings")).toBeVisible();
+
+  ● Console
+
+    console.warn
+      something noisy
+
+Test Suites: 1 failed, 1 passed, 2 total
+Tests:       1 failed, 1 skipped, 9 passed, 11 total
+Snapshots:   0 total
+Time:        6.1 s

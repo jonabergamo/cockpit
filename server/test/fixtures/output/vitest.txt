@@ -1,0 +1,20 @@
+
+ RUN  v3.2.4 /work/app
+
+ ✓ test/cart.test.ts (12 tests) 31ms
+ ❯ test/maths.test.ts (4 tests | 1 failed) 9ms
+   ✓ maths > subtracts 1ms
+   × maths > adds things 3ms
+     → expected 3 to be 4
+ FAIL  test/broken.test.ts [ test/broken.test.ts ]
+Error: Cannot find module './missing'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/maths.test.ts > maths > adds things
+AssertionError: expected 3 to be 4
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  1 failed | 15 passed | 2 skipped (18)
+   Start at  10:00:00
+   Duration  1.20s

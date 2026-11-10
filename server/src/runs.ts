@@ -13,9 +13,11 @@ import { emit, onEvent } from "./events.ts";
 import { broadcast } from "./hub.ts";
 import { notify } from "./notify.ts";
 import { knownPrs, knownQueue, myPrs, sprintTickets } from "./providers.ts";
-import { branchAt, branchMoves, headOf, prFor, prMeta, reflogOf } from "./runPr.ts";
+import { branchAt, branchMoves, dirtyAt, headOf, prFor, prMeta, reflogOf } from "./runPr.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
 import { getSettings, type Settings } from "./settings.ts";
+import { testSummary } from "./testOutput.ts";
+import { flakyOf, forgetFlaky } from "./flaky.ts";
 import { run, ticketOf, ticketOfPath } from "./util.ts";
 import { listWorktrees } from "./worktrees.ts";
 
@@ -151,25 +153,8 @@ export function placeOf(r: { cwd?: string; branch?: string; name?: string; ticke
   return { worktree: r.worktree ?? wt?.path, ticket: r.ticket || wt?.ticket || ticketOf(r.name, r.branch, wt?.branch) || ticketOfPath(r.cwd) };
 }
 
-// Counts and failing tests from the end of a runner's output: vitest, jest, mocha, pytest, go and the like.
-export function countsOf(lines: string[]): RunSummary {
-  const text = lines.slice(-600).map(strip);
-  const out: RunSummary = {};
-  const total = text.findLast((l) => /^\s*(Tests:?|Test Files|=+|\d+ (passing|failing))\s.*\b\d+ (passed|failed|passing|failing)\b/i.test(l) || /^\s*\d+ (passing|failing)\b/.test(l));
-  if (total) {
-    for (const [, n, word] of total.matchAll(/(\d+) (passed|passing|failed|failing|skipped|pending|todo)/gi)) {
-      const k = /pass/i.test(word) ? "passed" : /fail/i.test(word) ? "failed" : "skipped";
-      out[k] = (out[k] ?? 0) + Number(n);
-    }
-  }
-  const failing = new Set<string>();
-  for (const l of text) {
-    const m = l.match(/^\s*(?:FAIL|FAILED|--- FAIL:|[×✕✗])\s+(.+?)\s*(?:\(?\d+(?:\.\d+)?\s?m?s\)?)?$/) ?? l.match(/^\s*●\s+(?!Console)(.+›.+)$/);
-    if (m && failing.size < 20) failing.add(m[1].slice(0, 200));
-  }
-  if (failing.size) out.failing = [...failing];
-  return out;
-}
+// Counts and failing tests from the end of a runner's output
+export const countsOf = (lines: string[]): RunSummary => testSummary(lines.slice(-600).map(strip));
 
 const typeOf = (name: string) => {
   const e = extname(name).toLowerCase();
@@ -253,14 +238,17 @@ async function prsKnown() {
 }
 
 // Puts a run under the PR its branch was on when it ran, and that PR's ticket unless it was given one: a worktree
-// with a stack of PRs has a ticket of its own, but each of its branches is another ticket's work
+// with a stack of PRs has a ticket of its own, but each of its branches is another ticket's work. The commit it ran
+// on, and whether the tree had changes on top of it, say whether two runs ran the same code (see flaky.ts).
 async function fileByPr(id: string, input: RunStart) {
   const given = input.meta ?? {};
-  if (!input.cwd || given.pr) return;
+  if (!input.cwd) return;
   const head = await headOf(input.cwd);
+  const dirty = head.sha && !given.sha ? await dirtyAt(input.cwd) : undefined;
+  const commit = head.sha && !given.sha ? { sha: head.sha, ...(dirty !== undefined ? { dirty } : {}) } : {};
   const branch = input.branch ?? (typeof given.branch === "string" ? given.branch : head.branch);
-  const pr = prFor(branch, await prsKnown());
-  const patch = { ...(branch ? { branch } : {}), ...(head.sha && !given.sha ? { sha: head.sha } : {}), ...(pr ? prMeta(pr) : {}) };
+  const pr = given.pr ? undefined : prFor(branch, await prsKnown());
+  const patch = { ...(branch && !given.pr ? { branch } : {}), ...commit, ...(pr ? prMeta(pr) : {}) };
   if (!Object.keys(patch).length) return;
   db.prepare("update runs set meta = json_patch(meta, ?), ticket = coalesce(?, ticket) where id = ?").run(JSON.stringify(patch), (!input.ticket && pr?.ticket) || null, id);
   changed(id, true);
@@ -451,6 +439,7 @@ export function finishRun(id: string, f: { status?: RunStatus; exitCode?: number
   r.summary = { ...countsOf(outputTail(id, 600)), ...r.summary };
   save(r);
   emit("run.done", r);
+  forgetFlaky();
   // a pass makes the earlier failures' videos of the same thing redundant
   if (r.status === "pass") setImmediate(() => dropFailedVideos());
   changed(id, true);
@@ -460,7 +449,8 @@ export function finishRun(id: string, f: { status?: RunStatus; exitCode?: number
     const what = { unit: "Tests", lint: "Lint", typecheck: "Typecheck", audit: "Audit", e2e: "E2E run", proof: "Proof run", verify: "Checks", ci: "CI check", other: "Run" }[r.kind];
     const last = outputTail(id, 30).filter((l) => l.trim()).at(-1);
     const body = r.summary.failing?.[0] ? `Failing: ${r.summary.failing[0]}` : (r.meta.error ?? last ?? "");
-    notify({ title: `${what} failed: ${r.name}`, body: body.slice(0, 200), link: `/runs/${r.id}`, kind: "run" });
+    const flaky = flakyOf(r.kind, r.name);
+    notify({ title: `${what} failed${flaky ? " (known flaky)" : ""}: ${r.name}`, body: (flaky ? `It ${flaky.why}. ${body}` : body).slice(0, 200), link: `/runs/${r.id}`, kind: "run" });
   }
   return r;
 }

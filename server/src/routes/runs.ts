@@ -2,7 +2,8 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeF
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
-import { runsEverywhere } from "../remote/forward.ts";
+import { flakyEverywhere, runsEverywhere } from "../remote/forward.ts";
+import { flakyChecks } from "../flaky.ts";
 import type { RunDetail, RunEvent, RunFilter, RunKind, RunStatus } from "@cockpit/shared";
 import { config, paths } from "../config.ts";
 import { runPanels, runStartExtras, runSteps } from "../plugins.ts";
@@ -106,6 +107,8 @@ export const runs = new Hono()
     // videoDir is where a recording script drops its video, then names the file in its result
     return c.json({ ...runStartExtras(r, b), ...rec, id: r.id, videoDir: filesDir(r.id), filesDir: filesDir(r.id), link: `/runs/${r.id}` });
   })
+  // the checks that pass and fail on the same code, by the rules in Settings
+  .get("/flaky", async (c) => c.json(await flakyEverywhere(flakyChecks())))
   // "Run something": what can run in a worktree, and starting one of those
   .get("/options", async (c) => {
     try {

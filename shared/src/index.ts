@@ -724,6 +724,25 @@ export interface Run {
 }
 
 // GET /api/runs/:id: the run, the end of its output, its steps, and the plugin panels that show it
+// A check that passes and fails on the same code: runs of one kind and name, over the last days. A commit it both
+// passed and failed on is a flip; runs on a working tree with uncommitted changes don't count.
+export interface FlakyCheck {
+  kind: RunKind;
+  name: string;
+  // the machine whose runs these are, when that's a node
+  node?: string;
+  runs: number;
+  fails: number;
+  passes: number;
+  flips: number;
+  lastFlip?: number;
+  lastFail?: number;
+  // in a few words, why it counts: "passed and failed on the same commit 2 times", "fails 40% of its runs"
+  why: string;
+  // the tests that failed in it, those that failed on a commit it also passed on first
+  tests: { name: string; fails: number; flips: number }[];
+}
+
 export interface RunDetail extends Run {
   tail: string[];
   steps: RunStep[];

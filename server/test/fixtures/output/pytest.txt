@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+collected 14 items
+
+tests/test_orders.py ..F.....                                            [ 57%]
+tests/test_prices.py ..E..s                                              [100%]
+
+=================================== FAILURES ===================================
+______________________________ TestOrders.test_total ______________________________
+    def test_total(self):
+>       assert total([1, 2]) == 4
+E       assert 3 == 4
+=========================== short test summary info ============================
+FAILED tests/test_orders.py::TestOrders::test_total - assert 3 == 4
+ERROR tests/test_prices.py::test_rounding[half up] - fixture 'db' not found
+============== 1 failed, 11 passed, 1 skipped, 1 error in 0.42s ===============

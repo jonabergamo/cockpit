@@ -185,6 +185,16 @@ const schema = z.object({
       sendFailures: z.boolean().default(false),
       // the "recorded by cockpit" line at the foot of a ticket's image of checks
       imageCredit: z.boolean().default(true),
+      // when a check counts as flaky, from its runs over the last days (proofs aside): it passed and failed on the
+      // same commit, or it has run at least minRuns times and fails between minFailPct and maxFailPct of them
+      flaky: z
+        .object({
+          minRuns: z.number().int().min(2).max(100).default(6),
+          minFailPct: z.number().int().min(1).max(99).default(15),
+          maxFailPct: z.number().int().min(1).max(100).default(85),
+          days: z.number().int().min(1).max(90).default(30),
+        })
+        .prefault({}),
     })
     .prefault({}),
   // the overnight queue: tasks marked for it wait until you're away (the button, or these hours; -1 is the button

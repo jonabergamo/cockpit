@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { AgentInfo, Epic, PullRequest, Run, RunDetail, RunKind, RunStatus, ScreenInfo, Sprint, Theme, Ticket, Worktree } from "@cockpit/shared";
+import type { AgentInfo, Epic, FlakyCheck, PullRequest, Run, RunDetail, RunKind, RunStatus, ScreenInfo, Sprint, Theme, Ticket, Worktree } from "@cockpit/shared";
 import { api, qs } from "./api";
 
 export interface AppConfig {
@@ -76,5 +76,7 @@ export interface RunsFilter {
   session?: string;
 }
 export const useRuns = (f: RunsFilter = {}) => useQuery({ queryKey: ["runs", f], queryFn: () => api.get<Run[]>(`/runs${qs({ ...f })}`) });
+// the checks that pass and fail on the same code, for the Flaky view and the badge on a failed run
+export const useFlaky = () => useQuery({ queryKey: ["runs-flaky"], queryFn: () => api.get<FlakyCheck[]>("/runs/flaky"), staleTime: 60_000 });
 export const useRun = (id: string) =>
   useQuery({ queryKey: ["run", id], queryFn: () => api.get<RunDetail>(`/runs/${encodeURIComponent(id)}?lines=400`), refetchInterval: (q) => (q.state.data?.status === "running" ? 3000 : false) });

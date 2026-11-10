@@ -1,0 +1,6 @@
+Waiting for flows to complete...
+[Passed] sign_in (24s)
+[Passed] browse_menu (41s)
+[Failed] checkout (1m 53s) (Assertion is false: id: order-confirmed is visible)
+
+2/3 Flows Passed
