@@ -79,6 +79,10 @@ const schema = z.object({
   // the permission prompts you answer from cockpit are kept, and a rule you've said yes to this many times (and never
   // no) is offered as an allow rule for Claude Code's settings
   ruleSuggestions: z.object({ on: z.boolean().default(true), threshold: z.number().int().min(2).max(100).default(5) }).prefault({}),
+  // the short replies you keep typing, as chips by every reply box; pinned ones always show, hidden ones never
+  replies: z
+    .object({ on: z.boolean().default(true), pinned: z.array(z.string().max(200)).max(30).default([]), hidden: z.array(z.string().max(200)).max(200).default([]) })
+    .prefault({}),
   alerts: z
     .object({
       // busy this long without the transcript growing counts as stuck

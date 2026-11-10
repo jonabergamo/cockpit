@@ -342,6 +342,34 @@ export function AutomationSettings() {
         {s.ruleSuggestions.on && <Num label="Approvals before it's suggested" value={s.ruleSuggestions.threshold} min={2} max={100} onSave={(n) => put("ruleSuggestions", { threshold: n })} />}
         <RuleSuggestionsList on={s.ruleSuggestions.on} />
       </div>
+      <div className="space-y-2.5">
+        <h3 className="text-[12px] text-faint uppercase tracking-wide">Reply chips</h3>
+        <Toggle
+          label="Suggest your usual replies"
+          help="The short things you've typed to sessions most in the last 30 days, as chips under every reply box: a tap fills the box, a second tap sends it. With a quick answers model they're ordered by how well they fit what the session last said. Edit by the chips pins or hides one"
+          on={s.replies.on}
+          onChange={(v) => put("replies", { on: v })}
+        />
+        {s.replies.on && (s.replies.pinned.length > 0 || s.replies.hidden.length > 0) && (
+          <div className="space-y-1.5 text-[13px]">
+            {(["pinned", "hidden"] as const).map((which) =>
+              s.replies[which].length ? (
+                <div key={which} className="flex flex-wrap items-center gap-1">
+                  <span className="w-16 text-muted">{which === "pinned" ? "Pinned" : "Hidden"}</span>
+                  {s.replies[which].map((t) => (
+                    <span key={t} className="inline-flex items-center rounded-full border border-line bg-raised text-[12px] pl-2">
+                      {t}
+                      <button type="button" className="h-6 px-1.5 text-muted hover:text-ink" title={which === "pinned" ? "Unpin" : "Show it again"} onClick={() => put("replies", { [which]: s.replies[which].filter((x) => x !== t) })}>
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null,
+            )}
+          </div>
+        )}
+      </div>
       <CiLines lines={s.ci?.local ?? []} onSave={(local) => put("ci", { local })} />
       <div className="space-y-2.5">
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Budgets</h3>

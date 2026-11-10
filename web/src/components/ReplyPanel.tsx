@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { AskInfo, Session } from "@cockpit/shared";
 import { api } from "../lib/api";
 import { useOpenSession } from "../lib/openSession";
+import { ReplyChips } from "./ReplyChips";
 import { Button, ErrorNote, inputClass } from "./ui";
 
 const summary = (p: AskInfo["pending"]) => {
@@ -92,6 +93,9 @@ export function ReplyPanel({ session, compact = false, onSent }: { session: Pick
       ) : null}
 
       {ask?.draft && <div className="text-[12px] text-amber">There's unsent text in its input: “{ask.draft.slice(0, 80)}”. A reply gets added after it.</div>}
+
+      {/* a menu or a permission prompt has its own buttons */}
+      {!ask?.options.length && !(ask?.pending && session.status !== "busy") && <ReplyChips text={text} last={ask?.last} onPick={setText} onSend={reply} onFail={setErr} />}
 
       <form
         className="flex items-end gap-1.5"

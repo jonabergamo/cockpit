@@ -7,6 +7,7 @@ import { getSession, listSessions, useRemoteSessions } from "../claude/sessions.
 import { broadcast } from "../hub.ts";
 import type { RemoteLink } from "./link.ts";
 import { waitsBetween, type Wait } from "../waits.ts";
+import { frequentHere, type ReplyCount } from "../replies.ts";
 
 const REFRESH_MS = 60_000;
 const LIMIT = 500;
@@ -80,6 +81,14 @@ export async function waitsEverywhere(from: number, to: number): Promise<Wait[]>
     [...nodes.values()].filter((n) => n.link.status.state === "up").map((n) => n.link.request<Wait[]>("sessions.waits", { from, to }, 10_000).catch(() => [] as Wait[])),
   );
   return [...waitsBetween(from, to), ...theirs.flat()];
+}
+
+// the replies you type most, counted on this machine and every connected node
+export async function frequentEverywhere(): Promise<ReplyCount[][]> {
+  const theirs = await Promise.all(
+    [...nodes.values()].filter((n) => n.link.status.state === "up").map((n) => n.link.request<ReplyCount[]>("replies.frequent", {}, 10_000).catch(() => [] as ReplyCount[])),
+  );
+  return [frequentHere(), ...theirs];
 }
 
 export function removeSessionLink(machine: string) {

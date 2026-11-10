@@ -14,6 +14,7 @@ import { askOf, sendKeys, sendText } from "../agents.ts";
 import { answering } from "../allowRules.ts";
 import { entriesSince, tailEntries } from "../claude/entries.ts";
 import { searchSessions } from "../claude/search.ts";
+import { frequentHere } from "../replies.ts";
 import { getSession, listSubagents, localSessions, type ListOpts } from "../claude/sessions.ts";
 import { localBoard } from "../board.ts";
 import { reviewStates } from "../reviews.ts";
@@ -172,6 +173,7 @@ export function serve(c: Channel) {
   c.handle("session.send", ({ id, text }: { id: string; text: string }) => answering(id, { text }, () => sendText(id, text)));
   c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => answering(id, { keys }, () => sendKeys(id, keys)));
   c.handle("sessions.waits", ({ from, to }: { from: number; to: number }) => waitsBetween(from, to));
+  c.handle("replies.frequent", () => frequentHere());
   c.handle("sessions.search", ({ q, limit, any }: { q: string; limit?: number; any?: boolean }) => searchSessions(q, limit, any));
   // its repo: worktrees, the folders the code view opens and what's in them, and the jobs that change them
   c.handle("worktrees.list", async ({ status }: { status?: boolean }) => ({ state: repoState(), worktrees: await listWorktrees(!!status) }));

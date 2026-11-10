@@ -36,6 +36,7 @@ import { code } from "./routes/code.ts";
 import { report } from "./routes/report.ts";
 import { runs } from "./routes/runs.ts";
 import { sessions } from "./routes/sessions.ts";
+import { replies } from "./routes/replies.ts";
 import { work } from "./routes/work.ts";
 import { canUpgrade, wss } from "./ws.ts";
 
@@ -300,6 +301,7 @@ const api = new Hono()
   .route("/plugins", plugins)
   .route("/machines", machines)
   .route("/sessions", sessions)
+  .route("/replies", replies)
   .route("/claude", claude)
   .route("/code", code)
   .route("/tasks", tasks)

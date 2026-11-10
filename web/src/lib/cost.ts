@@ -22,6 +22,7 @@ export interface SettingsRes {
     pipeline: { openPrompt: string; reviewPrompt: string; noCodePattern: string; mainBranches: string };
     lessons: { on: boolean; count: number };
     ruleSuggestions: { on: boolean; threshold: number };
+    replies: { on: boolean; pinned: string[]; hidden: string[] };
     alerts: { stuckMinutes: number; escalateMinutes: number; holdFinished: boolean };
     away: { minutes: number };
     terminals: { statusLine: "card" | "claude"; voiceSend: boolean };
