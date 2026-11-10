@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { type SettingsRes, useSaveSettings, useSettings } from "../lib/cost";
 import { useAgents, useAppConfig } from "../lib/queries";
+import { RuleSuggestionsList } from "./RuleSuggestions";
 import { Button, ErrorNote, inputClass } from "./ui";
 
 type Patterns = { e2e: string; audit: string; typecheck: string; lint: string; unit: string };
@@ -329,6 +330,17 @@ export function AutomationSettings() {
             </select>
           </label>
         )}
+      </div>
+      <div className="space-y-2.5">
+        <h3 className="text-[12px] text-faint uppercase tracking-wide">Permission rules</h3>
+        <Toggle
+          label="Suggest allow rules"
+          help="The permission prompts you answer from cockpit are kept. A rule you've approved enough times in the last 30 days, and never turned down, shows on Today and here, to add to Claude Code's settings (backed up first). Rules that delete, push, use sudo or run anything are never suggested"
+          on={s.ruleSuggestions.on}
+          onChange={(v) => put("ruleSuggestions", { on: v })}
+        />
+        {s.ruleSuggestions.on && <Num label="Approvals before it's suggested" value={s.ruleSuggestions.threshold} min={2} max={100} onSave={(n) => put("ruleSuggestions", { threshold: n })} />}
+        <RuleSuggestionsList on={s.ruleSuggestions.on} />
       </div>
       <CiLines lines={s.ci?.local ?? []} onSave={(local) => put("ci", { local })} />
       <div className="space-y-2.5">

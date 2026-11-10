@@ -76,6 +76,9 @@ const schema = z.object({
   // the points reviewers keep raising, read from kept review comments: Ask for the PR has the session check its diff
   // against the top count of them first
   lessons: z.object({ on: z.boolean().default(true), count: z.number().int().min(1).max(15).default(5) }).prefault({}),
+  // the permission prompts you answer from cockpit are kept, and a rule you've said yes to this many times (and never
+  // no) is offered as an allow rule for Claude Code's settings
+  ruleSuggestions: z.object({ on: z.boolean().default(true), threshold: z.number().int().min(2).max(100).default(5) }).prefault({}),
   alerts: z
     .object({
       // busy this long without the transcript growing counts as stuck

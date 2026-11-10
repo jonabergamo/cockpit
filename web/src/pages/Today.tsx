@@ -4,6 +4,7 @@ import type { BoardCard, Session } from "@cockpit/shared";
 import { AwayDigest } from "../components/AwayDigest";
 import { ReadyForYou } from "../components/Focus";
 import { Overnight } from "../components/Overnight";
+import { RuleSuggestionsCard } from "../components/RuleSuggestions";
 import { SetupBanner } from "../components/SetupSection";
 import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { ErrorNote, Loading } from "../components/ui";
@@ -170,6 +171,7 @@ export function TodayPage() {
       <AwayDigest />
       <ReadyForYou />
       <Overnight />
+      <RuleSuggestionsCard />
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex-1">
           <h1 className="text-[26px] font-semibold tracking-tight">{hello}.</h1>

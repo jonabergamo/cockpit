@@ -123,10 +123,23 @@ export async function writeConfig(path: string, content: string, expectMtime?: n
   if (expectMtime && existsSync(path) && Math.abs((await stat(path)).mtimeMs - expectMtime) > 1) {
     throw new Error("file changed on disk since you opened it");
   }
+  return save(path, content);
+}
+
+async function save(path: string, content: string) {
   await backup(path);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
   return (await stat(path)).mtimeMs;
+}
+
+// A project's Claude Code settings file, in a folder cockpit saw a session run in, which needn't be one of the repos
+// the editor lists. Only those two files, and only at paths cockpit worked out itself, never one a request named.
+export async function writeProjectSettings(path: string, content: string) {
+  const p = resolve(path);
+  if (!/\/\.claude\/settings(\.local)?\.json$/.test(p) && !(await writable(p))) throw new Error("path not allowed");
+  validate(p, content);
+  return save(p, content);
 }
 
 export async function backups(path: string) {

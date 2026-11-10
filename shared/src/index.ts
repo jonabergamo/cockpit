@@ -602,6 +602,18 @@ export interface AskInfo extends Partial<Ask> {
   pending?: { name: string; input: unknown };
 }
 
+// A Claude Code allow rule you keep saying yes to, offered for your settings
+export interface RuleSuggestion {
+  rule: string;
+  tool: string;
+  approvals: number;
+  lastAt: number;
+  // what it was last asked for, like the full command
+  example?: string;
+  // the project the sessions ran in, whose .claude/settings.local.json it can go into
+  project?: string;
+}
+
 export type BoardColumn = "queued" | "working" | "needs" | "review" | "ready" | "quiet";
 
 export interface BoardCard {

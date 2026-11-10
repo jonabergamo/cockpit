@@ -11,6 +11,7 @@ import { hostname } from "node:os";
 import { extname, join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { askOf, sendKeys, sendText } from "../agents.ts";
+import { answering } from "../allowRules.ts";
 import { entriesSince, tailEntries } from "../claude/entries.ts";
 import { searchSessions } from "../claude/search.ts";
 import { getSession, listSubagents, localSessions, type ListOpts } from "../claude/sessions.ts";
@@ -166,8 +167,9 @@ export function serve(c: Channel) {
   c.handle("session.ask", ({ id }: { id: string }) => askOf(id));
   c.handle("session.plan", ({ id }: { id: string }) => planOf(id));
   c.handle("session.context", ({ id }: { id: string }) => contextOf(id));
-  c.handle("session.send", ({ id, text }: { id: string; text: string }) => sendText(id, text));
-  c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => sendKeys(id, keys));
+  // a reply typed in on the hub is kept here, where the session and its settings are
+  c.handle("session.send", ({ id, text }: { id: string; text: string }) => answering(id, { text }, () => sendText(id, text)));
+  c.handle("session.keys", ({ id, keys }: { id: string; keys: string[] }) => answering(id, { keys }, () => sendKeys(id, keys)));
   c.handle("sessions.search", ({ q, limit, any }: { q: string; limit?: number; any?: boolean }) => searchSessions(q, limit, any));
   // its repo: worktrees, the folders the code view opens and what's in them, and the jobs that change them
   c.handle("worktrees.list", async ({ status }: { status?: boolean }) => ({ state: repoState(), worktrees: await listWorktrees(!!status) }));

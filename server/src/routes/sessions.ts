@@ -5,6 +5,7 @@ import { findSession, onNode, searchEverywhere } from "../remote/sessions.ts";
 import { searchHistory } from "../claude/history.ts";
 import { askOf, sendKeys, sendText } from "../agents.ts";
 import { contextOf, planOf } from "../plan.ts";
+import { answering } from "../allowRules.ts";
 
 export const sessions = new Hono()
   .get("/", (c) => {
@@ -34,10 +35,10 @@ export const sessions = new Hono()
     const { text } = await c.req.json<{ text: string }>();
     if (!text?.trim()) return c.json({ error: "nothing to send" }, 400);
     const id = c.req.param("id");
-    return c.json({ sent: await onNode(id, (n) => n.request<boolean>("session.send", { id, text }), () => sendText(id, text)) });
+    return c.json({ sent: await onNode(id, (n) => n.request<boolean>("session.send", { id, text }), () => answering(id, { text }, () => sendText(id, text))) });
   })
   .post("/:id/keys", async (c) => {
     const id = c.req.param("id");
     const keys = (await c.req.json<{ keys: string[] }>()).keys ?? [];
-    return c.json({ sent: await onNode(id, (n) => n.request<boolean>("session.keys", { id, keys }), () => sendKeys(id, keys)) });
+    return c.json({ sent: await onNode(id, (n) => n.request<boolean>("session.keys", { id, keys }), () => answering(id, { keys }, () => sendKeys(id, keys))) });
   });

@@ -9,6 +9,7 @@ import { headless } from "../placement/headless.ts";
 import { where } from "../placement/where.ts";
 import { findOwner } from "../remote/work.ts";
 import { findSession } from "../remote/sessions.ts";
+import { acceptRule, dismissRule, suggestions } from "../allowRules.ts";
 import { backups, createMemory, doctor, listFiles, memories, readBackup, readConfig, writeConfig } from "../claude/memory.ts";
 import { getSession, projectsDir } from "../claude/sessions.ts";
 import { getRun, listRuns } from "../claude/workflows.ts";
@@ -37,6 +38,29 @@ export const claude = new Hono()
     return c.json({ path: await createMemory(join(projectsDir, body.project, "memory"), body) });
   })
   .get("/doctor", async (c) => c.json(await doctor()))
+  // allow rules you keep approving at permission prompts, for Claude Code's settings
+  .get("/rules", async (c) => {
+    try {
+      return c.json(await suggestions());
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 500);
+    }
+  })
+  .post("/rules/accept", async (c) => {
+    const { rule, where } = await c.req.json<{ rule?: string; where?: string }>();
+    if (!rule || (where !== "user" && where !== "project")) return c.json({ error: "say which rule, and user or project" }, 400);
+    try {
+      return c.json(await acceptRule(rule, where));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  })
+  .post("/rules/dismiss", async (c) => {
+    const { rule } = await c.req.json<{ rule?: string }>();
+    if (!rule) return c.json({ error: "say which rule" }, 400);
+    dismissRule(rule);
+    return c.json({ ok: true });
+  })
   // the kinds of work and each one's team, and which kind a ticket is, for setting it up
   .get("/kits", async (c) => {
     const key = c.req.query("ticket");

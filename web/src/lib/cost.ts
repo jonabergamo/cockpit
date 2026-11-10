@@ -21,6 +21,7 @@ export interface SettingsRes {
     quick: { model: string; url: string };
     pipeline: { openPrompt: string; reviewPrompt: string; noCodePattern: string; mainBranches: string };
     lessons: { on: boolean; count: number };
+    ruleSuggestions: { on: boolean; threshold: number };
     alerts: { stuckMinutes: number; escalateMinutes: number; holdFinished: boolean };
     away: { minutes: number };
     terminals: { statusLine: "card" | "claude"; voiceSend: boolean };
