@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CanvasNode, TermInfo } from "@cockpit/shared";
 import { db } from "../src/db.ts";
-import { addEdge, addNote, arrange, arrangeLayout, BLOCK_GAP, createCanvas, listCanvases, placeTerm, placeTicket, syncTerms, TERM_H, TERM_W, TICKET_H, TICKET_W, type ArrangeTerm } from "../src/canvas.ts";
+import { addEdge, addNote, arrange, arrangeLayout, BLOCK_GAP, createCanvas, listCanvases, placeTerm, placeTicket, reviewersOn, setRelay, syncTerms, TERM_H, TERM_W, TICKET_H, TICKET_W, type ArrangeTerm } from "../src/canvas.ts";
 
 const GAP = 40;
 type Card = Pick<CanvasNode, "id" | "kind" | "ref" | "w" | "h"> & { archived?: unknown };
@@ -141,5 +141,21 @@ describe("arrange", () => {
     arrange(here.id, terms, () => "ACME-8");
     expect(listCanvases().find((c) => c.id === here.id)!.nodes.map((n) => n.kind)).toEqual(["term"]);
     expect(listCanvases().find((c) => c.id === there.id)!.nodes.map((n) => n.ref)).toEqual(["ACME-8"]);
+  });
+});
+
+describe("reviewersOn", () => {
+  const term = (id: string): TermInfo => ({ id, title: id, cwd: "/tmp", command: "bash", createdAt: 0, node: "local" });
+  beforeEach(() => db.exec("delete from canvas_nodes; delete from canvas_edges; delete from canvases;"));
+
+  it("names the end a review line hands turns to, the target when it goes both ways, and skips other roles", () => {
+    syncTerms(["a", "b", "c", "d"].map(term));
+    const ws = createCanvas("Here");
+    const card = (id: string) => placeTerm(ws.id, id);
+    const [a, b, c, d] = ["a", "b", "c", "d"].map(card);
+    setRelay(addEdge(ws.id, a.id, b.id).id, { from: "both", role: "review", limit: 4 });
+    setRelay(addEdge(ws.id, c.id, a.id).id, { from: "target", role: "review", limit: 4 });
+    setRelay(addEdge(ws.id, a.id, d.id).id, { from: "source", role: "build", limit: 4 });
+    expect([...reviewersOn(ws.id)].sort()).toEqual(["b", "c"]);
   });
 });

@@ -468,6 +468,18 @@ export function relaysFrom(term: string) {
     });
 }
 
+// The terminals a review line on this workspace hands turns to: the end opposite the one turns leave from (the
+// target, on a line that goes both ways)
+export function reviewersOn(canvas: string) {
+  const out = new Set<string>();
+  for (const e of db.prepare<[string], EdgeRow>("select id, source, target, relay, hops from canvas_edges where canvas = ? and relay is not null").all(canvas).map(toEdge)) {
+    if (e.relay?.role !== "review") continue;
+    const card = nodeRow(e.relay.from === "target" ? e.source : e.target);
+    if (card?.kind === "term") out.add(card.ref);
+  }
+  return out;
+}
+
 export const edgeById = (id: string) => {
   const e = db.prepare<[string], EdgeRow>("select id, source, target, relay, hops, spec from canvas_edges where id = ?").get(id);
   return e && toEdge(e);
