@@ -16,7 +16,7 @@ const at = (boxes: { id: string; x: number; y: number }[], id: string) => {
 };
 
 describe("arrangeLayout", () => {
-  it("puts a ticket's worker to its right and its reviewer below the worker", () => {
+  it("puts a ticket's worker to its right and its reviewer beside the worker", () => {
     const cards = [card("rev", "term"), card("ACME-1", "ticket", { w: 500, h: 400 }), card("work", "term")];
     const terms = new Map<string, ArrangeTerm>([
       ["work", { ticket: "ACME-1", repo: "r" }],
@@ -25,20 +25,19 @@ describe("arrangeLayout", () => {
     const out = arrangeLayout(cards, [], terms);
     expect(out.find((b) => b.id === "ACME-1")).toEqual({ id: "ACME-1", x: 0, y: 0, w: TICKET_W, h: TICKET_H });
     expect(at(out, "work")).toEqual({ x: TICKET_W + GAP, y: 0 });
-    expect(at(out, "rev")).toEqual({ x: TICKET_W + GAP, y: TERM_H + GAP });
+    expect(at(out, "rev")).toEqual({ x: TICKET_W + GAP + TERM_W + GAP, y: 0 });
   });
 
-  it("makes a block without the ticket card when it isn't here, and stacks several workers", () => {
-    const terms = new Map<string, ArrangeTerm>([
-      ["a", { ticket: "ACME-2" }],
-      ["b", { ticket: "ACME-2" }],
-    ]);
-    const out = arrangeLayout([card("a", "term"), card("b", "term")], [], terms);
+  it("makes a block without the ticket card when it isn't here, with its workers side by side, three to a row", () => {
+    const terms = new Map<string, ArrangeTerm>(["a", "b", "c", "d"].map((id) => [id, { ticket: "ACME-2" }]));
+    const out = arrangeLayout(["a", "b", "c", "d"].map((id) => card(id, "term")), [], terms);
     expect(at(out, "a")).toEqual({ x: 0, y: 0 });
-    expect(at(out, "b")).toEqual({ x: 0, y: TERM_H + GAP });
+    expect(at(out, "b")).toEqual({ x: TERM_W + GAP, y: 0 });
+    expect(at(out, "c")).toEqual({ x: 2 * (TERM_W + GAP), y: 0 });
+    expect(at(out, "d")).toEqual({ x: 0, y: TERM_H + GAP });
   });
 
-  it("groups terminals with no ticket by repo, worker first, reviewer below, a split beside its parent", () => {
+  it("groups terminals with no ticket by repo, worker first, its split right after it, then the reviewer", () => {
     const terms = new Map<string, ArrangeTerm>([
       ["w1", { repo: "local:/x/beta", repoName: "beta" }],
       ["r1", { repo: "local:/x/beta", repoName: "beta", review: true }],
@@ -51,7 +50,7 @@ describe("arrangeLayout", () => {
     const beta = TERM_H + BLOCK_GAP;
     expect(at(out, "w1")).toEqual({ x: 0, y: beta });
     expect(at(out, "s1")).toEqual({ x: TERM_W + GAP, y: beta });
-    expect(at(out, "r1")).toEqual({ x: 0, y: beta + TERM_H + GAP });
+    expect(at(out, "r1")).toEqual({ x: 2 * (TERM_W + GAP), y: beta });
   });
 
   it("orders tickets by key, numbers as numbers, before repos", () => {
@@ -60,8 +59,8 @@ describe("arrangeLayout", () => {
       ["t10", { ticket: "ACME-10" }],
       ["t9", { ticket: "ACME-9" }],
     ]);
-    const out = arrangeLayout([card("repo", "term"), card("t10", "term"), card("t9", "term")], [], terms);
-    expect([out.find((b) => b.id === "t9")!.y, out.find((b) => b.id === "t10")!.y, out.find((b) => b.id === "repo")!.y]).toEqual([0, TERM_H + BLOCK_GAP, 2 * (TERM_H + BLOCK_GAP)]);
+    const out = arrangeLayout([card("repo", "term"), card("t10", "term"), card("t9", "term")], [], terms, 100);
+    expect([out.find((b) => b.id === "t9")!.x, out.find((b) => b.id === "t10")!.x, out.find((b) => b.id === "repo")!.x]).toEqual([0, TERM_W + BLOCK_GAP, 2 * (TERM_W + BLOCK_GAP)]);
   });
 
   it("moves a linked note with its block, beside the card it's linked to, and the unlinked ones to a last block", () => {
@@ -72,14 +71,14 @@ describe("arrangeLayout", () => {
     const cards = [card("ACME-1", "ticket"), card("work", "term"), card("rev", "term"), card("spec", "note"), card("runs", "runs"), card("loose", "note")];
     // spec hangs off the reviewer; runs hangs off spec, so it follows too
     const out = arrangeLayout(cards, [{ source: "spec", target: "rev" }, { source: "runs", target: "spec" }], terms);
-    const right = TICKET_W + GAP + TERM_W + GAP;
-    expect(at(out, "spec")).toEqual({ x: right, y: TERM_H + GAP });
-    expect(at(out, "runs")).toEqual({ x: right, y: TERM_H + GAP + 260 + GAP });
+    const right = TICKET_W + GAP + 2 * (TERM_W + GAP);
+    expect(at(out, "spec")).toEqual({ x: right, y: 0 });
+    expect(at(out, "runs")).toEqual({ x: right, y: 260 + GAP });
     // the block is as tall as its lowest card, the runs card (320 high)
-    expect(at(out, "loose")).toEqual({ x: 0, y: TERM_H + GAP + 260 + GAP + 320 + BLOCK_GAP });
+    expect(at(out, "loose")).toEqual({ x: 0, y: 260 + GAP + 320 + BLOCK_GAP });
   });
 
-  it("goes down a column of three blocks, then starts the next column to the right", () => {
+  it("puts blocks left to right and wraps to a new row when the row is as wide as the screen's shape allows", () => {
     const terms = new Map<string, ArrangeTerm>([
       ["a", { ticket: "ACME-1" }],
       ["b", { ticket: "ACME-2" }],
@@ -87,11 +86,21 @@ describe("arrangeLayout", () => {
       ["c", { ticket: "ACME-3" }],
       ["d", { ticket: "ACME-4" }],
     ]);
-    const out = arrangeLayout(["a", "b", "b2", "c", "d"].map((id) => card(id, "term")), [], terms);
-    expect(at(out, "a")).toEqual({ x: 0, y: 0 });
-    expect(at(out, "b")).toEqual({ x: 0, y: TERM_H + BLOCK_GAP });
-    expect(at(out, "c")).toEqual({ x: 0, y: TERM_H + BLOCK_GAP + 2 * TERM_H + GAP + BLOCK_GAP });
-    expect(at(out, "d")).toEqual({ x: TERM_W + BLOCK_GAP, y: 0 });
+    const cards = ["a", "b", "b2", "c", "d"].map((id) => card(id, "term"));
+    // a very wide screen: one row
+    const wide = arrangeLayout(cards, [], terms, 100);
+    expect(at(wide, "a")).toEqual({ x: 0, y: 0 });
+    expect(at(wide, "b")).toEqual({ x: TERM_W + BLOCK_GAP, y: 0 });
+    expect(at(wide, "c")).toEqual({ x: TERM_W + BLOCK_GAP + 2 * TERM_W + GAP + BLOCK_GAP, y: 0 });
+    // a very tall one: no row wider than the widest block (b with b2), so each block on a row of its own
+    const tall = arrangeLayout(cards, [], terms, 0.1);
+    expect(at(tall, "b")).toEqual({ x: 0, y: TERM_H + BLOCK_GAP });
+    expect(at(tall, "d")).toEqual({ x: 0, y: 3 * (TERM_H + BLOCK_GAP) });
+    // a screen's shape: two rows, filled left to right
+    const screen = arrangeLayout(cards, [], terms, 16 / 9);
+    expect(at(screen, "a")).toEqual({ x: 0, y: 0 });
+    expect(at(screen, "b")!.y).toBe(0);
+    expect(at(screen, "d")!.y).toBeGreaterThan(0);
   });
 
   it("leaves archived cards out", () => {
@@ -126,8 +135,8 @@ describe("arrange", () => {
     const pos = (ref: string) => ws.nodes.find((n) => n.ref === ref)!;
     expect(pos("ACME-7")).toMatchObject({ kind: "ticket", x: 0, y: 0 });
     expect(pos("w")).toMatchObject({ x: TICKET_W + GAP, y: 0 });
-    expect(pos("r")).toMatchObject({ x: TICKET_W + GAP, y: TERM_H + GAP });
-    expect(pos(note.ref)).toMatchObject({ x: TICKET_W + GAP + TERM_W + GAP, y: 0 });
+    expect(pos("r")).toMatchObject({ x: TICKET_W + GAP + TERM_W + GAP, y: 0 });
+    expect(pos(note.ref)).toMatchObject({ x: TICKET_W + GAP + 2 * (TERM_W + GAP), y: 0 });
     expect(listCanvases().find((c) => c.id === there.id)!.nodes).toEqual(before);
   });
 

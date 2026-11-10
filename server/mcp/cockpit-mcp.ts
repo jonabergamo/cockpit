@@ -322,7 +322,7 @@ server.registerTool(
 server.registerTool(
   "arrange",
   {
-    description: "Tidy a canvas workspace: a block for each ticket (its card, its workers beside it, reviewers below), one for each repo's other terminals, the notes and cards linked to them alongside, three blocks down each column and then a new column to the right.",
+    description: "Tidy a canvas workspace: a block for each ticket (its card, then its terminals side by side, workers before reviewers, three to a row), one for each repo's other terminals, the notes and cards linked to them alongside; blocks go left to right and wrap to a new row so the whole is screen-shaped.",
     inputSchema: { workspace: z.string().optional().describe("By name or id; the first one when left out") },
   },
   wrap(async ({ workspace }: { workspace?: string }) => {

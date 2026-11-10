@@ -126,15 +126,15 @@ export const canvasRoutes = new Hono()
     changed(b.by);
     return c.json({ ok: true });
   })
-  // the workspace tidied: a block for each ticket and each repo, three down a column, as one change
+  // the workspace tidied: a block for each ticket and each repo, in rows shaped like the screen asking, as one change
   .post("/:id/arrange", async (c) => {
-    const b = await c.req.json<{ by?: string }>().catch(() => ({}) as { by?: string });
+    const b = await c.req.json<{ by?: string; aspect?: number }>().catch(() => ({}) as { by?: string; aspect?: number });
     try {
       const worktrees = await allWorktrees(false).catch(() => []);
       // a reviewer is a PR review, one a review line hands turns to, or one named as such ("reviewer · ...")
       const lines = canvas.reviewersOn(c.req.param("id"));
       const reviews = (t: TermInfo) => isReviewTerm(t) || lines.has(t.id) || /^review(er)?\b/i.test(t.title);
-      const nodes = canvas.arrange(c.req.param("id"), listTerms(), ticketOfTerm(worktrees), reviews, repoOfTerm(worktrees));
+      const nodes = canvas.arrange(c.req.param("id"), listTerms(), ticketOfTerm(worktrees), reviews, repoOfTerm(worktrees), Number.isFinite(b.aspect) && b.aspect! > 0 ? b.aspect : undefined);
       changed(b.by);
       return c.json({ nodes });
     } catch (e) {

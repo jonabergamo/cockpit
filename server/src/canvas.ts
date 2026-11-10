@@ -633,16 +633,17 @@ export type ArrangeTerm = { ticket?: string; review?: boolean; parent?: string; 
 type Box = Pick<CanvasNode, "id" | "x" | "y" | "w" | "h">;
 type ArrangeCard = Pick<CanvasNode, "id" | "kind" | "ref" | "w" | "h"> & { archived?: unknown };
 export const BLOCK_GAP = 120;
-const BLOCKS_PER_COLUMN = 3;
+const TERMS_PER_ROW = 3;
 const byKey = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 
-// The tidy layout of a workspace: each ticket a block (its card top left, its workers to its right, its reviewers
-// under them, a split shell beside the one it came from), the terminals with no ticket in a block for each repo or
-// worktree, and the notes and other cards linked to a card in a block beside it. What's linked to nothing goes in a
-// last block. The blocks go down a column of three and then on to the next column to the right, tickets by key and
-// then repos by name. Archived cards
-// stay where they are. Cards keep their size, but for a ticket's.
-export function arrangeLayout(cards: ArrangeCard[], edges: Pick<CanvasEdge, "source" | "target">[], terms: Map<string, ArrangeTerm>): Box[] {
+// The tidy layout of a workspace: each ticket a block (its card top left, then its terminals side by side to its
+// right, workers before reviewers and a split shell after the one it came from, three to a row), the terminals with
+// no ticket in a block for each repo or worktree, and the notes and other cards linked to a card in a block beside
+// it. What's linked to nothing goes in a last block. The blocks go left to right and on to a new row when the row is
+// full, where full is what gives the whole the screen's shape (aspect, width over height); tickets by key and then
+// repos by name. Archived cards stay where they are. Cards keep their
+// size, but for a ticket's.
+export function arrangeLayout(cards: ArrangeCard[], edges: Pick<CanvasEdge, "source" | "target">[], terms: Map<string, ArrangeTerm>, aspect = 16 / 9): Box[] {
   const live = cards.filter((n) => !n.archived);
   const byId = new Map(live.map((n) => [n.id, n]));
   const termCard = new Map(live.filter((n) => n.kind === "term").map((n) => [n.ref, n]));
@@ -709,18 +710,19 @@ export function arrangeLayout(cards: ArrangeCard[], edges: Pick<CanvasEdge, "sou
     const boxes: Box[] = [];
     const put = (n: ArrangeCard, x: number, y: number, w = n.w, h = n.h) => boxes.push({ id: n.id, x, y, w, h });
     if (b.ticket) put(b.ticket, 0, 0, TICKET_W, TICKET_H);
+    // the terminals side by side, workers then reviewers, a split right after the one it came from, wrapping after
+    // TERMS_PER_ROW
     const left = b.ticket ? TICKET_W + GAP : 0;
+    const flow = [...b.workers, ...b.reviewers].flatMap((n) => [n, ...(splits.get(n.id) ?? [])]);
     let y = 0;
-    for (const n of [...b.workers, ...b.reviewers]) {
-      put(n, left, y);
-      let x = left + n.w + GAP;
-      let h = n.h;
-      for (const s of splits.get(n.id) ?? []) {
-        put(s, x, y);
-        x += s.w + GAP;
-        h = Math.max(h, s.h);
+    for (let i = 0; i < flow.length; i += TERMS_PER_ROW) {
+      const row = flow.slice(i, i + TERMS_PER_ROW);
+      let x = left;
+      for (const n of row) {
+        put(n, x, y);
+        x += n.w + GAP;
       }
-      y += h + GAP;
+      y += Math.max(...row.map((n) => n.h)) + GAP;
     }
     // beside what each is linked to, in a column of their own past the rest
     const right = Math.max(...boxes.map((p) => p.x + p.w)) + GAP;
@@ -748,17 +750,44 @@ export function arrangeLayout(cards: ArrangeCard[], edges: Pick<CanvasEdge, "sou
     }
     laid.push(extent(boxes));
   }
-  // down a column of three, then a new column to the right, as wide as its widest block
-  const out: Box[] = [];
-  let left = 0;
-  for (let i = 0; i < laid.length; i += BLOCKS_PER_COLUMN) {
-    const column = laid.slice(i, i + BLOCKS_PER_COLUMN);
-    let y = 0;
-    for (const b of column) {
-      for (const p of b.boxes) out.push({ ...p, x: p.x + left, y: p.y + y });
-      y += b.h + BLOCK_GAP;
+  // left to right, a new row when the row is full: full is the width that gives the whole the shape of the screen
+  // asking (the view is fitted to it afterwards), and on a tie the wider one
+  const rowsAt = (width: number) => {
+    const rows: (typeof laid)[] = [];
+    let used = Infinity;
+    for (const b of laid) {
+      if (used + BLOCK_GAP + b.w > width) rows.push([]), (used = -BLOCK_GAP);
+      rows[rows.length - 1].push(b);
+      used += BLOCK_GAP + b.w;
     }
-    left += Math.max(...column.map((b) => b.w)) + BLOCK_GAP;
+    return rows;
+  };
+  const shape = (rows: (typeof laid)[]) => {
+    const w = Math.max(...rows.map((r) => r.reduce((s, b) => s + b.w, 0) + BLOCK_GAP * (r.length - 1)));
+    const h = rows.reduce((s, r) => s + Math.max(...r.map((b) => b.h)), 0) + BLOCK_GAP * (rows.length - 1);
+    return w / h;
+  };
+  // every width a row could end at: the running width of the blocks in order, from each block on
+  const widths = new Set<number>();
+  for (let i = 0; i < laid.length; i++)
+    for (let j = i, w = -BLOCK_GAP; j < laid.length; j++) widths.add((w += BLOCK_GAP + laid[j].w));
+  let best: (typeof laid)[] = [];
+  let off = Infinity;
+  for (const width of [...widths].sort((a, b) => b - a)) {
+    if (width < Math.max(...laid.map((b) => b.w))) continue;
+    const rows = rowsAt(width);
+    const d = Math.abs(Math.log(shape(rows) / aspect));
+    if (d < off - 1e-9) (best = rows), (off = d);
+  }
+  const out: Box[] = [];
+  let top = 0;
+  for (const row of best) {
+    let x = 0;
+    for (const b of row) {
+      for (const p of b.boxes) out.push({ ...p, x: p.x + x, y: p.y + top });
+      x += b.w + BLOCK_GAP;
+    }
+    top += Math.max(...row.map((b) => b.h)) + BLOCK_GAP;
   }
   return out;
 }
@@ -773,6 +802,7 @@ export function arrange(
   ticketOf: (t: TermInfo) => string | undefined = () => undefined,
   isReview: (t: TermInfo) => boolean = () => false,
   repoOf: (t: TermInfo) => { key: string; name: string } = repoOfCwd,
+  aspect?: number,
 ) {
   if (!canvasRow(canvas)) throw new Error("No such workspace");
   const byId = new Map(terms.map((t) => [t.id, t]));
@@ -789,6 +819,7 @@ export function arrange(
       rowsOf(canvas).map((r) => ({ id: r.id, kind: r.kind, ref: r.ref, w: r.w, h: r.h, archived: r.archived })),
       edgesOf(canvas),
       info,
+      aspect,
     );
     saveLayout(canvas, boxes);
     return boxes;

@@ -1091,12 +1091,15 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["canvas"] });
   const guard = (p: Promise<unknown>) => p.catch(setErr);
-  // the workspace tidied into a block for each ticket and repo, then fitted on screen
+  // the workspace tidied into a block for each ticket and repo, rows as wide as the canvas's shape allows, then fitted
+  // on screen
   const arrange = () => {
     const cur = wsRef.current;
     if (!cur) return;
+    const r = wrap.current?.getBoundingClientRect();
+    const aspect = r && r.width > 0 && r.height > 0 ? r.width / r.height : undefined;
     guard(
-      api.post(`/canvas/${cur.id}/arrange`, { by: tabId }).then(async () => {
+      api.post(`/canvas/${cur.id}/arrange`, { by: tabId, aspect }).then(async () => {
         await refresh();
         requestAnimationFrame(() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 }));
       }),
@@ -1588,7 +1591,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
             Fit
           </Button>
-          <Button size="sm" variant="ghost" onClick={arrange} title="Tidy this workspace: a block for each ticket (its terminals beside it, reviewers below) and each repo, three down each column, then on to the right" className="hidden md:inline-flex">
+          <Button size="sm" variant="ghost" onClick={arrange} title="Tidy this workspace: a block for each ticket (its terminals side by side) and each repo, left to right, a new row when the screen is full" className="hidden md:inline-flex">
             Arrange
           </Button>
           <Button size="sm" variant={recap ? "default" : "ghost"} onClick={() => (recap ? setRecap(undefined) : ws && setRecap({ ws: ws.id, since: Date.now() - 2 * 3600_000, asked: true }))} title="What the agents on this workspace did in the last two hours" className="hidden md:inline-flex">
