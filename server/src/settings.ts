@@ -73,6 +73,9 @@ const schema = z.object({
       mainBranches: z.string().max(300).default("main, master, staging, develop"),
     })
     .prefault({}),
+  // the points reviewers keep raising, read from kept review comments: Ask for the PR has the session check its diff
+  // against the top count of them first
+  lessons: z.object({ on: z.boolean().default(true), count: z.number().int().min(1).max(15).default(5) }).prefault({}),
   alerts: z
     .object({
       // busy this long without the transcript growing counts as stuck

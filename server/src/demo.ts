@@ -465,6 +465,17 @@ export function mountDemo(app: Hono) {
     "/api/code/roots": ok({ worktrees: worktrees.map((w) => ({ path: w.path, name: w.name, branch: w.branch, ticket: w.ticket })), projects: [paths.root], folders: [] }),
     "/api/usage": ok(usage()),
     "/api/reviews": ok(reviews),
+    "/api/reviews/lessons": ok({
+      at: Date.now() - 3 * 3600_000,
+      method: "model",
+      comments: 64,
+      prompt: "",
+      lessons: [
+        { id: "handle-loading-and-error-states", rule: "Handle the loading and error states of every request", count: 7, prs: 5, examples: ["What does the user see while this loads, or if it fails?"], dismissed: false },
+        { id: "add-a-test-for-the-edge-case", rule: "Add a test for the edge case the fix is about", count: 5, prs: 4, examples: ["Can we get a test for the empty basket here?"], dismissed: false },
+        { id: "keep-translations-out-of-components", rule: "Keep user-facing strings in the translation files", count: 3, prs: 3, examples: ["This string should go through t()."], dismissed: false },
+      ],
+    }),
     "/api/claude/workflows": ok([run]),
     "/api/claude/workflows/wf_demo": ok({ ...run, script: "export const meta = { name: 'search-speedup', phases: [...] }\n", result: { winner: "prefix-index", p95ms: 180 } }),
     "/api/claude/files": ok(files),

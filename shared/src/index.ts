@@ -301,6 +301,34 @@ export interface ReviewThread {
   body: string;
 }
 
+// a review comment kept for review lessons: when it was left, and whether you wrote it
+export interface ReviewComment extends ReviewThread {
+  at?: string;
+  mine?: boolean;
+}
+
+// a point reviewers keep raising, distilled from the review comments cockpit kept
+export interface ReviewLesson {
+  id: string;
+  rule: string;
+  count: number;
+  // how many PRs it came up on
+  prs: number;
+  examples: string[];
+  dismissed: boolean;
+}
+
+export interface ReviewLessons {
+  lessons: ReviewLesson[];
+  // when they were last worked out, and how: by the quick model, or by grouping common words without one
+  at?: number;
+  method?: "model" | "words";
+  comments: number;
+  note?: string;
+  // what Ask for the PR adds to its prompt, empty when turned off or there's nothing to say
+  prompt: string;
+}
+
 // your last submitted review of a PR and what happened since, for a second look at only what changed
 export interface LastReview {
   // the commit you reviewed, and the PR's head now

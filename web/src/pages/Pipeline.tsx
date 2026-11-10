@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import type { Pipeline, PipelineRow, RoadAction, Run } from "@cockpit/shared";
+import type { Pipeline, PipelineRow, ReviewLessons, RoadAction, Run } from "@cockpit/shared";
 import { RefreshButton, useRefreshing } from "../components/RefreshButton";
 import { Button, Empty, ErrorNote, Loading, Tag } from "../components/ui";
 import { api } from "../lib/api";
@@ -209,10 +209,17 @@ export function PipelineList() {
         case "open":
         case "review": {
           if (!r.session) return;
-          const text = (a.id === "open" ? prompts?.openPrompt : prompts?.reviewPrompt)?.replace(/\{pr\}/g, String(r.pr?.number ?? ""));
+          let text = (a.id === "open" ? prompts?.openPrompt : prompts?.reviewPrompt)?.replace(/\{pr\}/g, String(r.pr?.number ?? ""));
           if (!text) return;
+          // the points reviewers keep raising, to check the diff against first; the PR is still asked for without them
+          let missed = "";
+          if (a.id === "open")
+            text += await api.get<ReviewLessons>("/reviews/lessons").then(
+              (l) => l.prompt,
+              (e: Error) => ((missed = ` Without the review lessons, which couldn't be read: ${e.message}`), ""),
+            );
           const { sent } = await api.post<{ sent: boolean }>(`/sessions/${r.session.id}/send`, { text });
-          if (sent) return setNote({ text: `Sent to ${r.key}'s session.`, to: `/sessions/${r.session.id}`, label: "Watch it" });
+          if (sent) return setNote({ text: `Sent to ${r.key}'s session.${missed}`, to: `/sessions/${r.session.id}`, label: "Watch it" });
           // not running where cockpit can type into it: resumed in a terminal, with the message
           return openSession({ id: r.session.id }, text);
         }

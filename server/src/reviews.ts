@@ -5,7 +5,8 @@ import { listSessions, sessionFile } from "./claude/sessions.ts";
 import { parseLine, readTail } from "./claude/transcript.ts";
 import { config } from "./config.ts";
 import { db } from "./db.ts";
-import { deletePending, lastReview, parsePr, pendingReview, prInfo } from "./providers.ts";
+import { saveComments } from "./lessons.ts";
+import { deletePending, lastReview, parsePr, pendingReview, prInfo, reviewComments } from "./providers.ts";
 import { listTerms, spawnTerm } from "./pty.ts";
 import { agentLaunch, resumeLaunch } from "./workers/index.ts";
 import { codexEntries, isCodexTerminal } from "./claude/codexTerminal.ts";
@@ -167,6 +168,7 @@ async function refresh(r: ReviewRow, offline = false): Promise<ReviewRow> {
       next.review_url = pending.url;
       next.comments = pending.comments;
     }
+    await fillComments(next);
   } else if (ended) next.status = "stopped";
   else next.status = session && session.status !== "busy" ? "waiting" : "running";
 
@@ -174,9 +176,41 @@ async function refresh(r: ReviewRow, offline = false): Promise<ReviewRow> {
   return next;
 }
 
+// The review's inline comments, by the review's id in its link: counted, and kept for review lessons. Asking only
+// for a pending review left every count empty, since by the time the review was seen done it was usually submitted.
+async function fillComments(r: ReviewRow) {
+  const id = Number(r.review_url?.match(/#pullrequestreview-(\d+)/)?.[1]);
+  if (!id) return;
+  try {
+    const list = await reviewComments({ repo: r.repo, n: r.pr }, id);
+    if (!list) return;
+    r.comments = list.length;
+    saveComments(r.repo, r.pr, list, true);
+  } catch (e) {
+    console.error(`review #${r.pr}: its comments`, (e as Error).message);
+  }
+}
+
+// finished reviews from before the comments were read from the review itself, a few at a time in the background
+let backfilling = false;
+function backfill(rows: ReviewRow[]) {
+  const todo = rows.filter((r) => r.status === "done" && r.comments === null && r.review_url).slice(0, 5);
+  if (backfilling || !todo.length) return;
+  backfilling = true;
+  (async () => {
+    for (const r of todo) {
+      await fillComments(r);
+      // 0 when there were none, so it isn't asked again; null still when it couldn't be read
+      if (r.comments !== null) db.prepare("update reviews set comments = ? where id = ?").run(r.comments, r.id);
+    }
+  })().finally(() => (backfilling = false));
+}
+
 export async function listReviews() {
   const rows = db.prepare<[], ReviewRow>("select * from reviews order by started_at desc limit 50").all();
-  return Promise.all(rows.map((r) => refresh(r)));
+  const out = await Promise.all(rows.map((r) => refresh(r)));
+  backfill(out);
+  return out;
 }
 
 // the same list for the sidebar badge, without touching the code host

@@ -13,6 +13,7 @@ You plan, the workers build. Cockpit gives you tools (the `cockpit` MCP server) 
 - `start_task`: queue a worker. Give it a clear title and a prompt that says what done looks like and how to check it. `attempts` above 1 runs independent tries to compare. `after` takes task or group ids to wait for, which is how you build waves.
 - `read_screen` then `send_message` or `answer_prompt`: see what a worker is asking and answer it.
 - `pr_status`: PRs with checks and reviews, and with `details` the failing logs or review comments.
+- `review_lessons`: the points reviewers keep raising on recent PRs, for a worker to check its diff against before it opens one.
 - `task_group`, `list_tasks`, `cancel_task`, `verify`, `autopilot`.
 - The canvas: `canvas_view`, `open_beside`, `link`, `unlink`, `hand_off`, `add_note`. See below.
 

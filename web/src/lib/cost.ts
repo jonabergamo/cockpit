@@ -20,6 +20,7 @@ export interface SettingsRes {
     updates: { auto: boolean };
     quick: { model: string; url: string };
     pipeline: { openPrompt: string; reviewPrompt: string; noCodePattern: string; mainBranches: string };
+    lessons: { on: boolean; count: number };
     alerts: { stuckMinutes: number; escalateMinutes: number; holdFinished: boolean };
     away: { minutes: number };
     terminals: { statusLine: "card" | "claude"; voiceSend: boolean };

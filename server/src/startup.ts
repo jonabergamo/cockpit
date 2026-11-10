@@ -7,6 +7,7 @@ import { startSearch } from "./claude/search.ts";
 import { startSessions } from "./claude/sessions.ts";
 import { startAgentRunner } from "./workers/runner.ts";
 import { startLeadWatch } from "./lead.ts";
+import { startLessons } from "./lessons.ts";
 import { startOvernight } from "./overnight.ts";
 import { startSnapshots } from "./report.ts";
 import { startRecordings } from "./record.ts";
@@ -79,6 +80,7 @@ export function startAutomations() {
   startLeadWatch();
   startVerify();
   startAutopilot();
+  startLessons();
   startStacked();
   startOvernight();
   startTasks();

@@ -140,6 +140,8 @@ export const rerunFailedChecks = async (n: number) => {
 };
 export const failingChecks = async (n: number) => (await codeHost()?.failingChecks?.(n)) ?? [];
 export const reviewThreads = async (n: number) => (await codeHost()?.reviewThreads?.(n)) ?? [];
+// undefined when the code host can't list review comments
+export const reviewComments = async (ref: PrRef, review?: number) => codeHost()?.reviewComments?.(ref, review);
 export const parsePr = (input: string): PrRef | undefined => codeHost()?.parsePr?.(input);
 
 // PR reviews need these three from the code host

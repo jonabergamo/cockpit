@@ -9,7 +9,8 @@ import { emit, onEvent } from "./events.ts";
 import { fixPrompt } from "./fix.ts";
 import { flakyOf } from "./flaky.ts";
 import { notify } from "./notify.ts";
-import { canRerunChecks, myPrs, requestReview, rerunFailedChecks, reviewThreads } from "./providers.ts";
+import { saveComments } from "./lessons.ts";
+import { canRerunChecks, myPrs, parsePr, requestReview, rerunFailedChecks, reviewThreads } from "./providers.ts";
 import { spawnTerm } from "./pty.ts";
 import { mainAgent, resumeLaunch } from "./workers/index.ts";
 import { startAgent } from "./workers/runner.ts";
@@ -112,7 +113,11 @@ async function tick() {
           console.error("autopilot re-request", e);
         }
       }
-      const threads = pr.reviewDecision === "CHANGES_REQUESTED" ? (await reviewThreads(pr.number).catch(() => [])).length : 0;
+      const open = pr.reviewDecision === "CHANGES_REQUESTED" ? await reviewThreads(pr.number).catch(() => []) : [];
+      // kept for review lessons; the PR's author is you, so those are your replies
+      const ref = open.length ? parsePr(pr.url) : undefined;
+      if (ref) saveComments(ref.repo, ref.n, open.map((c) => ({ ...c, mine: c.author === pr.author })));
+      const threads = open.length;
       const sig = signatureOf(pr, threads);
       const d = decide(pr, r, sig, max);
       const save = (patch: Partial<Row> & { last_at?: number }) => {

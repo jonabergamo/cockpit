@@ -16,6 +16,7 @@ import { refreshTerms } from "../remote/terminals.ts";
 import type { RunOptionStarted } from "@cockpit/shared";
 import { ticketOf } from "../util.ts";
 import { getJob, listJobs, type Job } from "../jobs.ts";
+import { dismissLesson, recompute, reviewLessons } from "../lessons.ts";
 import { getReview, lastReview, listReviews, parsePr, pendingReview, prInfo, reopenReview, startReview } from "../reviews.ts";
 import { codexReport, toolReport, usageAgents, usageReport } from "../usage.ts";
 import { cleanupPlan, finished, type Candidate } from "../cleaner.ts";
@@ -349,6 +350,17 @@ export const work = new Hono()
     const pr = parsePr(c.req.query("pr") ?? "");
     if (!pr) return c.json({ error: "a pull request link or number" }, 400);
     return c.json((await lastReview(pr)) ?? null);
+  })
+  // the points reviewers keep raising; refresh works them out again, fetching the comments missing first
+  .get("/reviews/lessons", (c) => c.json(reviewLessons()))
+  .post("/reviews/lessons/refresh", async (c) => {
+    await recompute();
+    return c.json(reviewLessons());
+  })
+  .post("/reviews/lessons/:id", async (c) => {
+    const { dismissed } = await c.req.json<{ dismissed: boolean }>();
+    dismissLesson(c.req.param("id"), dismissed);
+    return c.json(reviewLessons());
   })
   .post("/reviews", async (c) => c.json(await startReview(await c.req.json())))
   .post("/reviews/:id/reopen", async (c) => c.json(await reopenReview(Number(c.req.param("id")))))

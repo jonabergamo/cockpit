@@ -287,6 +287,13 @@ export function AutomationSettings() {
         <h3 className="text-[12px] text-faint uppercase tracking-wide">Ticket pipeline</h3>
         <Text label="Asking for the PR" help="Typed into a ticket's session by Ask for the PR on Work" value={s.pipeline.openPrompt} lines={2} onSave={(v) => put("pipeline", { openPrompt: v })} />
         <Text label="Answering a review" help="Typed in by Answer the review. {pr} is the PR's number" value={s.pipeline.reviewPrompt} lines={2} onSave={(v) => put("pipeline", { reviewPrompt: v })} />
+        <Toggle
+          label="Add review lessons to Ask for the PR"
+          help="The points reviewers keep raising on recent PRs (PR reviews → Review lessons), for the session to check its diff against before it opens the PR"
+          on={s.lessons.on}
+          onChange={(v) => put("lessons", { on: v })}
+        />
+        {s.lessons.on && <Num label="Lessons it adds" value={s.lessons.count} min={1} max={15} onSave={(n) => put("lessons", { count: n })} />}
         <Text label="Tickets with no code" help="A regular expression over the summary. Matching tickets with no worktree or PR go under Not code" value={s.pipeline.noCodePattern} mono onSave={(v) => put("pipeline", { noCodePattern: v })} />
         <Text label="Branches that ship" help="Comma separated. A PR into any other branch is a step of a feature, and ships when that branch's own PR does" value={s.pipeline.mainBranches} mono onSave={(v) => put("pipeline", { mainBranches: v })} />
       </div>

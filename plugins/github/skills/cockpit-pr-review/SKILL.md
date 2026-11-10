@@ -22,6 +22,8 @@ Comment on things that matter: bugs, wrong behaviour, missing error handling, se
 
 Review the whole PR unless the prompt narrows it down, for example to the frontend only.
 
+If the cockpit MCP tools are there, call `review_lessons` first: the points reviewers keep raising on recent PRs. Check the diff for those too, as they're the ones this team cares about. Without the tool, `curl -s http://127.0.0.1:8770/api/reviews/lessons` (cockpit's default address) gives the same list.
+
 ## 3. Leave them as a pending review
 
 Check for a pending review of your own first:

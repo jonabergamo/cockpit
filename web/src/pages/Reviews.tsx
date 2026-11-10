@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import type { LastReview } from "@cockpit/shared";
+import type { LastReview, ReviewLessons } from "@cockpit/shared";
 import { useEffect, useState } from "react";
 import { newTask } from "../components/NewTask";
 import { RefreshButton, useRefreshing } from "../components/RefreshButton";
@@ -232,10 +232,73 @@ export function ReviewsPage() {
             {reviews.data && !reviews.data.length && <div className="px-3 py-2.5 text-[13px] text-muted">No reviews yet.</div>}
           </div>
         </section>
+
+        <Lessons />
       </div>
 
       <div className="min-w-0">{selected ? <ReviewDetail review={selected} /> : <Empty>Paste a PR to start a review.</Empty>}</div>
     </div>
+  );
+}
+
+// the points reviewers keep raising, from the comments on your PRs and the ones your reviews left
+function Lessons() {
+  const qc = useQueryClient();
+  const [showDismissed, setShowDismissed] = useState(false);
+  const q = useQuery({ queryKey: ["review-lessons"], queryFn: () => api.get<ReviewLessons>("/reviews/lessons") });
+  const set = (d: ReviewLessons) => qc.setQueryData(["review-lessons"], d);
+  const refresh = useMutation({ mutationFn: () => api.post<ReviewLessons>("/reviews/lessons/refresh", {}), onSuccess: set });
+  const dismiss = useMutation({ mutationFn: (v: { id: string; dismissed: boolean }) => api.post<ReviewLessons>(`/reviews/lessons/${encodeURIComponent(v.id)}`, { dismissed: v.dismissed }), onSuccess: set });
+  const all = q.data?.lessons ?? [];
+  const shown = all.filter((l) => showDismissed || !l.dismissed);
+  const hidden = all.filter((l) => l.dismissed).length;
+
+  return (
+    <section className={`bg-panel border border-line rounded-lg ${refresh.isPending ? "wave" : ""}`}>
+      <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
+        <h2 className="font-semibold flex-1">Review lessons</h2>
+        <Button size="sm" variant="ghost" disabled={refresh.isPending} onClick={() => refresh.mutate()} title="Fetch the comments on your merged PRs not kept yet and work the lessons out again">
+          {refresh.isPending ? "Working them out" : "Refresh"}
+        </Button>
+      </div>
+      <p className="px-3 pb-2 text-[12px] text-muted">
+        What reviewers keep raising, from {q.data?.comments ?? 0} review comments kept
+        {q.data?.at ? `, worked out ${ago(q.data.at)}${q.data.method === "words" ? " by common words" : ""}` : ""}. Ask for the PR has the session check its diff against the top ones.
+      </p>
+      {q.isLoading && <Loading />}
+      <div className="px-3">
+        <ErrorNote error={q.error ?? refresh.error ?? dismiss.error} />
+      </div>
+      {q.data?.note && <p className="mx-3 mb-2 text-[12px] text-amber">{q.data.note}</p>}
+      <div className="divide-y divide-line">
+        {shown.map((l) => (
+          <div key={l.id} className={`flex items-start gap-2 px-3 py-2 ${l.dismissed ? "opacity-60" : ""}`}>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px]">{l.rule}</div>
+              <div className="text-[12px] text-muted">
+                {l.count} comments on {l.prs} PR{l.prs === 1 ? "" : "s"}
+              </div>
+              {l.examples.map((e, i) => (
+                <div key={i} className="text-[12px] text-faint truncate" title={e}>
+                  “{e}”
+                </div>
+              ))}
+            </div>
+            <Button size="sm" variant="ghost" disabled={dismiss.isPending} onClick={() => dismiss.mutate({ id: l.id, dismissed: !l.dismissed })}>
+              {l.dismissed ? "Bring back" : "Dismiss"}
+            </Button>
+          </div>
+        ))}
+        {q.data && !all.length && (
+          <div className="px-3 py-2.5 text-[13px] text-muted">{q.data.at ? "Nothing comes up often enough yet." : "Not worked out yet. Refresh to read the comments on your merged PRs."}</div>
+        )}
+      </div>
+      {!!hidden && (
+        <button className="px-3 py-2 text-[12px] text-muted hover:text-cobalt" onClick={() => setShowDismissed(!showDismissed)}>
+          {showDismissed ? "Hide dismissed" : `Show ${hidden} dismissed`}
+        </button>
+      )}
+    </section>
   );
 }
 

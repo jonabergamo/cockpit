@@ -194,6 +194,10 @@ export default function setup(k: Cockpit) {
       const comments = await ghJson<any[]>(["api", `repos/${repo}/pulls/${n}/reviews/${r.id}/comments`, "--paginate"]).catch(() => []);
       return { id: r.id as number, url: r.html_url as string, comments: comments.length };
     },
+    async reviewComments({ repo, n }: PrRef, review?: number) {
+      const [login, list] = await Promise.all([me(), ghJson<any[]>(["api", review ? `repos/${repo}/pulls/${n}/reviews/${review}/comments` : `repos/${repo}/pulls/${n}/comments`, "--paginate"])]);
+      return list.map((c) => ({ path: c.path ?? undefined, line: c.line ?? c.original_line ?? undefined, author: c.user?.login, body: c.body as string, at: c.created_at ?? undefined, mine: c.user?.login === login }));
+    },
     deletePending: ({ repo, n }: PrRef, id: number) => gh(["api", "-X", "DELETE", `repos/${repo}/pulls/${n}/reviews/${id}`]),
     // the queue asks for each PR in it, so it's kept for a few minutes
     lastReview: ({ repo, n }: PrRef) =>

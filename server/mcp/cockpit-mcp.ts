@@ -134,6 +134,19 @@ server.registerTool(
 server.registerTool("cancel_task", { description: "Stop a queued or running task; its worktree stays.", inputSchema: { id: z.string() } }, wrap(({ id }: { id: string }) => call("POST", `/tasks/${encodeURIComponent(id)}/cancel`)));
 
 server.registerTool(
+  "review_lessons",
+  {
+    description:
+      "The points reviewers keep raising on recent PRs, distilled from the review comments cockpit kept, most raised first, with counts and an example each. Check a diff against them before opening a PR, or look for them when reviewing one.",
+    inputSchema: {},
+  },
+  wrap(async () => {
+    const r = (await call("GET", "/reviews/lessons")) as { lessons: { rule: string; count: number; prs: number; examples: string[]; dismissed: boolean }[]; at?: number; note?: string };
+    return { lessons: r.lessons.filter((l) => !l.dismissed).map(({ rule, count, prs, examples }) => ({ rule, count, prs, examples })), updated: r.at ? new Date(r.at).toISOString() : null, note: r.note };
+  }),
+);
+
+server.registerTool(
   "pr_status",
   {
     description: "The user's pull requests with state, checks and review decision. With number and details=true, also what Claude would be told to fix: failing checks with log tails, or the unresolved review comments.",

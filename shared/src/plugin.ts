@@ -1,4 +1,4 @@
-import type { Badge, LastReview, PullRequest, Reviewer, ReviewThread, Run, RunArtifact, RunKind, RunStatus, RunStep, RunSummary, Session, Sprint, Task, TermInfo, Ticket, RoadTicket, TicketRoads } from "./index.ts";
+import type { Badge, LastReview, PullRequest, ReviewComment, Reviewer, ReviewThread, Run, RunArtifact, RunKind, RunStatus, RunStep, RunSummary, Session, Sprint, Task, TermInfo, Ticket, RoadTicket, TicketRoads } from "./index.ts";
 import type { Theme } from "./themes.ts";
 import type { AgentProvider } from "./agents.ts";
 
@@ -218,6 +218,9 @@ export interface CodeHost {
   parsePr?(input: string): PrRef | undefined;
   prInfo?(ref: PrRef): Promise<{ title: string; author: string; url: string; additions?: number; deletions?: number; changedFiles?: number; state?: string; isDraft?: boolean; headRefName?: string; headRefOid?: string; baseRefName?: string }>;
   pendingReview?(ref: PrRef): Promise<{ id: number; url: string; comments: number } | undefined>;
+  // every inline review comment on a PR, resolved or not, oldest first, for review lessons; with review, only the
+  // comments of that one review (pending or submitted)
+  reviewComments?(ref: PrRef, review?: number): Promise<ReviewComment[]>;
   deletePending?(ref: PrRef, id: number): Promise<unknown>;
   // your last submitted review of the PR, what changed since and the comments you left, for "review what changed"
   lastReview?(ref: PrRef): Promise<LastReview | undefined>;
