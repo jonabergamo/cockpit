@@ -327,6 +327,30 @@ try {
     await page.unroute(/\/api\/tickets\/lookup\?/);
   });
 
+  await step("Arrange tidies the workspace into blocks, the first ticket top left and no cards on top of each other", async () => {
+    const main = () => api("GET", "/canvas").then((l) => l[0]);
+    const tidy = async () => {
+      const ws = await main();
+      const live = ws.nodes.filter((n) => !n.archived);
+      const first = live.filter((n) => n.kind === "ticket").sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }))[0];
+      const clash = live.some((a, i) => live.slice(i + 1).some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
+      return first && first.x === 0 && first.y === 0 && !clash;
+    };
+    // scattered first, so there's something to tidy
+    const ws = await main();
+    await api("PUT", `/canvas/${ws.id}/layout`, { nodes: ws.nodes.map((n, i) => ({ id: n.id, x: 300 + i * 37, y: 200 + i * 23, w: n.w, h: n.h })) });
+    await page.goto(`${base}/terminals?view=canvas`);
+    await page.getByRole("button", { name: "Arrange", exact: true }).click();
+    await until("the workspace arranged", tidy);
+    // and from ⌘K
+    await api("PUT", `/canvas/${ws.id}/layout`, { nodes: ws.nodes.map((n, i) => ({ id: n.id, x: 300 + i * 37, y: 200 + i * 23, w: n.w, h: n.h })) });
+    await page.locator("body").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("Control+k");
+    await page.getByPlaceholder(/Ticket, worktree/).fill("arrange");
+    await page.getByRole("option", { name: "Arrange this workspace" }).click();
+    await until("arranged again from the palette", tidy);
+  });
+
   await step("no errors on the page", async () => expect(!errors.length, errors.join(" | ")));
 } catch (e) {
   results.push(`FAIL setup: ${e instanceof Error ? e.message : e}`);

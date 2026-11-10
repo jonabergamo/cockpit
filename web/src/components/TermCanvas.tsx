@@ -29,7 +29,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CanvasInfo, CanvasNode, KitsRes, Run, SessionStatus, TermInfo, Worktree } from "@cockpit/shared";
 import { useAgentName } from "../lib/agent";
 import { api } from "../lib/api";
-import { onFocusRequest, saveWorkspace, savedWorkspace, setCanvasSelected, tabId, useCanvases } from "../lib/canvas";
+import { onFocusRequest, saveWorkspace, savedWorkspace, setArranger, setCanvasSelected, tabId, useCanvases } from "../lib/canvas";
 import { ago, shortPath } from "../lib/format";
 import { agentTerm, launcher, modelName } from "../lib/launcher";
 import { useLiveSessions } from "../lib/live";
@@ -1091,6 +1091,20 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["canvas"] });
   const guard = (p: Promise<unknown>) => p.catch(setErr);
+  // the workspace tidied into a block for each ticket and repo, then fitted on screen
+  const arrange = () => {
+    const cur = wsRef.current;
+    if (!cur) return;
+    guard(
+      api.post(`/canvas/${cur.id}/arrange`, { by: tabId }).then(async () => {
+        await refresh();
+        requestAnimationFrame(() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 }));
+      }),
+    );
+  };
+  const arrangeRef = useRef(arrange);
+  arrangeRef.current = arrange;
+  useEffect(() => setArranger(() => arrangeRef.current()), []);
   // the middle of what's on screen, for a new card to show up in
   const centre = (w: number, h: number) => {
     const r = wrap.current?.getBoundingClientRect();
@@ -1573,6 +1587,9 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
           />
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
             Fit
+          </Button>
+          <Button size="sm" variant="ghost" onClick={arrange} title="Tidy this workspace: a block for each ticket (its terminals beside it, reviewers below) and each repo, three to a row" className="hidden md:inline-flex">
+            Arrange
           </Button>
           <Button size="sm" variant={recap ? "default" : "ghost"} onClick={() => (recap ? setRecap(undefined) : ws && setRecap({ ws: ws.id, since: Date.now() - 2 * 3600_000, asked: true }))} title="What the agents on this workspace did in the last two hours" className="hidden md:inline-flex">
             Recap

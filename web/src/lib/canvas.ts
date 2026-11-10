@@ -64,6 +64,16 @@ export const useCanvasSelected = () =>
     (l) => (selectedListeners.add(l), () => void selectedListeners.delete(l)),
     () => selectedTerm,
   );
+// the canvas on screen says how to arrange the workspace it shows, so ⌘K can offer it while it's open
+let arranger: (() => void) | undefined;
+export const setArranger = (fn?: () => void) => {
+  arranger = fn;
+  return () => {
+    if (arranger === fn) arranger = undefined;
+  };
+};
+export const canArrange = () => !!arranger;
+export const arrangeWorkspace = () => arranger?.();
 export const saveView = (v: TermView) => {
   try {
     localStorage.setItem(VIEW, v);

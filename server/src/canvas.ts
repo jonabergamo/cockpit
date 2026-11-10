@@ -614,3 +614,169 @@ export function syncTerms(terms: TermInfo[], ticketOf: (t: TermInfo) => string |
   if (changed) tidyEdges();
   return changed;
 }
+
+// What arranging needs to know of a terminal: the ticket it works on, whether it reviews, the terminal it was split
+// from, and the repo or worktree it runs in (key, and a name to order by)
+export type ArrangeTerm = { ticket?: string; review?: boolean; parent?: string; repo?: string; repoName?: string };
+type Box = Pick<CanvasNode, "id" | "x" | "y" | "w" | "h">;
+type ArrangeCard = Pick<CanvasNode, "id" | "kind" | "ref" | "w" | "h"> & { archived?: unknown };
+export const BLOCK_GAP = 120;
+const BLOCKS_PER_ROW = 3;
+const byKey = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
+// The tidy layout of a workspace: each ticket a block (its card top left, its workers to its right, its reviewers
+// under them, a split shell beside the one it came from), the terminals with no ticket in a block for each repo or
+// worktree, and the notes and other cards linked to a card in a block beside it. What's linked to nothing goes in a
+// last block. The blocks go left to right, three to a row, tickets by key and then repos by name. Archived cards
+// stay where they are. Cards keep their size, but for a ticket's.
+export function arrangeLayout(cards: ArrangeCard[], edges: Pick<CanvasEdge, "source" | "target">[], terms: Map<string, ArrangeTerm>): Box[] {
+  const live = cards.filter((n) => !n.archived);
+  const byId = new Map(live.map((n) => [n.id, n]));
+  const termCard = new Map(live.filter((n) => n.kind === "term").map((n) => [n.ref, n]));
+  const info = (n: ArrangeCard) => terms.get(n.ref) ?? {};
+  // a split shell sits beside the terminal it came from, when that one is here too (the first of a chain)
+  const rootOf = (n: ArrangeCard) => {
+    const seen = new Set([n.id]);
+    let at = n;
+    for (let p = termCard.get(info(at).parent ?? ""); p && !seen.has(p.id); p = termCard.get(info(at).parent ?? "")) {
+      seen.add(p.id);
+      at = p;
+    }
+    return at;
+  };
+  const splits = new Map<string, ArrangeCard[]>();
+  type Block = { order: [number, string]; ticket?: ArrangeCard; workers: ArrangeCard[]; reviewers: ArrangeCard[]; extras: ArrangeCard[] };
+  const blocks = new Map<string, Block>();
+  const block = (key: string, order: [number, string]) => blocks.get(key) ?? blocks.set(key, { order, workers: [], reviewers: [], extras: [] }).get(key)!;
+  for (const n of live.filter((c) => c.kind === "ticket")) block(`ticket:${n.ref}`, [0, n.ref]).ticket = n;
+  for (const n of live.filter((c) => c.kind === "term")) {
+    const root = rootOf(n);
+    if (root !== n) {
+      splits.set(root.id, [...(splits.get(root.id) ?? []), n]);
+      continue;
+    }
+    const t = info(n);
+    const b = t.ticket ? block(`ticket:${t.ticket}`, [0, t.ticket]) : t.repo != null ? block(`repo:${t.repo}`, [1, t.repoName ?? t.repo]) : block("repo:?", [2, ""]);
+    (t.review ? b.reviewers : b.workers).push(n);
+  }
+  const ordered = [...blocks.values()].sort((a, b) => a.order[0] - b.order[0] || byKey(a.order[1], b.order[1]));
+  // notes and other cards follow the block of a card they're linked to, through other such cards too; anchor is the
+  // card in the block they hang off
+  const home = new Map<string, Block>();
+  for (const b of ordered)
+    for (const n of [b.ticket, ...b.workers, ...b.reviewers]) {
+      if (!n) continue;
+      for (const s of [n, ...(splits.get(n.id) ?? [])]) home.set(s.id, b);
+    }
+  const near = new Map<string, string[]>();
+  for (const e of edges) {
+    near.set(e.source, [...(near.get(e.source) ?? []), e.target]);
+    near.set(e.target, [...(near.get(e.target) ?? []), e.source]);
+  }
+  const anchor = new Map<string, string>();
+  const queue = [...home.keys()];
+  while (queue.length) {
+    const at = queue.shift()!;
+    for (const id of near.get(at) ?? []) {
+      const n = byId.get(id);
+      if (!n || home.has(id) || n.kind === "term" || n.kind === "ticket") continue;
+      home.set(id, home.get(at)!);
+      anchor.set(id, anchor.get(at) ?? at);
+      queue.push(id);
+    }
+  }
+  const loose = live.filter((n) => n.kind !== "term" && n.kind !== "ticket");
+  for (const n of loose) home.get(n.id)?.extras.push(n);
+  const rest = loose.filter((n) => !home.has(n.id));
+
+  // each block laid out from 0,0, then moved to its place in the grid
+  const extent = (boxes: Box[]) => ({ boxes, w: Math.max(...boxes.map((p) => p.x + p.w)), h: Math.max(...boxes.map((p) => p.y + p.h)) });
+  const laid: ReturnType<typeof extent>[] = [];
+  for (const b of ordered) {
+    const boxes: Box[] = [];
+    const put = (n: ArrangeCard, x: number, y: number, w = n.w, h = n.h) => boxes.push({ id: n.id, x, y, w, h });
+    if (b.ticket) put(b.ticket, 0, 0, TICKET_W, TICKET_H);
+    const left = b.ticket ? TICKET_W + GAP : 0;
+    let y = 0;
+    for (const n of [...b.workers, ...b.reviewers]) {
+      put(n, left, y);
+      let x = left + n.w + GAP;
+      let h = n.h;
+      for (const s of splits.get(n.id) ?? []) {
+        put(s, x, y);
+        x += s.w + GAP;
+        h = Math.max(h, s.h);
+      }
+      y += h + GAP;
+    }
+    // beside what each is linked to, in a column of their own past the rest
+    const right = Math.max(...boxes.map((p) => p.x + p.w)) + GAP;
+    const rowOf = (n: ArrangeCard) => boxes.find((p) => p.id === anchor.get(n.id))?.y ?? 0;
+    let low = 0;
+    for (const n of [...b.extras].sort((p, q) => rowOf(p) - rowOf(q))) {
+      const y0 = Math.max(low, rowOf(n));
+      put(n, right, y0);
+      low = y0 + n.h + GAP;
+    }
+    laid.push(extent(boxes));
+  }
+  // what's linked to nothing, three to a row
+  if (rest.length) {
+    const boxes: Box[] = [];
+    let y = 0;
+    for (let i = 0; i < rest.length; i += 3) {
+      const row = rest.slice(i, i + 3);
+      let x = 0;
+      for (const n of row) {
+        boxes.push({ id: n.id, x, y, w: n.w, h: n.h });
+        x += n.w + GAP;
+      }
+      y += Math.max(...row.map((n) => n.h)) + GAP;
+    }
+    laid.push(extent(boxes));
+  }
+  const out: Box[] = [];
+  let top = 0;
+  for (let i = 0; i < laid.length; i += BLOCKS_PER_ROW) {
+    const row = laid.slice(i, i + BLOCKS_PER_ROW);
+    let x = 0;
+    for (const b of row) {
+      for (const p of b.boxes) out.push({ ...p, x: p.x + x, y: p.y + top });
+      x += b.w + BLOCK_GAP;
+    }
+    top += Math.max(...row.map((b) => b.h)) + BLOCK_GAP;
+  }
+  return out;
+}
+
+const repoOfCwd = (t: TermInfo) => ({ key: `${t.node ?? "local"}:${t.cwd}`, name: t.cwd.split("/").filter(Boolean).pop() ?? t.cwd });
+
+// A workspace tidied into that layout, saved in one go. A ticket whose terminals are here but whose card is on no
+// workspace gets its card here; one on another workspace stays there, as nothing moves between workspaces.
+export function arrange(
+  canvas: string,
+  terms: TermInfo[] = [],
+  ticketOf: (t: TermInfo) => string | undefined = () => undefined,
+  isReview: (t: TermInfo) => boolean = () => false,
+  repoOf: (t: TermInfo) => { key: string; name: string } = repoOfCwd,
+) {
+  if (!canvasRow(canvas)) throw new Error("No such workspace");
+  const byId = new Map(terms.map((t) => [t.id, t]));
+  return db.transaction(() => {
+    const info = new Map<string, ArrangeTerm>();
+    for (const n of rowsOf(canvas)) {
+      const t = n.kind === "term" ? byId.get(n.ref) : undefined;
+      if (!t) continue;
+      const repo = repoOf(t);
+      info.set(n.ref, { ticket: ticketOf(t)?.trim().toUpperCase() || undefined, review: isReview(t), parent: t.parent, repo: repo.key, repoName: repo.name });
+    }
+    for (const key of new Set([...info.values()].flatMap((t) => (t.ticket ? [t.ticket] : [])))) if (!refRow("ticket", key)) place(canvas, "ticket", key, TICKET_W, TICKET_H);
+    const boxes = arrangeLayout(
+      rowsOf(canvas).map((r) => ({ id: r.id, kind: r.kind, ref: r.ref, w: r.w, h: r.h, archived: r.archived })),
+      edgesOf(canvas),
+      info,
+    );
+    saveLayout(canvas, boxes);
+    return boxes;
+  })();
+}

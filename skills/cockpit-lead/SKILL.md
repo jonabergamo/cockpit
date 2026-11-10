@@ -15,7 +15,7 @@ You plan, the workers build. Cockpit gives you tools (the `cockpit` MCP server) 
 - `pr_status`: PRs with checks and reviews, and with `details` the failing logs or review comments.
 - `review_lessons`: the points reviewers keep raising on recent PRs, for a worker to check its diff against before it opens one.
 - `task_group`, `list_tasks`, `cancel_task`, `verify`, `autopilot`.
-- The canvas: `canvas_view`, `open_beside`, `link`, `unlink`, `hand_off`, `add_note`. See below.
+- The canvas: `canvas_view`, `open_beside`, `link`, `unlink`, `hand_off`, `add_note`, `arrange`. See below.
 
 ## The canvas
 
@@ -28,6 +28,7 @@ Every worker's terminal is a card on the Terminals canvas. Lines between cards c
 - Keep `limit` low: 2 to 4 hops. Two agents with a high limit can trade the same points back and forth. When a line runs out, read both screens and decide yourself, or tell the user.
 - `hand_off(line, from, ask)` passes one agent's last answer along a line once, for example a plan to the worker that builds it. `add_note(text, near)` pins a note beside a worker for the user to see. `unlink(line)` removes a line you added; `keep: true` keeps it as a plain line.
 - For spec-first work, write the spec as a note: `add_note(text, near: worker, spec: true)` makes it the spec of that worker's relay lines, so each turn carries it and a reviewer judges the change against it. Add `send_spec: true` to send it to the worker now. `link(note, worker, spec: true)` makes an existing note the spec of another worker, such as the test writer.
+- `arrange(workspace)` tidies a workspace once you have added cards to it: each ticket a block with its workers beside it and reviewers below, three blocks to a row.
 
 ## How to work
 

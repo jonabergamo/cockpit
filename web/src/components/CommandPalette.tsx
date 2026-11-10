@@ -5,6 +5,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { Snippet, useSaid } from "../pages/Sessions";
 import { type ConfigFile, type Session, type Ticket, type Worktree } from "@cockpit/shared";
 import { api } from "../lib/api";
+import { arrangeWorkspace, canArrange } from "../lib/canvas";
 import { shortPath } from "../lib/format";
 import { launcher } from "../lib/launcher";
 import { newTask } from "./NewTask";
@@ -110,6 +111,11 @@ export function CommandPalette({ nav }: { nav: readonly NavItem[] }) {
             <Command.Item value="wrap up the day end handoff next step tomorrow pick up overnight" className={item} onSelect={() => go(wrapUp.open)}>
               Wrap up the day…
             </Command.Item>
+            {canArrange() && (
+              <Command.Item value="arrange this workspace canvas tidy layout blocks tickets" className={item} onSelect={() => go(arrangeWorkspace)}>
+                Arrange this workspace
+              </Command.Item>
+            )}
           </Command.Group>
           <Command.Group heading="Pages" className={group}>
             {nav.map((n) => (

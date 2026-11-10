@@ -27,6 +27,14 @@ const within = (path: string, root: string) => path === root || path.startsWith(
 export const ticketOfTerm = (worktrees: Worktree[]) => (t: TermInfo) =>
   worktrees.find((w) => !w.main && w.ticket && (w.node ?? "local") === (t.node ?? "local") && within(t.cwd, w.path))?.ticket;
 
+// the repo or worktree a terminal runs in, on its machine: the deepest one its folder is in, or else the folder
+export const repoOfTerm = (worktrees: Worktree[]) => (t: TermInfo) => {
+  const node = t.node ?? "local";
+  const w = worktrees.filter((x) => (x.node ?? "local") === node && within(t.cwd, x.path)).sort((a, b) => b.path.length - a.path.length)[0];
+  const path = w?.path ?? t.cwd;
+  return { key: `${node}:${path}`, name: w?.name ?? (path.split("/").filter(Boolean).pop() || path) };
+};
+
 // The canvas follows the terminals from here on: new ones join it, closed ones leave it. It waits for the
 // terminals reopened after a reboot first, or it would drop their cards before they're back.
 export async function startCanvas(reopened: Promise<Map<string, string>> = Promise.resolve(new Map())) {
@@ -117,6 +125,18 @@ export const canvasRoutes = new Hono()
     canvas.saveLayout(c.req.param("id"), b.nodes ?? []);
     changed(b.by);
     return c.json({ ok: true });
+  })
+  // the workspace tidied: a block for each ticket and each repo, three to a row, as one change
+  .post("/:id/arrange", async (c) => {
+    const b = await c.req.json<{ by?: string }>().catch(() => ({}) as { by?: string });
+    try {
+      const worktrees = await allWorktrees(false).catch(() => []);
+      const nodes = canvas.arrange(c.req.param("id"), listTerms(), ticketOfTerm(worktrees), isReviewTerm, repoOfTerm(worktrees));
+      changed(b.by);
+      return c.json({ nodes });
+    } catch (e) {
+      return c.json(fail(e), 400);
+    }
   })
   .post("/:id/terms", async (c) => {
     const b = await c.req.json<At & { term: string }>();

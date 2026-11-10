@@ -319,4 +319,19 @@ server.registerTool(
   }),
 );
 
+server.registerTool(
+  "arrange",
+  {
+    description: "Tidy a canvas workspace: a block for each ticket (its card, its workers beside it, reviewers below), one for each repo's other terminals, the notes and cards linked to them alongside, three blocks to a row.",
+    inputSchema: { workspace: z.string().optional().describe("By name or id; the first one when left out") },
+  },
+  wrap(async ({ workspace }: { workspace?: string }) => {
+    const all = (await call("GET", "/canvas")) as { id: string; name: string }[];
+    const ws = workspace ? all.find((c) => c.id === workspace || c.name.toLowerCase() === workspace.trim().toLowerCase()) : all[0];
+    if (!ws) throw new Error(`No workspace called ${workspace}. There are: ${all.map((c) => c.name).join(", ")}`);
+    const { nodes } = (await call("POST", `/canvas/${ws.id}/arrange`, {})) as { nodes: unknown[] };
+    return { workspace: ws.name, arranged: nodes.length };
+  }),
+);
+
 await server.connect(new StdioServerTransport());
