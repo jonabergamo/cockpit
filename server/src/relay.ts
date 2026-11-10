@@ -33,6 +33,14 @@ export function relayMessage(from: string, text: string, relay: CanvasRelay, hop
   return `From ${from}, which just ${back ? "reviewed your last turn" : "finished a turn"}:\n\n${text}\n\n${ask}\n\n(Passed on by cockpit's canvas, ${hop} of ${relay.limit}.)`;
 }
 
+// A turn that only says it heard ("Understood. Moving on.", "Thanks, looks good"): short, with no list, code or file
+// in it. Passing it on would only get one back, so a line stops there instead of spending a hop on it.
+const ACK = /^(?:ok(?:ay)?|understood|got it|noted|thanks?(?: you)?|sounds good|great|good|perfect|alright|all right|will do|sure|agreed|makes sense|acknowledged|entendido|beleza|certo|combinado|valeu|obrigad[oa]|perfeito|blz)\b/i;
+export const onlyAcknowledges = (text: string) => {
+  const t = text.trim();
+  return t.length <= 240 && ACK.test(t) && !/```|`[^`]+`|^\s*(?:[-*•]|\d+[.)])\s/m.test(t) && !/\b[\w-]+\.[a-z]{1,5}(?::\d+)?\b/i.test(t);
+};
+
 // what each live session was last seen doing, from the sessions the app is told about
 const seen = new Map<string, Session>();
 // a message held for a session until it's idle, by the line it came along
@@ -124,6 +132,10 @@ async function chatFinished(term: string, text: string) {
 }
 
 async function passOn(relays: ReturnType<typeof open>, from: string, text: string, failing: Run[]) {
+  if (onlyAcknowledges(text)) {
+    for (const { edge } of relays) canvas.setRelayStatus(edge.id, { state: "held", text: `Stopped: ${from} only acknowledged, so there was nothing to pass on` });
+    return;
+  }
   for (const { edge, to, toEnd } of relays) {
     const target = sessionIn(to);
     const name = nameOf(to);

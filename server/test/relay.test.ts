@@ -19,7 +19,7 @@ const { db } = await import("../src/db.ts");
 const canvas = await import("../src/canvas.ts");
 const { broadcast } = await import("../src/hub.ts");
 const { input, isTyping, termTurn } = await import("../src/pty.ts");
-const { handOff, relayMessage, startRelays } = await import("../src/relay.ts");
+const { handOff, onlyAcknowledges, relayMessage, startRelays } = await import("../src/relay.ts");
 
 const term = (id: string): TermInfo => ({ id, title: id, cwd: "/tmp", command: "claude", createdAt: 0, node: "local" });
 const session = (id: string, termId: string, status: Session["status"]): Session => ({ id, project: "p", cwd: "/tmp", status, startedAt: 0, updatedAt: 0, size: 0, term: termId, title: `${id} title` });
@@ -130,6 +130,24 @@ describe("relays", () => {
     } finally {
       open.splice(open.indexOf(chat), 1);
       typed.length = 0;
+    }
+  });
+
+  it("stops at a turn that only acknowledges, without spending a hop", async () => {
+    for (const ack of ["Understood. Moving on to the next item.", "Thanks, looks good!", "OK", "Entendido, vou seguir.", "Got it, I'll proceed with the changes mentioned in the review."]) expect(onlyAcknowledges(ack)).toBe(true);
+    for (const real of ["Good work! A few adjustments:\n\n1. Zero it everywhere.", "OK but `cash()` double counts the box.", "Understood, though relay.ts:121 still flips the reviewer.", "The export button breaks on empty lists.", "Thanks. ".repeat(40)]) expect(onlyAcknowledges(real)).toBe(false);
+    const chat = { ...term("builder"), command: "/usr/bin/node /opt/cockpit/server/bin/chat.mjs --model qwen --turns /x/builder.json" };
+    open.push(chat);
+    try {
+      canvas.setRelay(line().id, { from: "both", role: "review", limit: 4 });
+      broadcast({ type: "sessions", sessions: [session("agent", "reviewer", "idle"), session("bld", "builder", "ended"), session("rev", "reviewer", "ended")] });
+      termTurn("builder", "Understood. Moving on to the next item.");
+      await settle();
+      expect(sent).toEqual([]);
+      expect(line().hops).toBe(0);
+      expect(line().status).toMatchObject({ state: "held", text: expect.stringContaining("only acknowledged") });
+    } finally {
+      open.splice(open.indexOf(chat), 1);
     }
   });
 
