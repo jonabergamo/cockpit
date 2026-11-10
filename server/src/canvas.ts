@@ -621,13 +621,14 @@ export type ArrangeTerm = { ticket?: string; review?: boolean; parent?: string; 
 type Box = Pick<CanvasNode, "id" | "x" | "y" | "w" | "h">;
 type ArrangeCard = Pick<CanvasNode, "id" | "kind" | "ref" | "w" | "h"> & { archived?: unknown };
 export const BLOCK_GAP = 120;
-const BLOCKS_PER_ROW = 3;
+const BLOCKS_PER_COLUMN = 3;
 const byKey = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 
 // The tidy layout of a workspace: each ticket a block (its card top left, its workers to its right, its reviewers
 // under them, a split shell beside the one it came from), the terminals with no ticket in a block for each repo or
 // worktree, and the notes and other cards linked to a card in a block beside it. What's linked to nothing goes in a
-// last block. The blocks go left to right, three to a row, tickets by key and then repos by name. Archived cards
+// last block. The blocks go down a column of three and then on to the next column to the right, tickets by key and
+// then repos by name. Archived cards
 // stay where they are. Cards keep their size, but for a ticket's.
 export function arrangeLayout(cards: ArrangeCard[], edges: Pick<CanvasEdge, "source" | "target">[], terms: Map<string, ArrangeTerm>): Box[] {
   const live = cards.filter((n) => !n.archived);
@@ -735,16 +736,17 @@ export function arrangeLayout(cards: ArrangeCard[], edges: Pick<CanvasEdge, "sou
     }
     laid.push(extent(boxes));
   }
+  // down a column of three, then a new column to the right, as wide as its widest block
   const out: Box[] = [];
-  let top = 0;
-  for (let i = 0; i < laid.length; i += BLOCKS_PER_ROW) {
-    const row = laid.slice(i, i + BLOCKS_PER_ROW);
-    let x = 0;
-    for (const b of row) {
-      for (const p of b.boxes) out.push({ ...p, x: p.x + x, y: p.y + top });
-      x += b.w + BLOCK_GAP;
+  let left = 0;
+  for (let i = 0; i < laid.length; i += BLOCKS_PER_COLUMN) {
+    const column = laid.slice(i, i + BLOCKS_PER_COLUMN);
+    let y = 0;
+    for (const b of column) {
+      for (const p of b.boxes) out.push({ ...p, x: p.x + left, y: p.y + y });
+      y += b.h + BLOCK_GAP;
     }
-    top += Math.max(...row.map((b) => b.h)) + BLOCK_GAP;
+    left += Math.max(...column.map((b) => b.w)) + BLOCK_GAP;
   }
   return out;
 }

@@ -1588,7 +1588,7 @@ function Board({ focus, ticket, switcher, screen }: { focus?: string; ticket?: s
           <Button size="sm" variant="ghost" onClick={() => flow.fitView({ maxZoom: 1, padding: 0.1, duration: 250 })} title="Fit every card on screen (f)">
             Fit
           </Button>
-          <Button size="sm" variant="ghost" onClick={arrange} title="Tidy this workspace: a block for each ticket (its terminals beside it, reviewers below) and each repo, three to a row" className="hidden md:inline-flex">
+          <Button size="sm" variant="ghost" onClick={arrange} title="Tidy this workspace: a block for each ticket (its terminals beside it, reviewers below) and each repo, three down each column, then on to the right" className="hidden md:inline-flex">
             Arrange
           </Button>
           <Button size="sm" variant={recap ? "default" : "ghost"} onClick={() => (recap ? setRecap(undefined) : ws && setRecap({ ws: ws.id, since: Date.now() - 2 * 3600_000, asked: true }))} title="What the agents on this workspace did in the last two hours" className="hidden md:inline-flex">
