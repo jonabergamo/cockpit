@@ -72,8 +72,29 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
     const fit = new FitAddon();
     t.loadAddon(fit);
     t.loadAddon(new WebLinksAddon(openLink));
-    // OSC 52, how claude copies its own mouse selection; writes only, programs don't get to read your clipboard
-    t.loadAddon(new ClipboardAddon(undefined, { readText: () => "", writeText: (_, text) => (replaying.current ? Promise.resolve() : copy(text)) }));
+    // Where the mouse last let go, and the "Pin as note" button for text selected there, in the box's own pixels (a
+    // card on the canvas is scaled by the zoom)
+    let letGo = { x: 0, y: 0, at: 0 };
+    const placePin = (text: string) => {
+      const el = box.current;
+      if (!pinRef.current || !text || !el) return;
+      const r = el.getBoundingClientRect();
+      const scale = el.offsetWidth ? r.width / el.offsetWidth : 1;
+      setPin({ x: Math.min((letGo.x - r.left) / scale, el.offsetWidth - 110), y: Math.min((letGo.y - r.top) / scale + 8, el.offsetHeight - 32), text });
+    };
+    // OSC 52, how claude copies its own mouse selection; writes only, programs don't get to read your clipboard. An
+    // agent that has the mouse (claude, codex) selects by itself, so the terminal never sees a selection: what it
+    // copies just after you let go of the mouse is what you selected, and can be pinned
+    t.loadAddon(
+      new ClipboardAddon(undefined, {
+        readText: () => "",
+        writeText: (_, text) => {
+          if (replaying.current) return Promise.resolve();
+          if (Date.now() - letGo.at < 2000) placePin(text.trim());
+          return copy(text);
+        },
+      }),
+    );
     const search = new SearchAddon();
     t.loadAddon(search);
     finder.current = search;
@@ -97,13 +118,12 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
     const el = box.current!;
     const copySelection = (e: MouseEvent) => {
       if (termPrefs.copyOnSelect() && t.hasSelection()) copy(t.getSelection());
-      // where the mouse let go, in the box's own pixels: a card on the canvas is scaled by the zoom
-      const text = t.hasSelection() ? t.getSelection().trim() : "";
-      if (!pinRef.current || !text) return;
-      const r = el.getBoundingClientRect();
-      const scale = el.offsetWidth ? r.width / el.offsetWidth : 1;
-      setPin({ x: Math.min((e.clientX - r.left) / scale, el.offsetWidth - 110), y: Math.min((e.clientY - r.top) / scale + 8, el.offsetHeight - 32), text });
+      letGo = { x: e.clientX, y: e.clientY, at: Date.now() };
+      placePin(t.hasSelection() ? t.getSelection().trim() : "");
     };
+    // a click anywhere in it starts over; an agent's own selection goes then too, without the terminal hearing of it
+    const startOver = () => setPin(undefined);
+    el.addEventListener("mousedown", startOver);
     el.addEventListener("mouseup", copySelection);
     const unselect = t.onSelectionChange(() => !t.hasSelection() && setPin(undefined));
 
@@ -204,6 +224,7 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
       unsub();
       unfont();
       el.removeEventListener("mouseup", copySelection);
+      el.removeEventListener("mousedown", startOver);
       unselect.dispose();
       el.removeEventListener("paste", onPaste, true);
       el.removeEventListener("dragover", onDragOver);
