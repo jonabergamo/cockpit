@@ -258,11 +258,22 @@ function quit() {
   app.exit(0)
 }
 
+// the notifications still sitting in the system's list. On Linux the dock counts them whenever the badge is 0,
+// so they're taken back once you look at the window
+const shown = new Set()
+app.on('browser-window-focus', () => {
+  for (const n of shown) n.close()
+  shown.clear()
+})
+
 // a native notification; a click brings the window up on the right page
 function note(title, body, link, onClick) {
   if (!Notification.isSupported() || typeof title !== 'string') return
   const n = new Notification({ title, body: String(body ?? ''), silent: false })
+  shown.add(n)
+  n.on('close', () => shown.delete(n))
   n.on('click', () => {
+    shown.delete(n)
     if (onClick) return onClick()
     show()
     if (typeof link === 'string' && link.startsWith('/')) win?.webContents.send('navigate', link)
