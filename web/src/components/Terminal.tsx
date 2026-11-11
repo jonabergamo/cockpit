@@ -48,6 +48,10 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
   const [query, setQuery] = useState("");
   const [note, setNote] = useState<string>();
   const [ownHistory, setOwnHistory] = useState(true);
+  // a phone or tablet gets a row of keys it hasn't got, and ways to copy and paste without a mouse
+  const [touch] = useState(() => !!window.matchMedia?.("(pointer: coarse)").matches);
+  const [typing, setTyping] = useState(false);
+  const [sheet, setSheet] = useState<{ kind: "copy"; text: string } | { kind: "paste" }>();
   // a terminal on a node whose link dropped: still running there, but typing would go nowhere, or worse, land in
   // whatever prompt is up by the time it came back, so it waits until the node is back
   const terms = useQuery({ queryKey: ["terms"], queryFn: () => api.get<TermInfo[]>("/code/terms") });
@@ -181,26 +185,106 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
     document.fonts.addEventListener("loadingdone", resize);
 
     // Inside tmux the history lives in tmux, not in xterm, so the wheel is turned into tmux scroll commands.
-    let acc = 0;
+    const cellHeight = () => (box.current && t.rows ? box.current.clientHeight / t.rows : 17);
     let pending = 0;
     let frame = 0;
+    // positive goes down, towards the newest output
+    const scrollBy = (lines: number) => {
+      if (!tmux.current) return t.scrollLines(lines);
+      pending += lines;
+      frame ||= requestAnimationFrame(() => {
+        send({ type: "pty.scroll", id, lines: -pending });
+        pending = 0;
+        frame = 0;
+      });
+    };
+    let acc = 0;
     t.attachCustomWheelEventHandler((e) => {
       if (!tmux.current) return true;
-      const cell = box.current && t.rows ? box.current.clientHeight / t.rows : 17;
+      const cell = cellHeight();
       acc += e.deltaMode === 1 ? e.deltaY * cell : e.deltaY;
       const lines = Math.trunc(acc / cell);
       if (lines) {
         acc -= lines * cell;
-        pending += lines;
-        frame ||= requestAnimationFrame(() => {
-          send({ type: "pty.scroll", id, lines: -pending });
-          pending = 0;
-          frame = 0;
-        });
+        scrollBy(lines);
       }
       e.preventDefault();
       return false;
     });
+
+    // A finger dragging over it scrolls, with a little glide after it lets go; xterm alone does nothing with it
+    // inside tmux. A tap that doesn't move still reaches xterm, which focuses it and brings the keyboard up.
+    let touchY: number | undefined;
+    let touchAcc = 0;
+    let dragging = false;
+    let speed = 0;
+    let lastMove = 0;
+    let glide = 0;
+    const stopGlide = () => {
+      cancelAnimationFrame(glide);
+      glide = 0;
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      stopGlide();
+      if (e.touches.length !== 1) return (touchY = undefined);
+      touchY = e.touches[0].clientY;
+      touchAcc = 0;
+      speed = 0;
+      dragging = false;
+      lastMove = performance.now();
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchY === undefined || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      const dy = touchY - y;
+      touchY = y;
+      touchAcc += dy;
+      const now = performance.now();
+      speed = dy / Math.max(1, now - lastMove);
+      lastMove = now;
+      if (Math.abs(touchAcc) > 8) dragging = true;
+      if (!dragging) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const cell = cellHeight();
+      const lines = Math.trunc(touchAcc / cell);
+      if (lines) {
+        touchAcc -= lines * cell;
+        scrollBy(lines);
+      }
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!dragging) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = false;
+      touchY = undefined;
+      // keep going at the speed the finger left at, slowing down
+      let v = performance.now() - lastMove < 80 ? speed : 0;
+      let carry = 0;
+      let prev = performance.now();
+      const step = (now: number) => {
+        carry += v * (now - prev);
+        prev = now;
+        v *= 0.94;
+        const cell = cellHeight();
+        const lines = Math.trunc(carry / cell);
+        if (lines) {
+          carry -= lines * cell;
+          scrollBy(lines);
+        }
+        glide = Math.abs(v) > 0.02 ? requestAnimationFrame(step) : 0;
+      };
+      if (Math.abs(v) > 0.1) glide = requestAnimationFrame(step);
+    };
+    // capture, so xterm's own touch handling underneath never sees a drag
+    el.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    el.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    el.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+    const onFocus = () => setTyping(true);
+    const onBlur = () => setTyping(false);
+    t.textarea?.addEventListener("focus", onFocus);
+    t.textarea?.addEventListener("blur", onBlur);
 
     const sub = t.onData((data) => {
       if (!blocked.current) return send({ type: "pty.input", id, data });
@@ -229,6 +313,12 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
       el.removeEventListener("paste", onPaste, true);
       el.removeEventListener("dragover", onDragOver);
       el.removeEventListener("drop", onDrop);
+      el.removeEventListener("touchstart", onTouchStart, true);
+      el.removeEventListener("touchmove", onTouchMove, true);
+      el.removeEventListener("touchend", onTouchEnd, true);
+      t.textarea?.removeEventListener("focus", onFocus);
+      t.textarea?.removeEventListener("blur", onBlur);
+      stopGlide();
       keep(`pty:${id}`, null);
       sub.dispose();
       ro.disconnect();
@@ -280,12 +370,78 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
     term.current?.focus();
   };
 
+  // typed as if from the keyboard, so a disconnected machine still holds it back
+  const press = (data: string) => term.current?.input(data, true);
+  const arrow = (k: "A" | "B" | "C" | "D") => press(`${term.current?.modes.applicationCursorKeysMode ? "\x1bO" : "\x1b["}${k}`);
+  // what the terminal shows, as plain text a finger can select from; inside tmux that's the screen as scrolled
+  const screenText = () => {
+    const b = term.current?.buffer.active;
+    if (!b) return "";
+    const lines: string[] = [];
+    for (let i = Math.max(0, b.length - 2000); i < b.length; i++) {
+      const line = b.getLine(i);
+      const text = line?.translateToString(true) ?? "";
+      // a line the terminal only wrapped to fit carries on the one before it
+      if (line?.isWrapped && lines.length) lines[lines.length - 1] += text;
+      else lines.push(text);
+    }
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    return lines.join("\n");
+  };
+  const pasteIn = async () => {
+    try {
+      const text = window.isSecureContext ? await navigator.clipboard?.readText() : "";
+      if (text) return term.current?.paste(text);
+    } catch {}
+    // no clipboard access over plain http, or it was refused: a box to paste into by hand
+    setSheet({ kind: "paste" });
+  };
+  const keys: [string, string, () => void][] = [
+    ["esc", "Escape", () => press("\x1b")],
+    ["tab", "Tab", () => press("\t")],
+    ["⇧tab", "Shift+Tab, Claude's mode switch", () => press("\x1b[Z")],
+    ["^C", "Ctrl+C", () => press("\x03")],
+    ["←", "Left", () => arrow("D")],
+    ["↑", "Up", () => arrow("A")],
+    ["↓", "Down", () => arrow("B")],
+    ["→", "Right", () => arrow("C")],
+    ["↵", "Enter", () => press("\r")],
+  ];
+
   return (
-    <div className="relative h-full w-full overflow-clip">
+    <div className="relative h-full w-full overflow-clip flex flex-col">
       {/* the padding sits outside the box xterm measures, or it fits one row too many and the last one is cut off */}
-      <div className={`h-full w-full px-2 py-1 bg-panel ${ownHistory ? "" : "term-no-scrollbar"}`}>
+      <div className={`flex-1 min-h-0 w-full px-2 py-1 bg-panel ${ownHistory ? "" : "term-no-scrollbar"}`}>
         <div ref={box} className="h-full w-full" />
       </div>
+      {touch && (
+        // a button press keeps the keyboard where it is: the terminal never loses focus to it
+        <div className="shrink-0 flex flex-col gap-1 border-t border-line bg-panel px-1.5 py-1.5" onMouseDown={(e) => e.preventDefault()}>
+          <div className="flex gap-1">
+            {keys.map(([label, title, run]) => (
+              <button key={label} type="button" onClick={run} title={title} aria-label={title} className="h-9 flex-1 min-w-0 rounded-md bg-ground border border-line text-[12px] font-mono text-ink active:bg-cobalt-soft">
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            <button type="button" onClick={pasteIn} className="h-9 flex-1 rounded-md bg-ground border border-line text-[13px] active:bg-cobalt-soft">
+              Paste
+            </button>
+            <button type="button" onClick={() => (term.current?.blur(), setSheet({ kind: "copy", text: screenText() }))} className="h-9 flex-1 rounded-md bg-ground border border-line text-[13px] active:bg-cobalt-soft">
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => (typing ? term.current?.blur() : term.current?.focus())}
+              className="h-9 flex-1 rounded-md bg-ground border border-line text-[13px] active:bg-cobalt-soft"
+            >
+              {typing ? "Hide keyboard" : "Keyboard"}
+            </button>
+          </div>
+        </div>
+      )}
+      {sheet && <TouchSheet sheet={sheet} onClose={() => setSheet(undefined)} onPaste={(text) => (setSheet(undefined), term.current?.paste(text), term.current?.focus())} />}
       {offline && (
         <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-amber-soft/90 border-b border-amber/50 px-3 py-1.5 text-[12px] text-amber">
           <span className="size-2 rounded-full bg-amber animate-pulse" />
@@ -344,6 +500,58 @@ export function Terminal({ id, onExit, autoFocus = true, onPin }: { id: string; 
           </button>
         </form>
       )}
+    </div>
+  );
+}
+
+// Over the terminal on a phone: its text in a box a finger can select from (or copy whole), or a box to paste
+// into by hand when the browser won't hand the clipboard over.
+function TouchSheet({ sheet, onClose, onPaste }: { sheet: { kind: "copy"; text: string } | { kind: "paste" }; onClose: () => void; onPaste: (text: string) => void }) {
+  const area = useRef<HTMLTextAreaElement>(null);
+  const [value, setValue] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const ta = area.current;
+    if (!ta) return;
+    if (sheet.kind === "copy") ta.scrollTop = ta.scrollHeight;
+    else ta.focus();
+  }, [sheet.kind]);
+  const copyThis = () => {
+    const ta = area.current;
+    const picked = ta && ta.selectionEnd > ta.selectionStart ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : (ta?.value ?? "");
+    copy(picked).then(() => {
+      setCopied(true);
+      setTimeout(onClose, 600);
+    });
+  };
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col bg-panel">
+      <div className="flex items-center gap-2 h-11 px-3 border-b border-line shrink-0">
+        <span className="flex-1 text-[13px] text-muted">{sheet.kind === "copy" ? "Select what to copy, or copy it all" : "Paste here, then send it to the terminal"}</span>
+        <button type="button" onClick={onClose} className="h-8 px-3 rounded-md text-[13px] text-muted active:bg-ground">
+          Close
+        </button>
+        {sheet.kind === "copy" ? (
+          <button type="button" onClick={copyThis} className="h-8 px-3 rounded-md bg-cobalt text-on-accent text-[13px] font-medium">
+            {copied ? "Copied" : "Copy"}
+          </button>
+        ) : (
+          <button type="button" disabled={!value} onClick={() => onPaste(value)} className="h-8 px-3 rounded-md bg-cobalt text-on-accent text-[13px] font-medium disabled:opacity-50">
+            Send
+          </button>
+        )}
+      </div>
+      <textarea
+        ref={area}
+        readOnly={sheet.kind === "copy"}
+        defaultValue={sheet.kind === "copy" ? sheet.text : undefined}
+        value={sheet.kind === "paste" ? value : undefined}
+        onChange={sheet.kind === "paste" ? (e) => setValue(e.target.value) : undefined}
+        className="flex-1 min-h-0 w-full resize-none bg-panel p-3 font-mono text-[13px] leading-snug text-ink outline-none whitespace-pre overflow-auto"
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+      />
     </div>
   );
 }

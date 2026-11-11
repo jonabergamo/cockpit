@@ -98,6 +98,17 @@ body,
   height: 100%;
 }
 
+/* phones: the frame follows the part of the page the keyboard leaves showing (main.tsx keeps these current) */
+@media (pointer: coarse) {
+  #root {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--app-top, 0px);
+    height: var(--app-h, 100%);
+  }
+}
+
 /* the app is a fixed frame whose panes scroll on their own; clip rather than hide, so nothing (like xterm
    keeping its hidden input in view) can scroll the page itself and shift the whole layout up */
 html,

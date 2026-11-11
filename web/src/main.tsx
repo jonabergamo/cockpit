@@ -103,6 +103,19 @@ listen((ev) => {
   }
 });
 
+// On a phone the keyboard covers the bottom of the page instead of shrinking it (Safari always, Chrome before
+// interactive-widget), so the app is sized to the part still showing, and a terminal's prompt stays above the keys.
+const vv = window.visualViewport;
+if (vv && window.matchMedia?.("(pointer: coarse)").matches) {
+  const fitView = () => {
+    document.documentElement.style.setProperty("--app-h", `${vv.height}px`);
+    document.documentElement.style.setProperty("--app-top", `${vv.offsetTop}px`);
+  };
+  vv.addEventListener("resize", fitView);
+  vv.addEventListener("scroll", fitView);
+  fitView();
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
