@@ -20,6 +20,8 @@ export function FocusButton() {
   const on = !!focus?.on;
   const held = on ? focus.held.filter((h) => h.at >= focus.since).length : 0;
   const pick = (fn: () => Promise<void>) => () => (setOpen(false), void fn());
+  // it starts from ⌘K; the bar only gives it room while it's on, to show the time left and end it
+  if (!on && !error) return null;
   const row = "block w-full text-left px-3 py-1.5 text-[13px] hover:bg-ground";
   return (
     <div ref={box} className="relative shrink-0 flex items-stretch border-b border-line bg-panel">
