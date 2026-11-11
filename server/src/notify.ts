@@ -41,6 +41,10 @@ export function notify(n: { title: string; body: string; link: string; urgent?: 
 // A session asking a question, showing a permission prompt or a dialog is the moment it needs you. One that
 // just finishes its turn gets a quieter "finished". Reviews get named after their terminal.
 const last = new Map<string, string>();
+// terminals cockpit reopens when it starts come back as resumed sessions that look brand new, so for a while
+// after startup a new idle session is one carried over, not one that just finished
+const STARTUP_GRACE = 120_000;
+const bootAt = Date.now();
 export function sessionsChanged(sessions: Session[]) {
   const seen = new Set<string>();
   const terms = listTerms();
@@ -53,7 +57,7 @@ export function sessionsChanged(sessions: Session[]) {
     if (s.status === "idle" && before === "busy") emit("session.idle", s);
     if (s.status === "waiting" && before !== "waiting") emit("session.waiting", s);
     // a quick first answer can start and finish between two polls, so a new session that already did counts too
-    const fresh = before === undefined && !!s.title && Date.now() - s.startedAt < 60_000;
+    const fresh = before === undefined && !!s.title && Date.now() - s.startedAt < 60_000 && Date.now() - bootAt > STARTUP_GRACE;
     const link = `/terminals?resume=${s.id}${s.pid ? `&pid=${s.pid}` : ""}`;
     const body = s.title ?? shortPath(s.cwd);
     if (s.status === "waiting" && before !== "waiting" && (before !== undefined || fresh)) {
