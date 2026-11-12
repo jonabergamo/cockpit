@@ -1,6 +1,6 @@
 import { type Node, type NodeProps } from "@xyflow/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Epic, KitsRes, PullRequest, Ticket } from "@cockpit/shared";
 import { useAgentName } from "../../lib/agent";
 import { api, qs } from "../../lib/api";
@@ -87,7 +87,11 @@ export function TicketCard({ id, data, selected }: NodeProps<TicketCardNode>) {
     setSettingUp(true);
     void a.setup(id, kind || undefined).finally(() => setSettingUp(false));
   };
-  const err = create.error ?? start.error ?? resume.error ?? (job && job.code !== undefined && job.code !== 0 ? new Error(job.output.trim().split("\n").pop() || "The worktree couldn't be made") : undefined);
+  // made once per failed job: a new Error every render would tell the canvas again each time, and its update
+  // renders this card again, round and round
+  const jobFailed = job && job.code !== undefined && job.code !== 0 ? job.output.trim().split("\n").pop() || "The worktree couldn't be made" : undefined;
+  const jobErr = useMemo(() => (jobFailed ? new Error(jobFailed) : undefined), [jobId, jobFailed]);
+  const err = create.error ?? start.error ?? resume.error ?? jobErr;
   useEffect(() => {
     if (err) a.fail(err);
     // eslint-disable-next-line react-hooks/exhaustive-deps
