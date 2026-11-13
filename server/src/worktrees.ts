@@ -124,14 +124,32 @@ export function createWorktree(key: string, summary: string, opts: { ticket?: st
   const unfilled = command.match(/\{(\w+)\}/)?.[1];
   if (unfilled) throw Object.assign(new Error(`repo.createCommand uses {${unfilled}}, which ${tpl ? `the "${tpl.name}" kind of work doesn't set` : "no kind of work matched to set"}. Set it in Settings → Kinds of work.`), { status: 400 });
   const path = join(repo.worktreesDir, key, repo.name);
-  return startJob(`create ${key}`, command, repo.path, (job) => {
-    opts.onDone?.(job.code === 0, path, branch, job.output);
+  // a second ask while the first is still making it, from a double click or two screens at once, waits on that
+  // one instead of failing on the folder it just made
+  const making = creating.get(path);
+  if (making) {
+    if (opts.onDone) making.waiting.push(opts.onDone);
+    return making.job;
+  }
+  // already made, before the screen asking caught up: it's there, so that's done too
+  const made = existsSync(join(path, ".git"));
+  const waiting = opts.onDone ? [opts.onDone] : [];
+  const job = startJob(`create ${key}`, made ? `echo ${JSON.stringify(`${key}'s worktree is already there: ${path}`)}` : command, repo.path, (job) => {
+    creating.delete(path);
+    for (const fn of waiting) fn(job.code === 0, path, branch, job.output);
     if (job.code !== 0) return;
     if (opts.ticket !== "") link(opts.ticket ?? key, path);
+    // the first time round already told autopilot and the rest
+    if (made) return;
     if (tpl) rememberTemplate(path, tpl.id);
     emit("worktree.created", { key, path, branch, template: tpl?.id, autopilot: tpl?.autopilot });
   });
+  if (job.code === undefined) creating.set(path, { job, waiting });
+  return job;
 }
+
+type OnCreated = (ok: boolean, path: string, branch: string, output: string) => void;
+const creating = new Map<string, { job: ReturnType<typeof startJob>; waiting: OnCreated[] }>();
 
 // what's left behind once a worktree folder is gone
 function forget(path: string) {
