@@ -36,6 +36,9 @@ export const liveInfo = (id: string) => live.get(id);
 
 async function readRegistry() {
   const next = new Map<string, Live>();
+  // a background job's session by its job id, and the sessions whose terminal parked one and now shows it
+  const jobs = new Map<string, string>();
+  const parked = new Map<string, string>();
   const files = await readdir(registryDir).catch(() => [] as string[]);
   for (const f of files) {
     if (!f.endsWith(".json")) continue;
@@ -55,9 +58,22 @@ async function readRegistry() {
         updatedAt: r.statusUpdatedAt ?? r.updatedAt,
         tmux: typeof r.tmux === "string" ? r.tmux : undefined,
       });
+      if (typeof r.jobId === "string") jobs.set(r.jobId, r.sessionId);
+      if (typeof r.parkedJobId === "string") parked.set(r.sessionId, r.parkedJobId);
     } catch {
       // registry files get rewritten while we read them, next poll catches up
     }
+  }
+  // A session sent to the background runs on as a job of its own, with no tmux pane, while the terminal it left
+  // keeps showing it, still registered under the session it started as. That terminal is the job's: its pane is
+  // where the job's notifications, replies and screen go, and the session it started as isn't running any more.
+  for (const [host, job] of parked) {
+    const id = jobs.get(job);
+    const l = id && next.get(id);
+    const h = next.get(host);
+    if (!l || !h?.tmux || l.tmux) continue;
+    l.tmux = h.tmux;
+    next.delete(host);
   }
   // how many shells each one has left running, and the same check for Claude versions that don't say "shell"
   const ended = [...next.values()].filter((l) => l.status === "idle" || l.background);
